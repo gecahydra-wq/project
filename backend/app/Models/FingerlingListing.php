@@ -17,11 +17,13 @@ class FingerlingListing extends Model
         'species',
         'scientific_name',
         'title',
+        'description',
         'quantity',
         'price_per_piece',
         'average_size',
         'availability_status',
         'approval_status',
+        'rejection_reason',
     ];
 
     protected $casts = [
@@ -40,6 +42,11 @@ class FingerlingListing extends Model
 
     public function media()
     {
-        return $this->hasMany(ListingMedia::class, 'listing_id');
+        return $this->hasMany(ListingMedia::class, 'listing_id')->orderBy('position');
+    }
+
+    public function orders()
+    {
+        return $this->hasMany(Order::class, 'listing_id');
     }
 }

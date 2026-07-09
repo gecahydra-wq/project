@@ -8,6 +8,8 @@ use App\Models\FingerlingListing;
 use App\Models\MockPayment;
 use App\Models\Order;
 use App\Models\PaymentLog;
+use App\Models\SellerProfile;
+use App\Models\User;
 use App\Services\PayMongoService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -16,7 +18,7 @@ class OrderController extends Controller
 {
     public function index()
     {
-        return response()->json(Order::with(['listing', 'payment'])->latest()->get());
+        return response()->json(Order::with(['listing', 'payment', 'review'])->latest()->get());
     }
 
     public function store(Request $request)
@@ -28,6 +30,10 @@ class OrderController extends Controller
         ]);
 
         $listing = FingerlingListing::findOrFail($data['fingerling_listing_id']);
+
+        if ($listing->approval_status !== 'approved') {
+            return response()->json(['message' => 'This listing is not currently available for order.'], 422);
+        }
 
         if ($data['quantity'] > $listing->quantity) {
             return response()->json(['message' => 'Requested quantity exceeds available stock.'], 422);
@@ -79,13 +85,63 @@ class OrderController extends Controller
 
     public function updateStatus(Request $request, Order $order)
     {
+        $seller = SellerProfile::where('user_id', $request->user()->id)->firstOrFail();
+
+        if ($order->seller_profile_id !== $seller->id) {
+            return response()->json(['message' => 'You can only update your own orders.'], 403);
+        }
+
         $data = $request->validate([
             'status' => ['required', 'in:placed,confirmed,in_transit,completed,cancelled'],
         ]);
 
         $order->update($data);
 
+        if ($data['status'] === 'completed') {
+            $this->notifyLguOfCompletedDelivery($order, $seller);
+        }
+
         return response()->json($order->load('payment'));
+    }
+
+    /**
+     * A completed delivery makes its payment eligible for LGU earnings
+     * approval (see LguController::pendingEarnings/approveEarnings). Notify
+     * every LGU admin in the seller's municipality so the pending approval
+     * doesn't go unnoticed. Keyed by payment id (not just user+generic type)
+     * so this is idempotent if the order is (re)marked completed, and so
+     * LguController::approveEarnings can mark exactly this notification read
+     * once the earnings are actually approved.
+     */
+    protected function notifyLguOfCompletedDelivery(Order $order, SellerProfile $seller): void
+    {
+        $order->loadMissing(['buyer', 'listing', 'payment']);
+        $seller->loadMissing('user');
+
+        $payment = $order->payment;
+        if (! $payment) {
+            return;
+        }
+
+        $lguAdmins = User::where('role', 'lgu_admin')->where('municipality_id', $seller->municipality_id)->get();
+
+        foreach ($lguAdmins as $lguAdmin) {
+            AppNotification::firstOrCreate([
+                'user_id' => $lguAdmin->id,
+                'type' => "earnings_pending_approval:{$payment->id}",
+            ], [
+                'title' => 'Seller earnings await your approval',
+                'body' => sprintf(
+                    'A completed delivery requires earnings approval. Seller: %s (%s) · Species: %s · Buyer: %s · Order #%s · Delivered: %s.',
+                    $seller->user?->name ?? 'Unknown seller',
+                    $seller->hatchery_name,
+                    $order->listing?->species ?? 'Unknown species',
+                    $order->buyer?->name ?? 'Unknown buyer',
+                    $order->order_number,
+                    $order->updated_at?->format('M d, Y') ?? now()->format('M d, Y')
+                ),
+            ]);
+        }
     }
 
     public function paymongoWebhook(Request $request)

@@ -40,14 +40,14 @@ npm.cmd run dev -- --host 127.0.0.1 --port 5173
 
 One login page is used for all roles. Buyers and sellers may register. LGU Admins and Super Admins are seeded/manual-created.
 
-## Demo Accounts
+## Seeded Administrator Accounts
 
-All seeded accounts use password `password`.
+Running `php artisan migrate:fresh --seed` produces a clean environment with only the two administrator
+accounts below. There are no seeded buyers or sellers — those register normally through the app, and the
+marketplace starts with zero listings.
 
-- Buyer: `buyer@fishmarket.test`
-- Seller: `seller@fishmarket.test`
-- LGU Admin: `lgu@fishmarket.test`
-- Super Admin: `super@fishmarket.test`
+- LGU Admin: `lgu@gmail.com` / `admin2026`
+- Super Admin: `superadmin@gmail.com` / `admin2026`
 
 ## Environment Keys
 

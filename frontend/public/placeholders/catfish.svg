@@ -1,0 +1,19 @@
+<svg width="400" height="300" viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Catfish fingerlings placeholder photo">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f5f5f4"/>
+      <stop offset="100%" stop-color="#d6d3d1"/>
+    </linearGradient>
+  </defs>
+  <rect width="400" height="300" fill="url(#bg)"/>
+  <g transform="translate(200,125)" fill="#44403c" opacity="0.9">
+    <ellipse cx="0" cy="0" rx="95" ry="38"/>
+    <polygon points="-90,0 -138,-36 -138,36"/>
+    <polygon points="0,-36 26,-56 40,-28"/>
+    <line x1="-88" y1="-6" x2="-118" y2="-26" stroke="#44403c" stroke-width="4"/>
+    <line x1="-88" y1="8" x2="-118" y2="30" stroke="#44403c" stroke-width="4"/>
+    <circle cx="58" cy="-6" r="7" fill="#0f172a"/>
+  </g>
+  <text x="200" y="228" font-family="Arial, sans-serif" font-size="28" font-weight="700" fill="#0f172a" text-anchor="middle">Catfish</text>
+  <text x="200" y="256" font-family="Arial, sans-serif" font-size="14" fill="#0f172a" text-anchor="middle" opacity="0.7">Fingerlings placeholder photo</text>
+</svg>

@@ -28,6 +28,7 @@ class User extends Authenticatable
         'municipality_id',
         'phone',
         'status',
+        'profile_picture',
     ];
 
     /**

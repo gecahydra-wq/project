@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -19,6 +20,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        // Keep relation keys (e.g. "sellerProfile") camelCase in JSON responses,
+        // matching how the frontend already reads them everywhere.
+        Model::$snakeAttributes = false;
     }
 }

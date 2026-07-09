@@ -47,4 +47,9 @@ class Order extends Model
     {
         return $this->belongsTo(SellerProfile::class);
     }
+
+    public function review()
+    {
+        return $this->hasOne(Review::class);
+    }
 }

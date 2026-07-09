@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\FingerlingListing;
 use App\Models\MockPayment;
+use App\Models\Municipality;
 use App\Models\Order;
 use App\Models\Review;
 use App\Models\SellerProfile;
@@ -16,6 +17,18 @@ class PlatformController extends Controller
     public function lguAdmins()
     {
         return response()->json(User::where('role', 'lgu_admin')->with('municipality')->get());
+    }
+
+    public function municipalities()
+    {
+        return response()->json(Municipality::orderBy('name')->get());
+    }
+
+    public function sellers()
+    {
+        return response()->json(
+            SellerProfile::with(['user', 'municipality', 'listings'])->get()
+        );
     }
 
     public function superReports()
@@ -36,7 +49,13 @@ class PlatformController extends Controller
     public function lguReviews(Request $request)
     {
         $municipalityId = $request->user()->municipality_id;
-        return response()->json(Review::whereHas('sellerProfile', fn ($q) => $q->where('municipality_id', $municipalityId))->latest()->get());
+
+        return response()->json(
+            Review::whereHas('sellerProfile', fn ($q) => $q->where('municipality_id', $municipalityId))
+                ->with(['buyer', 'sellerProfile.user', 'order.listing'])
+                ->latest()
+                ->get()
+        );
     }
 
     public function lguReports(Request $request)

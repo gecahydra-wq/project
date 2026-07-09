@@ -4,20 +4,14 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use App\Models\SellerProfile;
-use App\Models\Order;
-use App\Models\User;
 
-class Review extends Model
+class AiGrowthLog extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['order_id', 'buyer_id', 'seller_profile_id', 'rating', 'title', 'comment'];
+    protected $fillable = ['order_id', 'buyer_id', 'stage', 'notes', 'logged_at'];
 
-    public function sellerProfile()
-    {
-        return $this->belongsTo(SellerProfile::class);
-    }
+    protected $casts = ['logged_at' => 'datetime'];
 
     public function order()
     {

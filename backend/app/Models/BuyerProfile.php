@@ -9,5 +9,5 @@ class BuyerProfile extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['user_id', 'municipality_id', 'farm_name', 'water_source', 'pond_area'];
+    protected $fillable = ['user_id', 'municipality_id', 'farm_name', 'water_source', 'pond_area', 'address', 'bio'];
 }

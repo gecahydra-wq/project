@@ -9,5 +9,5 @@ class ListingMedia extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['listing_id', 'type', 'title', 'url'];
+    protected $fillable = ['listing_id', 'type', 'title', 'url', 'position'];
 }

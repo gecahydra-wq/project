@@ -14,6 +14,17 @@ class SellerProfile extends Model
         'municipality_id',
         'hatchery_name',
         'description',
+        'farming_methods',
+        'fish_raising_practices',
+        'farm_history',
+        'water_source',
+        'feeding_practices',
+        'years_experience',
+        'certifications',
+        'address',
+        'profile_picture',
+        'cover_photo',
+        'gallery',
         'rating',
         'verified',
         'status',
@@ -22,6 +33,7 @@ class SellerProfile extends Model
     protected $casts = [
         'verified' => 'boolean',
         'rating' => 'decimal:2',
+        'gallery' => 'array',
     ];
 
     public function user()
@@ -37,5 +49,15 @@ class SellerProfile extends Model
     public function listings()
     {
         return $this->hasMany(FingerlingListing::class);
+    }
+
+    public function reviews()
+    {
+        return $this->hasMany(Review::class);
+    }
+
+    public function withdrawalRequests()
+    {
+        return $this->hasMany(WithdrawalRequest::class);
     }
 }

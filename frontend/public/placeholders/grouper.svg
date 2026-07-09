@@ -1,0 +1,17 @@
+<svg width="400" height="300" viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Grouper fingerlings placeholder photo">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fee2e2"/>
+      <stop offset="100%" stop-color="#fecaca"/>
+    </linearGradient>
+  </defs>
+  <rect width="400" height="300" fill="url(#bg)"/>
+  <g transform="translate(200,125)" fill="#991b1b" opacity="0.9">
+    <ellipse cx="0" cy="0" rx="100" ry="46"/>
+    <polygon points="-95,0 -140,-34 -140,34"/>
+    <polygon points="0,-44 26,-62 40,-36"/>
+    <circle cx="62" cy="-8" r="7" fill="#0f172a"/>
+  </g>
+  <text x="200" y="228" font-family="Arial, sans-serif" font-size="28" font-weight="700" fill="#0f172a" text-anchor="middle">Grouper</text>
+  <text x="200" y="256" font-family="Arial, sans-serif" font-size="14" fill="#0f172a" text-anchor="middle" opacity="0.7">Fingerlings placeholder photo</text>
+</svg>
