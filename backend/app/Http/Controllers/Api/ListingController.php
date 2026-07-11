@@ -9,10 +9,28 @@ use App\Models\SellerProfile;
 use App\Support\ImageUploader;
 use Illuminate\Http\Request;
 
+/**
+ * Fingerling listings -- the marketplace catalogue and the seller's own
+ * listing/media management.
+ *
+ * Public reads (index/show) only ever surface APPROVED listings from
+ * non-suspended sellers; the LGU/Super Admin moderation views use their own
+ * controllers to see pending/rejected/archived ones. All writes are restricted
+ * to the listing's owning seller, and suspended sellers are blocked from
+ * creating or editing. A listing with existing orders can't be deleted (the
+ * order history must be preserved) -- setting quantity to 0 takes it off the
+ * market instead.
+ */
 class ListingController extends Controller
 {
+    /** Hard cap on photos/videos per listing, enforced on upload. */
     private const MAX_MEDIA_PER_LISTING = 5;
 
+    /**
+     * Public marketplace catalogue with optional species/municipality/max-price/
+     * search filters. Excludes anything not approved or whose seller is
+     * suspended, so buyers never see unavailable stock.
+     */
     public function index(Request $request)
     {
         $query = FingerlingListing::query()
@@ -40,6 +58,12 @@ class ListingController extends Controller
         return response()->json($listing->load(['sellerProfile.user', 'municipality', 'media']));
     }
 
+    /**
+     * Create a listing (Seller only). Inherits the seller's municipality so a
+     * listing is always tied to the same locality as its seller for LGU
+     * scoping. New listings start unapproved (the model default) and await LGU
+     * moderation before appearing in index().
+     */
     public function store(Request $request)
     {
         $seller = SellerProfile::where('user_id', $request->user()->id)->firstOrFail();
@@ -110,6 +134,11 @@ class ListingController extends Controller
         return response()->json(['message' => 'Listing deleted.']);
     }
 
+    /**
+     * Add photos/videos to a listing (owner only), up to MAX_MEDIA_PER_LISTING
+     * total. Each file's real MIME type is validated and it's stored via
+     * ImageUploader; new media is appended after any existing media by position.
+     */
     public function uploadMedia(Request $request, FingerlingListing $listing)
     {
         $this->authorizeOwnListing($request, $listing);
@@ -176,6 +205,10 @@ class ListingController extends Controller
         return response()->json($listing->fresh('media'));
     }
 
+    /**
+     * Guard shared by the media endpoints: aborts 403 unless the caller is the
+     * seller who owns the listing.
+     */
     private function authorizeOwnListing(Request $request, FingerlingListing $listing): void
     {
         $seller = SellerProfile::where('user_id', $request->user()->id)->firstOrFail();

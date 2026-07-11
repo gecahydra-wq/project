@@ -21,11 +21,17 @@ class Order extends Model
         'total_amount',
         'status',
         'pickup_notes',
+        'seller_notes',
+        'lgu_review_status',
+        'lgu_review_reason',
+        'lgu_reviewed_at',
+        'lgu_reviewed_by',
     ];
 
     protected $casts = [
         'unit_price' => 'decimal:2',
         'total_amount' => 'decimal:2',
+        'lgu_reviewed_at' => 'datetime',
     ];
 
     public function payment()
@@ -51,5 +57,20 @@ class Order extends Model
     public function review()
     {
         return $this->hasOne(Review::class);
+    }
+
+    public function buyerRating()
+    {
+        return $this->hasOne(BuyerRating::class);
+    }
+
+    public function settlement()
+    {
+        return $this->hasOne(Settlement::class);
+    }
+
+    public function reviewedBy()
+    {
+        return $this->belongsTo(User::class, 'lgu_reviewed_by');
     }
 }

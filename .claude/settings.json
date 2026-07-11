@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx --yes playwright --version)",
+      "Bash(curl -sf http://127.0.0.1:5180)",
+      "Bash(curl -sf http://localhost:5180)",
+      "Bash(npm init *)",
+      "Bash(npm install *)",
+      "Bash(npx playwright *)",
+      "Bash(node verify_mark_all_read.js \"verify-e2e-1783662656@example.test\")",
+      "Bash(node verify_mark_all_read.js \"verify-e2e-buyer-1783662846@example.test\" buyer)",
+      "Bash(netstat -ano)",
+      "Bash(taskkill //F //PID 10148)",
+      "Bash(curl -s -H 'Authorization: Bearer 152|PwBBFZ8QUqjyoOAPVTDKDDHCMaIde6JC0cDpzh5Z573710a3' 'http://127.0.0.1:8000/api/super-admin/activity-log?search=earnings&per_page=3')",
+      "Bash(curl -s -H 'Authorization: Bearer 152|PwBBFZ8QUqjyoOAPVTDKDDHCMaIde6JC0cDpzh5Z573710a3' 'http://127.0.0.1:8000/api/super-admin/activity-log?search=Consolacion&per_page=3')",
+      "Bash(curl -s -H 'Authorization: Bearer 154|t9W0BX1pb6PTggsT4cU6BJGhT8ma9EkpD9FbkcnVae82ef06' 'http://127.0.0.1:8000/api/lgu/activity-log?category=payments&per_page=3')",
+      "Bash(curl -s -H 'Authorization: Bearer 154|t9W0BX1pb6PTggsT4cU6BJGhT8ma9EkpD9FbkcnVae82ef06' http://127.0.0.1:8000/api/lgu/activity-log/categories)",
+      "Bash(php -l app/Support/ActivityLog.php)",
+      "Bash(grep -n \"use App\\\\\\\\\\\\\\\\Support\\\\\\\\\\\\\\\\ImageUploader\\\\|use App\\\\\\\\\\\\\\\\Support\" backend/app/Http/Controllers/Api/LguController.php)",
+      "Bash(grep -n \"use App\\\\\\\\\\\\\\\\Support\\\\\\\\\\\\\\\\ImageUploader\" backend/app/Http/Controllers/Api/SuperAdminController.php)",
+      "Bash(grep -nE \"^use App\\\\\\\\\\\\\\\\Models\\\\\\\\\\\\\\\\Review;|^use App\\\\\\\\\\\\\\\\Support\\\\\\\\\\\\\\\\OrderTransactionPresenter;|^use App\\\\\\\\\\\\\\\\Support\\\\\\\\\\\\\\\\SafeMailer;|^use App\\\\\\\\\\\\\\\\Support\\\\\\\\\\\\\\\\LguWallet;\" app/Http/Controllers/Api/LguController.php)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\rules\\.claude\\projects\\c--Users-rules-Desktop-capstone-proj\\memory"
+    ]
+  }
+}

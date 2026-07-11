@@ -11,10 +11,36 @@ class MessageController extends Controller
 {
     private const EDIT_WINDOW_MINUTES = 15;
 
-    protected function assertBuyerSellerPair(User $a, User $b): void
+    /**
+     * Which role pairs may message each other, direction-agnostic (a reply
+     * swaps sender/receiver through this same check). LGU admins are further
+     * restricted to their own municipality against buyers/sellers -- Super
+     * Admin is exempt from that restriction entirely.
+     */
+    private const ALLOWED_ROLE_PAIRS = [
+        ['buyer', 'seller'],
+        ['buyer', 'lgu_admin'],
+        ['lgu_admin', 'seller'],
+        ['buyer', 'super_admin'],
+        ['seller', 'super_admin'],
+        ['lgu_admin', 'super_admin'],
+    ];
+
+    protected function assertCanMessage(User $sender, User $receiver): void
     {
-        $pair = [$a->role, $b->role];
-        abort_unless(in_array($pair, [['buyer', 'seller'], ['seller', 'buyer']], true), 422, 'Messaging is only available between buyers and sellers.');
+        $pair = [$sender->role, $receiver->role];
+        sort($pair);
+        abort_unless(in_array($pair, self::ALLOWED_ROLE_PAIRS, true), 422, 'You are not allowed to message this user.');
+
+        $lguParty = $sender->role === 'lgu_admin' ? $sender : ($receiver->role === 'lgu_admin' ? $receiver : null);
+        if ($lguParty) {
+            $otherParty = $lguParty->id === $sender->id ? $receiver : $sender;
+            abort_unless(
+                $otherParty->role === 'super_admin' || $otherParty->municipality_id === $lguParty->municipality_id,
+                403,
+                'LGU admins can only message users within their own municipality.'
+            );
+        }
     }
 
     public function threads(Request $request)
@@ -68,8 +94,10 @@ class MessageController extends Controller
         ]);
 
         $sender = $request->user();
+        abort_if($sender->role === 'buyer' && $sender->status === 'suspended', 403, 'Your account has been suspended and cannot send messages. Contact support for assistance.');
+
         $receiver = User::findOrFail($data['receiver_id']);
-        $this->assertBuyerSellerPair($sender, $receiver);
+        $this->assertCanMessage($sender, $receiver);
 
         $message = Message::create([
             'sender_id' => $sender->id,

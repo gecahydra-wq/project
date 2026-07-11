@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AppNotification;
+use App\Models\BuyerRating;
 use App\Models\FingerlingListing;
 use App\Models\Message;
 use App\Models\MockPayment;
@@ -12,8 +13,14 @@ use App\Models\Review;
 use App\Models\SellerProfile;
 use App\Models\User;
 use App\Models\WithdrawalRequest;
+use App\Support\ActivityLog;
+use App\Support\AnalyticsPeriod;
+use App\Support\CommissionCalculator;
 use App\Support\ImageUploader;
+use App\Support\ReviewModeration;
+use App\Support\SellerWallet;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Validation\Rule;
 
 class SellerController extends Controller
@@ -38,12 +45,46 @@ class SellerController extends Controller
     public function analytics(Request $request)
     {
         $seller = SellerProfile::where('user_id', $request->user()->id)->firstOrFail();
+        ['period' => $period, 'start' => $start, 'end' => $end, 'unit' => $unit] = AnalyticsPeriod::resolve($request->query('period'));
+
+        $completedRows = $this->completedOrders($seller, $start, $end)->get(['orders.created_at', 'orders.total_amount']);
+        $salesOverTime = AnalyticsPeriod::bucketize($start, $end, $unit, $completedRows);
+
+        $ordersByStatus = $this->allOrders($seller, $start, $end)
+            ->selectRaw('status, count(*) as total')
+            ->groupBy('status')
+            ->get();
+
+        $topSpecies = $this->completedOrders($seller, $start, $end)
+            ->join('listings', 'orders.listing_id', '=', 'listings.id')
+            ->selectRaw('listings.species as species, sum(orders.quantity) as quantity')
+            ->groupBy('listings.species')
+            ->orderByDesc('quantity')
+            ->get();
 
         return response()->json([
-            'total_completed_sales' => Order::where('seller_profile_id', $seller->id)->where('status', 'completed')->sum('total_amount'),
-            'order_status_breakdown' => Order::where('seller_profile_id', $seller->id)->selectRaw('status, count(*) as total')->groupBy('status')->get(),
-            'top_species' => FingerlingListing::where('seller_profile_id', $seller->id)->selectRaw('species, sum(quantity) as quantity')->groupBy('species')->get(),
+            'period' => $period,
+            'range' => ['start' => $start->toDateString(), 'end' => $end->toDateString()],
+            'summary' => [
+                'total_sales' => $completedRows->count(),
+                'total_revenue' => round((float) $completedRows->sum('total_amount'), 2),
+                'total_orders' => $this->allOrders($seller, $start, $end)->count(),
+                'active_listings' => FingerlingListing::where('seller_profile_id', $seller->id)->count(),
+            ],
+            'sales_over_time' => $salesOverTime,
+            'orders_by_status' => $ordersByStatus,
+            'top_species' => $topSpecies,
         ]);
+    }
+
+    private function completedOrders(SellerProfile $seller, Carbon $start, Carbon $end)
+    {
+        return Order::where('orders.seller_profile_id', $seller->id)->where('orders.status', 'completed')->whereBetween('orders.created_at', [$start, $end]);
+    }
+
+    private function allOrders(SellerProfile $seller, Carbon $start, Carbon $end)
+    {
+        return Order::where('orders.seller_profile_id', $seller->id)->whereBetween('orders.created_at', [$start, $end]);
     }
 
     public function updateProfile(Request $request)
@@ -145,6 +186,15 @@ class SellerController extends Controller
         return response()->json($notification);
     }
 
+    public function markAllNotificationsRead(Request $request)
+    {
+        $updated = AppNotification::where('user_id', $request->user()->id)
+            ->whereNull('read_at')
+            ->update(['read_at' => now()]);
+
+        return response()->json(['updated' => $updated]);
+    }
+
     public function wallet(Request $request)
     {
         $seller = SellerProfile::where('user_id', $request->user()->id)->firstOrFail();
@@ -163,9 +213,15 @@ class SellerController extends Controller
             'amount' => ['required', 'numeric', 'min:0.01'],
         ]);
 
-        if ($data['amount'] > $this->availableBalance($seller)) {
+        if ($data['amount'] > SellerWallet::availableBalance($seller)) {
             return response()->json(['message' => 'Withdrawal amount exceeds your available balance.'], 422);
         }
+
+        // The platform's payout fee is frozen onto the request at the
+        // moment it's made -- see App\Support\CommissionCalculator -- so a
+        // later change to the fee percentage never retroactively alters an
+        // already-submitted withdrawal request.
+        $fee = CommissionCalculator::withdrawalFee((float) $data['amount']);
 
         $withdrawal = WithdrawalRequest::create([
             'seller_profile_id' => $seller->id,
@@ -173,6 +229,7 @@ class SellerController extends Controller
             'account_name' => $data['account_name'],
             'account_number' => $data['account_number'],
             'amount' => $data['amount'],
+            'platform_fee' => $fee['fee'],
             'status' => 'pending',
         ]);
 
@@ -180,76 +237,14 @@ class SellerController extends Controller
     }
 
     /**
-     * Withdrawal requests that are not-yet-paid or already-paid both permanently
-     * remove money from the available pool; only 'rejected' returns it.
+     * Balance math lives in App\Support\SellerWallet so the AI Assistant can
+     * compute a seller's own wallet answers using the exact same rules as
+     * this page instead of a re-derived approximation.
      */
-    protected function reservedOrWithdrawn(SellerProfile $seller): float
-    {
-        return (float) WithdrawalRequest::where('seller_profile_id', $seller->id)
-            ->whereIn('status', ['pending', 'approved', 'paid'])
-            ->sum('amount');
-    }
-
-    /**
-     * A running lifetime balance (all released payments ever, minus all
-     * withdrawals ever requested), NOT a per-order amount. There is no
-     * platform commission, PayMongo fee, service fee, or tax deducted
-     * anywhere in this codebase -- every peso of a released payment is
-     * credited in full. A seller with prior released earnings and prior
-     * withdrawals will see a new order's amount net against that running
-     * balance rather than appear on its own, which is the intended
-     * cumulative-wallet behavior (verified in
-     * test_full_wallet_lifecycle_keeps_every_balance_internally_consistent
-     * and test_lgu_approved_earnings_credit_the_full_gross_order_amount_with_no_deductions).
-     */
-    protected function availableBalance(SellerProfile $seller): float
-    {
-        $releasedTotal = (float) MockPayment::whereHas('order', fn ($q) => $q->where('seller_profile_id', $seller->id))
-            ->where('status', 'released')
-            ->sum('amount');
-
-        return max(0, round($releasedTotal - $this->reservedOrWithdrawn($seller), 2));
-    }
-
-    protected function withdrawnAmount(SellerProfile $seller): float
-    {
-        return round((float) WithdrawalRequest::where('seller_profile_id', $seller->id)
-            ->where('status', 'paid')
-            ->sum('amount'), 2);
-    }
-
-    /**
-     * Money reserved by a withdrawal request that has been submitted (and
-     * possibly approved) but not yet marked paid. This is already excluded
-     * from availableBalance() to prevent a seller from over-requesting, but
-     * it has left neither the released pool nor become a completed payout,
-     * so it must be accounted for separately or totalEarnings will not
-     * reconcile against availableBalance + pendingBalance + withdrawnAmount
-     * while a payout is in flight.
-     */
-    protected function processingAmount(SellerProfile $seller): float
-    {
-        return round((float) WithdrawalRequest::where('seller_profile_id', $seller->id)
-            ->whereIn('status', ['pending', 'approved'])
-            ->sum('amount'), 2);
-    }
-
     protected function walletSummary(SellerProfile $seller): array
     {
-        // Earnings are recognized as soon as the buyer's payment is captured
-        // (paid_held), not when the order is delivered/completed. Delivery
-        // alone never changes which bucket the money sits in.
-        $sellerPayments = MockPayment::whereHas('order', fn ($q) => $q->where('seller_profile_id', $seller->id));
-
-        $totalEarnings = (float) (clone $sellerPayments)->whereIn('status', ['paid_held', 'released'])->sum('amount');
-        $pendingBalance = (float) (clone $sellerPayments)->where('status', 'paid_held')->sum('amount');
-
         return [
-            'available_balance' => $this->availableBalance($seller),
-            'pending_balance' => round($pendingBalance, 2),
-            'processing_amount' => $this->processingAmount($seller),
-            'total_earnings' => round($totalEarnings, 2),
-            'withdrawn_amount' => $this->withdrawnAmount($seller),
+            ...SellerWallet::summary($seller),
             'payment_history' => MockPayment::whereHas('order', fn ($q) => $q->where('seller_profile_id', $seller->id))
                 ->with(['order.buyer', 'order.listing'])
                 ->latest()
@@ -276,6 +271,22 @@ class SellerController extends Controller
 
         $orders = Order::where('seller_profile_id', $seller->id)->where('buyer_id', $buyer->id);
 
+        // Platform-wide buyer reputation (across every seller) so the viewing
+        // seller can judge whether this is a reliable buyer, not just how they
+        // behaved on this one seller's orders.
+        $buyerRatings = BuyerRating::where('buyer_id', $buyer->id)
+            ->with(['sellerProfile:id,hatchery_name,profile_picture', 'order:id,order_number,listing_id', 'order.listing:id,species,title'])
+            ->latest()
+            ->get();
+
+        // This seller's own orders with the buyer, each carrying its existing
+        // rating (if any) so the frontend can show a rate form on completed,
+        // as-yet-unrated orders and the given rating on the rest.
+        $sellerOrders = (clone $orders)
+            ->with(['listing:id,species,title', 'buyerRating'])
+            ->latest()
+            ->get();
+
         return response()->json([
             'buyer' => $buyer->load('municipality'),
             'stats' => [
@@ -284,9 +295,66 @@ class SellerController extends Controller
                 'pending_orders' => (clone $orders)->whereIn('status', ['placed', 'paid', 'confirmed', 'in_transit'])->count(),
                 'total_spent' => (clone $orders)->where('status', 'completed')->sum('total_amount'),
                 'most_recent_purchase' => (clone $orders)->max('created_at'),
+                // Platform-wide activity, for legitimacy at a glance.
+                'total_orders_all' => Order::where('buyer_id', $buyer->id)->count(),
+                'completed_orders_all' => Order::where('buyer_id', $buyer->id)->where('status', 'completed')->count(),
             ],
-            'reviews' => Review::where('seller_profile_id', $seller->id)->where('buyer_id', $buyer->id)->latest()->get(),
+            'buyer_rating' => [
+                'average' => round((float) $buyerRatings->avg('rating'), 2),
+                'count' => $buyerRatings->count(),
+            ],
+            'buyer_ratings' => $buyerRatings,
+            'seller_orders' => $sellerOrders,
+            // Reviews this buyer left FOR THIS SELLER, now with the order/listing
+            // each one is about.
+            'reviews' => Review::where('seller_profile_id', $seller->id)->where('buyer_id', $buyer->id)
+                ->with(['order:id,order_number,listing_id', 'order.listing:id,species,title'])
+                ->latest()
+                ->get(),
             'has_conversation' => $hasConversation,
         ]);
+    }
+
+    /**
+     * Seller rates a buyer for one of their own completed orders -- the reverse
+     * of a buyer Review (see ReviewController). One rating per order; the
+     * buyer's cached aggregate on buyer_profiles is refreshed after each,
+     * mirroring how a Review refreshes seller_profiles.rating.
+     */
+    public function rateBuyer(Request $request, Order $order)
+    {
+        $seller = SellerProfile::where('user_id', $request->user()->id)->firstOrFail();
+
+        abort_if($order->seller_profile_id !== $seller->id, 403, 'You can only rate buyers on your own orders.');
+        abort_if($order->status !== 'completed', 422, 'You can only rate a buyer after the order is completed.');
+        abort_if($order->buyerRating()->exists(), 422, 'You have already rated the buyer for this order.');
+
+        $data = $request->validate([
+            'rating' => ['required', 'integer', 'min:1', 'max:5'],
+            'comment' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        $rating = BuyerRating::create([
+            'order_id' => $order->id,
+            'seller_profile_id' => $seller->id,
+            'buyer_id' => $order->buyer_id,
+            'rating' => $data['rating'],
+            'comment' => $data['comment'] ?? null,
+        ]);
+
+        ReviewModeration::refreshBuyerRating($order->buyer_id);
+
+        ActivityLog::record([
+            'actor_id' => $request->user()->id,
+            'actor_role' => 'seller',
+            'action' => 'buyer_rating_submitted',
+            'target_user_id' => $order->buyer_id,
+            'municipality_id' => $seller->municipality_id,
+            'reference_type' => 'ORD',
+            'reference_number' => $order->order_number,
+            'description' => "Rated buyer {$data['rating']}/5 for order {$order->order_number}.",
+        ]);
+
+        return response()->json($rating->load('sellerProfile:id,hatchery_name,profile_picture', 'order:id,order_number,listing_id', 'order.listing:id,species,title'), 201);
     }
 }

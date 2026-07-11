@@ -8,12 +8,21 @@ use App\Models\BuyerProfile;
 use App\Models\Message;
 use App\Models\Order;
 use App\Models\Review;
+use App\Support\AnalyticsPeriod;
 use App\Support\ImageUploader;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Validation\Rule;
 
+/**
+ * Everything scoped to the signed-in Buyer: their dashboard, profile, profile
+ * picture, notifications, and purchase analytics. Every query here is filtered
+ * by the authenticated buyer's own id -- a buyer can never see another buyer's
+ * data through this controller.
+ */
 class BuyerController extends Controller
 {
+    /** At-a-glance counts, recent orders/reviews, unread notifications, and profile for the buyer home screen. */
     public function dashboard(Request $request)
     {
         $buyerId = $request->user()->id;
@@ -34,6 +43,11 @@ class BuyerController extends Controller
         ]);
     }
 
+    /**
+     * Update buyer details, split across two tables: identity fields
+     * (name/email/phone) live on the user, while address/bio live on the
+     * buyer_profile. Municipality is fixed at registration and not editable here.
+     */
     public function updateProfile(Request $request)
     {
         $user = $request->user();
@@ -95,5 +109,65 @@ class BuyerController extends Controller
         $notification->update(['read_at' => now()]);
 
         return response()->json($notification);
+    }
+
+    public function markAllNotificationsRead(Request $request)
+    {
+        $updated = AppNotification::where('user_id', $request->user()->id)
+            ->whereNull('read_at')
+            ->update(['read_at' => now()]);
+
+        return response()->json(['updated' => $updated]);
+    }
+
+    /**
+     * Personal purchase analytics for the selected period: spend over time,
+     * orders by status, and top species. Reuses the shared AnalyticsPeriod
+     * helper so buyer/seller/LGU/admin charts all bucket time the same way.
+     * "Purchases" count completed orders only; total_orders counts every status.
+     */
+    public function analytics(Request $request)
+    {
+        $buyerId = $request->user()->id;
+        ['period' => $period, 'start' => $start, 'end' => $end, 'unit' => $unit] = AnalyticsPeriod::resolve($request->query('period'));
+
+        $completedRows = $this->completedOrders($buyerId, $start, $end)->get(['orders.created_at', 'orders.total_amount']);
+        $purchasesOverTime = AnalyticsPeriod::bucketize($start, $end, $unit, $completedRows);
+
+        $ordersByStatus = $this->allOrders($buyerId, $start, $end)
+            ->selectRaw('status, count(*) as total')
+            ->groupBy('status')
+            ->get();
+
+        $topSpecies = $this->completedOrders($buyerId, $start, $end)
+            ->join('listings', 'orders.listing_id', '=', 'listings.id')
+            ->selectRaw('listings.species as species, sum(orders.quantity) as quantity')
+            ->groupBy('listings.species')
+            ->orderByDesc('quantity')
+            ->get();
+
+        return response()->json([
+            'period' => $period,
+            'range' => ['start' => $start->toDateString(), 'end' => $end->toDateString()],
+            'summary' => [
+                'total_purchases' => $completedRows->count(),
+                'total_orders' => $this->allOrders($buyerId, $start, $end)->count(),
+                'total_spending' => round((float) $completedRows->sum('total_amount'), 2),
+                'favorite_species' => $topSpecies->first()?->species ?? 'None',
+            ],
+            'purchases_over_time' => $purchasesOverTime,
+            'orders_by_status' => $ordersByStatus,
+            'top_species' => $topSpecies,
+        ]);
+    }
+
+    private function completedOrders(int $buyerId, Carbon $start, Carbon $end)
+    {
+        return Order::where('orders.buyer_id', $buyerId)->where('orders.status', 'completed')->whereBetween('orders.created_at', [$start, $end]);
+    }
+
+    private function allOrders(int $buyerId, Carbon $start, Carbon $end)
+    {
+        return Order::where('orders.buyer_id', $buyerId)->whereBetween('orders.created_at', [$start, $end]);
     }
 }

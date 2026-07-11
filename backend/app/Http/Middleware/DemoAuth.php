@@ -6,8 +6,22 @@ use App\Models\User;
 use Closure;
 use Illuminate\Http\Request;
 
+/**
+ * Lightweight bearer-token auth against a plain users.api_token column, with an
+ * optional role check baked in. This predates the app's move to Laravel
+ * Sanctum (see the `auth:sanctum` + `role:` combination used across
+ * routes/api.php) and is kept only for any legacy/demo endpoint still wired to
+ * it. New routes should use Sanctum + EnsureRole instead of this.
+ */
 class DemoAuth
 {
+    /**
+     * @param  string  ...$roles  Optional allowed roles; empty means any
+     *                            authenticated user passes.
+     * @return \Symfony\Component\HttpFoundation\Response 401 when no valid
+     *         token matches a user, 403 when the user's role isn't allowed,
+     *         otherwise the next response with the resolved user attached.
+     */
     public function handle(Request $request, Closure $next, string ...$roles)
     {
         $token = $request->bearerToken();

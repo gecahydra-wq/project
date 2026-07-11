@@ -56,6 +56,11 @@ class SellerProfile extends Model
         return $this->hasMany(Review::class);
     }
 
+    public function posts()
+    {
+        return $this->hasMany(SellerPost::class)->latest();
+    }
+
     public function withdrawalRequests()
     {
         return $this->hasMany(WithdrawalRequest::class);
