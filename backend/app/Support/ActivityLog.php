@@ -51,6 +51,12 @@ class ActivityLog
             'actions' => [
                 'buyer_suspended', 'buyer_reinstated', 'seller_suspended', 'seller_reinstated',
                 'lgu_admin_suspended', 'lgu_admin_reinstated',
+                // Permanent account removals. Unlike the suspend/reinstate
+                // actions above (read live from moderation_logs), these are
+                // written into activity_logs -- a moderation_logs row would
+                // cascade-delete along with the account it documents. See
+                // App\Support\AccountModeration::remove.
+                'buyer_removed', 'seller_removed',
             ],
         ],
         'payments' => [

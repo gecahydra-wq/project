@@ -377,6 +377,32 @@ class LguController extends Controller
     }
 
     /**
+     * Transactions this LGU has rejected, whose money is still held.
+     *
+     * Deliberately a separate list from pendingEarnings() rather than rows
+     * mixed into it: "awaiting approval" drives counts on both this dashboard
+     * and the Super Admin's, and a rejected order is not awaiting anything.
+     * But it can't simply disappear either -- its payment stays 'paid_held'
+     * (see rejectEarnings), so this is the only place that held money is still
+     * visible and actionable, via reopenRejectedEarnings().
+     */
+    public function rejectedEarnings(Request $request)
+    {
+        $municipalityId = $request->user()->municipality_id;
+
+        return response()->json(
+            MockPayment::where('status', 'paid_held')
+                ->whereHas('order', fn ($q) => $q
+                    ->where('status', 'completed')
+                    ->where('lgu_review_status', 'rejected')
+                    ->whereHas('sellerProfile', fn ($q2) => $q2->where('municipality_id', $municipalityId)))
+                ->with(['order.sellerProfile.user', 'order.buyer', 'order.listing', 'order.reviewedBy'])
+                ->latest()
+                ->get()
+        );
+    }
+
+    /**
      * Full transaction detail behind the earnings-approval queue, so an LGU
      * Admin can review everything about the order (not just the summary
      * line) before approving/rejecting/holding it -- see
@@ -482,14 +508,50 @@ class LguController extends Controller
     {
         $order = $this->eligibleOrderForReview($request, $payment, requireHeld: true);
 
+        $this->clearReviewStatus($order, $request->user());
+
+        return response()->json(OrderTransactionPresenter::present($order->fresh(), 'lgu_admin'));
+    }
+
+    /**
+     * Undo a rejection, returning the order to the earnings-approval queue so
+     * it can be approved (or rejected again) after all.
+     *
+     * Without this a rejection was a dead end: the payment stays 'paid_held'
+     * forever (see rejectEarnings), rejected orders are filtered out of
+     * pendingEarnings(), and eligibleOrderForReview() refuses an
+     * already-rejected order -- so nothing, in any role, could ever resolve
+     * the held escrow. This is the rejection counterpart of clearHold() above
+     * and shares its mechanics; only the precondition differs.
+     */
+    public function reopenRejectedEarnings(Request $request, MockPayment $payment)
+    {
+        $order = $this->eligibleOrderForReview($request, $payment, requireRejected: true);
+
+        $this->clearReviewStatus($order, $request->user());
+
+        $this->notifySellerOfReview($order, 'earnings_reopened', 'Earnings Under Review Again', sprintf(
+            'Your LGU has reopened the rejected earnings review for order #%s. It is back in their approval queue, and your projected earnings for it have been restored to your Pending Balance.',
+            $order->order_number
+        ));
+
+        return response()->json(OrderTransactionPresenter::present($order->fresh(), 'lgu_admin'));
+    }
+
+    /**
+     * Return an order to the neutral, reviewable state -- shared by clearHold()
+     * and reopenRejectedEarnings(), which differ only in what they're undoing.
+     * Never touches payment.status: the money has been sitting in 'paid_held'
+     * throughout, and only approveEarnings() ever releases it.
+     */
+    private function clearReviewStatus(Order $order, User $actor): void
+    {
         $order->update([
             'lgu_review_status' => null,
             'lgu_review_reason' => null,
             'lgu_reviewed_at' => now(),
-            'lgu_reviewed_by' => $request->user()->id,
+            'lgu_reviewed_by' => $actor->id,
         ]);
-
-        return response()->json(OrderTransactionPresenter::present($order->fresh(), 'lgu_admin'));
     }
 
     /**
@@ -522,7 +584,16 @@ class LguController extends Controller
         return response()->json(OrderTransactionPresenter::present($order->fresh(), 'lgu_admin'));
     }
 
-    private function eligibleOrderForReview(Request $request, MockPayment $payment, bool $requireHeld = false): Order
+    /**
+     * The shared eligibility gate for every earnings-review action. The
+     * municipality/completed/paid_held checks are common to all of them; the
+     * flags select which review state the specific action requires:
+     *
+     *  - default        -- must not already be rejected (approve/hold/reject)
+     *  - requireHeld    -- must currently be on hold (clearHold)
+     *  - requireRejected-- must currently be rejected (reopenRejectedEarnings)
+     */
+    private function eligibleOrderForReview(Request $request, MockPayment $payment, bool $requireHeld = false, bool $requireRejected = false): Order
     {
         $payment->load('order.sellerProfile');
         $order = $payment->order;
@@ -533,8 +604,10 @@ class LguController extends Controller
 
         if ($requireHeld) {
             abort_unless($order->lgu_review_status === 'on_hold', 422, 'This order is not currently on hold.');
+        } elseif ($requireRejected) {
+            abort_unless($order->lgu_review_status === 'rejected', 422, 'This order is not currently rejected.');
         } else {
-            abort_if($order->lgu_review_status === 'rejected', 422, 'This order was already rejected.');
+            abort_if($order->lgu_review_status === 'rejected', 422, 'This order was already rejected. Reopen it first if it should be reviewed again.');
         }
 
         return $order;

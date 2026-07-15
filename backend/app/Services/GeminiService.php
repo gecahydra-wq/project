@@ -52,7 +52,7 @@ class GeminiService
      * phrase that context naturally, never to invent FishMarket facts or
      * ask clarifying questions about how the system works.
      */
-    public function answer(string $prompt, string $language = 'English', ?User $user = null, array $history = []): string
+    public function answer(string $prompt, string $language = 'English', ?User $user = null, array $history = [], ?string $preferredLanguage = null): string
     {
         $this->lastLanguage = $language;
         $this->lastSubject = null;
@@ -61,7 +61,13 @@ class GeminiService
         $role = $user->role ?? 'buyer';
 
         if ($user) {
-            $language = AiLanguageDetector::detect($prompt);
+            // An explicit choice from the language picker wins over sniffing
+            // the message. Auto-detection stays the default (and the only
+            // behaviour for callers that pass nothing), but it can only guess
+            // from the words used -- so a Cebuano speaker asking a
+            // one-word/English-loanword question would otherwise get English
+            // back. See AiLanguageDetector.
+            $language = $preferredLanguage ?? AiLanguageDetector::detect($prompt);
             $this->lastLanguage = $language;
 
             $previousSubject = collect($history)->last()?->data_subject;

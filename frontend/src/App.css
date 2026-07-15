@@ -40,6 +40,33 @@
   --color-sidebar-text: #d7ecef;
   --color-sidebar-active: rgba(15, 155, 142, 0.28);
 
+  /* Sidebar background artwork, shared by every role's dashboard.
+     ---------------------------------------------------------------
+     Four layers, painted back to front (see .sidebar):
+
+       --sidebar-base   flat brand colour; the floor, always opaque
+       --sidebar-decor  gradient wash; what shows if the photo is missing
+       --sidebar-image  the photo itself
+       --sidebar-scrim  darkening veil that keeps nav text readable
+
+     To swap the photo, drop a file in frontend/public/ and change the one
+     url() below -- it applies to every role at once. Keeping --sidebar-decor
+     underneath means a missing/slow/renamed image degrades to a tinted
+     gradient rather than a flat slab. */
+  --sidebar-base: linear-gradient(180deg, var(--color-primary-dark) 0%, #062f4a 100%);
+  --sidebar-decor: radial-gradient(120% 80% at 15% 0%, rgba(15, 155, 142, 0.42) 0%, rgba(15, 155, 142, 0) 58%),
+                   radial-gradient(90% 60% at 100% 100%, rgba(8, 145, 178, 0.34) 0%, rgba(8, 145, 178, 0) 60%);
+  --sidebar-image: url('/sidebar-bg.jpg');
+  /* Deliberately light: the photo is the point, so the veil only takes enough
+     contrast out of the bright cyan centre to stop it fighting the nav, and
+     the fish stay clearly visible. Legibility is carried by the text-shadow on
+     .sidebar rather than by drowning the artwork -- that's what lets this stay
+     this low. Raise the middle stop if labels are ever hard to read. */
+  --sidebar-scrim: linear-gradient(180deg,
+                     rgba(4, 26, 43, 0.62) 0%,
+                     rgba(4, 26, 43, 0.42) 45%,
+                     rgba(4, 26, 43, 0.68) 100%);
+
   /* Chart categorical series (species breakdowns) -- fixed hue order, validated
      for CVD-safe separation; --color-primary/--color-teal double as slots 1-2 */
   --chart-violet: #6d4aa7;
@@ -890,8 +917,22 @@ footer {
   min-height: 100vh;
 }
 
+/* Background layers, front to back: scrim (keeps text legible) over the
+   artwork over the base colour. Swap --sidebar-image to change the look for
+   every role at once -- see the variable definitions in :root.
+
+   The single position/repeat/size values apply to every layer (CSS cycles a
+   shorter list), which is what we want and avoids having to keep a per-layer
+   list in sync with --sidebar-decor's two gradients. 'scroll' pins the artwork
+   to the sidebar itself, so it stays put while a long nav list scrolls over
+   it -- 'local' would drag the photo along with the links, and 'fixed' would
+   anchor it to the viewport instead of this column. */
 .sidebar {
-  background: linear-gradient(180deg, var(--color-primary-dark) 0%, #062f4a 100%);
+  background-image: var(--sidebar-scrim), var(--sidebar-image), var(--sidebar-decor), var(--sidebar-base);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-attachment: scroll;
   color: white;
   display: flex;
   flex-direction: column;
@@ -901,7 +942,32 @@ footer {
   padding: 1.25rem 1rem;
   position: sticky;
   scrollbar-width: thin;
+  /* Carries legibility over the photo so --sidebar-scrim doesn't have to.
+     Shadowing the text costs the artwork nothing, whereas a veil heavy enough
+     to do the same job would wash the fish out entirely. Inherited by every
+     label in here. */
+  text-shadow: 0 1px 3px rgba(2, 14, 24, 0.9);
   top: 0;
+}
+
+/* Icons are strokes, not glyphs, so text-shadow misses them -- give them the
+   same lift so they don't dissolve into the bright part of the photo. */
+.sidebar svg {
+  filter: drop-shadow(0 1px 2px rgba(2, 14, 24, 0.9));
+}
+
+/* ...but anything sitting on its own opaque surface (the role badge, the
+   Logout button) is already legible and must opt out of both: the shadow is
+   inherited, and a dark blur under small dark text on a light pill just reads
+   as a blurred glyph. Only text laid directly over the photo wants it. */
+.sidebar .badge,
+.sidebar button {
+  text-shadow: none;
+}
+
+.sidebar .badge svg,
+.sidebar button svg {
+  filter: none;
 }
 
 .sidebar .brand {
@@ -974,14 +1040,17 @@ footer {
   transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
 }
 
+/* Hover/active sit directly on the photo, so both are opaque enough to read
+   as their own surface -- a 10%-white tint that worked over a flat colour
+   just looks like a smudge over moving artwork. */
 .side-nav a:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(4, 26, 43, 0.55);
   color: white;
   transform: translateX(2px);
 }
 
 .side-nav a.active {
-  background: var(--color-sidebar-active);
+  background: linear-gradient(90deg, rgba(15, 155, 142, 0.85) 0%, rgba(15, 155, 142, 0.6) 100%);
   border-left-color: var(--color-teal);
   color: white;
   font-weight: var(--fw-semibold);
@@ -1171,6 +1240,18 @@ footer {
   gap: 0.65rem;
 }
 
+/* An action card that has revealed an inline form (e.g. Rate Buyer on a
+   completed order): let the form drop onto its own full-width line instead of
+   being squeezed in beside the row's buttons. Scoped to the rows that opt in,
+   so every other .action card keeps its single-line layout. */
+.action-stacked {
+  flex-wrap: wrap;
+}
+
+.action-stacked .buyer-rate-form {
+  flex-basis: 100%;
+}
+
 .withdrawal-row {
   align-items: flex-start;
   flex-wrap: wrap;
@@ -1194,6 +1275,14 @@ footer {
 
 .action svg {
   color: var(--color-teal);
+}
+
+/* An icon inside a danger button follows that button's own colour rather than
+   the teal tint above -- otherwise the Trash2 in a red "Remove" reads teal
+   against its red label. currentColor (not a hardcoded red) so it stays right
+   on both .ghost.danger (red on pink) and .button.danger (white on red). */
+.action .danger svg {
+  color: currentColor;
 }
 
 .table {
@@ -2314,6 +2403,24 @@ a.activity-log-item:hover {
   padding: 1rem;
 }
 
+.ai-panel-head {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: space-between;
+}
+
+.ai-panel-head h3 {
+  margin: 0;
+}
+
+.ai-language-picker {
+  flex-shrink: 0;
+  font-size: var(--fs-xs);
+  padding: 0.3rem 0.45rem;
+  width: auto;
+}
+
 .chat-log {
   display: grid;
   gap: 0.5rem;
@@ -2517,6 +2624,29 @@ a.activity-log-item:hover {
   height: 56px;
   object-fit: cover;
   width: 56px;
+}
+
+.cart-item-main {
+  align-items: center;
+  display: flex;
+  gap: 0.8rem;
+}
+
+.cart-item-actions {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.cart-qty {
+  align-items: center;
+  color: var(--color-gray-700);
+  display: flex;
+  font-size: var(--fs-xs);
+  gap: 0.4rem;
+}
+
+.cart-qty input {
+  width: 88px;
 }
 
 .profile-image-uploads {

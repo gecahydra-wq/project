@@ -22,6 +22,7 @@ use App\Models\User;
 use App\Models\WithdrawalRequest;
 use App\Support\AccountModeration;
 use App\Support\ActivityLog;
+use App\Support\AuthValidation;
 use App\Support\ListingModeration;
 use App\Support\ImageUploader;
 use App\Support\OrderTransactionPresenter;
@@ -34,6 +35,25 @@ use Illuminate\Validation\Rule;
 
 class SuperAdminController extends Controller
 {
+    /**
+     * Enumerated reasons for permanently removing an account, mirrored by
+     * ACCOUNT_REMOVAL_REASONS in the frontend's Super Admin moderation UI.
+     *
+     * Deliberately narrower than the suspension reasons: removal is only ever
+     * possible for an account with no order history (see
+     * App\Support\AccountModeration::removeBuyer), so trade-related grounds
+     * like "Chargeback Abuse" can't apply here -- those are suspensions.
+     */
+    private const BUYER_REMOVAL_REASONS = [
+        'Spam Account', 'Fake or Duplicate Account', 'Fraudulent Registration',
+        'Marketplace Policy Violation', 'Requested by Account Owner', 'Other',
+    ];
+
+    private const SELLER_REMOVAL_REASONS = [
+        'Spam Account', 'Fake or Duplicate Account', 'Fraudulent Registration',
+        'Fake Hatchery Details', 'Marketplace Policy Violation', 'Requested by Account Owner', 'Other',
+    ];
+
     public function dashboard()
     {
         return response()->json([
@@ -337,13 +357,15 @@ class SuperAdminController extends Controller
 
     public function storeLguAdmin(Request $request)
     {
+        // Identical email + password validation to self-registration -- an
+        // account created by the Super Admin gets no weaker checks.
         $data = $request->validate([
             'name' => ['required', 'string'],
-            'email' => ['required', 'email', 'unique:users,email'],
-            'password' => ['required', 'min:8'],
+            'email' => AuthValidation::emailRules(unique: true),
+            'password' => AuthValidation::passwordRules(),
             'municipality_id' => ['required', 'exists:municipalities,id'],
             'phone' => ['nullable', 'string'],
-        ]);
+        ], AuthValidation::messages());
 
         $admin = User::create([
             ...$data,
@@ -523,6 +545,45 @@ class SuperAdminController extends Controller
         $seller = AccountModeration::reinstateSeller($seller, $request->user(), $data['reason'], $data['notes'] ?? null);
 
         return response()->json($seller);
+    }
+
+    /**
+     * Permanently remove a Buyer account, with a required reason -- the
+     * escalation beyond suspendBuyer() for accounts that should not exist at
+     * all (spam signups, duplicate/fake accounts). Only ever allowed for
+     * accounts with no order history; see App\Support\AccountModeration::removeBuyer,
+     * which enforces that and returns the 422 explaining why suspension is
+     * the right tool instead.
+     */
+    public function destroyBuyer(Request $request, User $user)
+    {
+        abort_unless($user->role === 'buyer', 404);
+        abort_if($user->id === $request->user()->id, 422, 'You cannot remove your own account.');
+
+        $data = $request->validate([
+            'reason' => ['required', Rule::in(self::BUYER_REMOVAL_REASONS)],
+            'notes' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        AccountModeration::removeBuyer($user, $request->user(), $data['reason'], $data['notes'] ?? null);
+
+        return response()->json(['message' => 'Buyer account removed.']);
+    }
+
+    /**
+     * Permanently remove a Seller account and its hatchery profile, with a
+     * required reason. Same rules as destroyBuyer() above.
+     */
+    public function destroySeller(Request $request, SellerProfile $seller)
+    {
+        $data = $request->validate([
+            'reason' => ['required', Rule::in(self::SELLER_REMOVAL_REASONS)],
+            'notes' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        AccountModeration::removeSeller($seller, $request->user(), $data['reason'], $data['notes'] ?? null);
+
+        return response()->json(['message' => 'Seller account removed.']);
     }
 
     public function users()

@@ -7,13 +7,26 @@ use App\Models\AiConversation;
 use App\Models\AiUsageEvent;
 use App\Services\GeminiService;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class AiAssistantController extends Controller
 {
+    /**
+     * The languages the assistant can be pinned to. Must match the keys the
+     * scripted knowledge base and fallbacks are written in (see
+     * App\Support\AiIntentClassifier) and what App\Support\AiLanguageDetector
+     * returns, since a pinned language flows to the same places a detected one
+     * does.
+     */
+    public const LANGUAGES = ['English', 'Tagalog', 'Bisaya'];
+
     public function ask(Request $request, GeminiService $gemini)
     {
         $data = $request->validate([
             'question' => ['required', 'string', 'max:2000'],
+            // Optional: omit (or send null) to keep the original behaviour of
+            // detecting the language from the message itself.
+            'language' => ['nullable', 'string', Rule::in(self::LANGUAGES)],
         ]);
 
         $user = $request->user();
@@ -30,7 +43,7 @@ class AiAssistantController extends Controller
             ->values();
 
         $startedAt = microtime(true);
-        $answer = $gemini->answer($data['question'], 'English', $user, $history->all());
+        $answer = $gemini->answer($data['question'], 'English', $user, $history->all(), $data['language'] ?? null);
         $responseTimeMs = (int) round((microtime(true) - $startedAt) * 1000);
 
         $conversation = AiConversation::create([

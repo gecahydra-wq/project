@@ -53,10 +53,20 @@ class SellerWallet
      * using *today's* commission settings -- once approved, the real
      * settlement is created and this projection is superseded by
      * settledSellerShareTotal(), which is why this must never be persisted.
+     *
+     * Orders the LGU has rejected are excluded: their payment deliberately
+     * stays 'paid_held' (see LguController::rejectEarnings), but they will
+     * never produce a Settlement while rejected, so counting them would show
+     * the seller a Pending Balance -- and a Total Earnings -- containing money
+     * that isn't coming. If an LGU reopens the rejection
+     * (LguController::reopenRejectedEarnings), the order becomes reviewable
+     * again and its projection reappears here.
      */
     public static function pendingBalance(SellerProfile $seller): float
     {
-        $unsettledGross = (float) MockPayment::whereHas('order', fn ($q) => $q->where('seller_profile_id', $seller->id))
+        $unsettledGross = (float) MockPayment::whereHas('order', fn ($q) => $q
+            ->where('seller_profile_id', $seller->id)
+            ->where(fn ($q2) => $q2->whereNull('lgu_review_status')->orWhere('lgu_review_status', '!=', 'rejected')))
             ->where('status', 'paid_held')
             ->sum('amount');
 

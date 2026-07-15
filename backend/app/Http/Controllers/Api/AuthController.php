@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\BuyerProfile;
 use App\Models\SellerProfile;
 use App\Models\User;
+use App\Support\AuthValidation;
 use App\Support\SafeMailer;
 use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Http\Request;
@@ -35,16 +36,17 @@ class AuthController extends Controller
      */
     public function register(Request $request)
     {
+        // Email and password rules come from the shared AuthValidation helper so
+        // registration validates identically to login, change-password, and
+        // Super-Admin LGU-admin creation.
         $data = $request->validate([
             'name' => ['required', 'string'],
-            'email' => ['required', 'email', 'unique:users,email'],
-            'password' => ['required', 'min:8'],
+            'email' => AuthValidation::emailRules(unique: true),
+            'password' => AuthValidation::passwordRules(),
             'role' => ['required', Rule::in(['buyer', 'seller'])],
             'municipality_id' => [Rule::requiredIf(fn () => $request->input('role') === 'seller'), 'nullable', 'exists:municipalities,id'],
             'phone' => ['nullable', 'string'],
-        ], [
-            'email.unique' => 'This email address is already registered.',
-        ]);
+        ], AuthValidation::messages());
 
         $user = User::create($data);
 
@@ -92,10 +94,22 @@ class AuthController extends Controller
      */
     public function login(Request $request)
     {
+        // Trim accidental leading/trailing spaces the user may have typed or
+        // pasted around their password (the global TrimStrings middleware skips
+        // password fields). A valid stored password never contains whitespace,
+        // so this only ever helps -- and any *internal* space is then rejected
+        // below with a friendly message instead of a confusing "invalid".
+        if (is_string($request->input('password'))) {
+            $request->merge(['password' => trim($request->input('password'))]);
+        }
+
+        // Same shared email rules as registration (trimmed, valid, no spaces);
+        // password is only checked for presence and whitespace here, never for
+        // strength, so existing accounts can always sign in.
         $data = $request->validate([
-            'email' => ['required', 'email'],
-            'password' => ['required'],
-        ]);
+            'email' => AuthValidation::emailRules(),
+            'password' => AuthValidation::loginPasswordRules(),
+        ], AuthValidation::messages());
 
         $user = User::where('email', $data['email'])->first();
 
@@ -153,8 +167,9 @@ class AuthController extends Controller
     {
         $data = $request->validate([
             'current_password' => ['required'],
-            'password' => ['required', 'min:8'],
-        ]);
+            // New password: same shared policy as registration.
+            'password' => AuthValidation::passwordRules(),
+        ], AuthValidation::messages());
 
         $user = $request->user();
 

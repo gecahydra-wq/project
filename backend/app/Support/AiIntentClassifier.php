@@ -209,9 +209,9 @@ class AiIntentClassifier
         [
             'category' => 'Orders',
             'keywords' => ['order status', 'my order', 'orders', 'track'],
-            'English' => 'Your Orders tab lists every purchase with its current status: placed, confirmed, in-transit, or completed. Each order shows the seller, listing, quantity, and payment status, and a completed order unlocks the review option.',
-            'Tagalog' => 'Ang Orders tab mo ay naglilista ng bawat binili mo kasama ang kasalukuyang status: placed, confirmed, in-transit, o completed. Ipinapakita ng bawat order ang seller, listing, dami, at status ng bayad, at ang completed order ay nagbubukas ng review option.',
-            'Bisaya' => 'Ang imong Orders tab naglista sa matag palit nimo uban ang karon nga status: placed, confirmed, in-transit, o completed. Gipakita sa matag order ang seller, listing, kantidad, ug status sa bayad, ug ang completed nga order moabli sa review option.',
+            'English' => 'Your Orders tab lists every purchase with its current status: placed, confirmed, out for delivery, or completed. Each order shows the seller, listing, and quantity, and a completed order unlocks the review option.',
+            'Tagalog' => 'Ang Orders tab mo ay naglilista ng bawat binili mo kasama ang kasalukuyang status: placed, confirmed, out for delivery, o completed. Ipinapakita ng bawat order ang seller, listing, at dami, at ang completed order ay nagbubukas ng review option.',
+            'Bisaya' => 'Ang imong Orders tab naglista sa matag palit nimo uban ang karon nga status: placed, confirmed, out for delivery, o completed. Gipakita sa matag order ang seller, listing, ug kantidad, ug ang completed nga order moabli sa review option.',
             'roles' => [
                 'seller' => [
                     'English' => 'Your Orders tab lists every order placed against your listings. Update each one\'s status -- confirmed, in-transit, completed -- as you fulfill it; marking an order completed is also what makes its payment eligible for your LGU\'s earnings approval.',

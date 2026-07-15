@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\AiAssistantController;
 use App\Http\Controllers\Api\AnnouncementController;
 use App\Http\Controllers\Api\BuyerController;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\CartController;
 use App\Http\Controllers\Api\EmailVerificationController;
 use App\Http\Controllers\Api\GoogleAuthController;
 use App\Http\Controllers\Api\LguController;
@@ -68,6 +69,13 @@ Route::middleware(['auth:sanctum', 'verified', 'role:buyer'])->group(function ()
     Route::patch('buyer/notifications/read-all', [BuyerController::class, 'markAllNotificationsRead']);
     Route::patch('buyer/notifications/{notification}/read', [BuyerController::class, 'markNotificationRead']);
     Route::get('buyer/analytics', [BuyerController::class, 'analytics']);
+    // "Buy later" cart -- saved listings only. Checkout still goes through
+    // POST /orders + /orders/{order}/checkout below; see CartController.
+    Route::get('cart', [CartController::class, 'index']);
+    Route::post('cart', [CartController::class, 'store']);
+    Route::patch('cart/{item}', [CartController::class, 'update']);
+    Route::delete('cart/{item}', [CartController::class, 'destroy']);
+    Route::delete('cart', [CartController::class, 'clear']);
     Route::post('orders', [OrderController::class, 'store']);
     Route::post('orders/{order}/checkout', [OrderController::class, 'checkout']);
     Route::post('orders/{order:order_number}/payment-success', [OrderController::class, 'markPaymentSuccess']);
@@ -149,11 +157,15 @@ Route::prefix('lgu')->middleware(['auth:sanctum', 'verified', 'role:lgu_admin'])
     Route::get('reports', [PlatformController::class, 'lguReports']);
     Route::get('reports/export', [PlatformController::class, 'exportLguReport']);
     Route::get('earnings', [LguController::class, 'pendingEarnings']);
+    // Rejected-but-still-held transactions, and the way back out of a
+    // rejection -- see LguController::reopenRejectedEarnings.
+    Route::get('earnings/rejected', [LguController::class, 'rejectedEarnings']);
     Route::get('orders/{order:order_number}', [LguController::class, 'showOrder']);
     Route::patch('payments/{payment}/approve', [LguController::class, 'approveEarnings']);
     Route::patch('payments/{payment}/hold', [LguController::class, 'holdEarnings']);
     Route::patch('payments/{payment}/clear-hold', [LguController::class, 'clearHold']);
     Route::patch('payments/{payment}/reject', [LguController::class, 'rejectEarnings']);
+    Route::patch('payments/{payment}/reopen', [LguController::class, 'reopenRejectedEarnings']);
     Route::patch('notifications/{notification}/read', [LguController::class, 'markNotificationRead']);
     Route::post('profile/picture', [LguController::class, 'uploadProfilePicture']);
     Route::delete('profile/picture', [LguController::class, 'removeProfilePicture']);
@@ -179,9 +191,11 @@ Route::prefix('super-admin')->middleware(['auth:sanctum', 'verified', 'role:supe
     Route::get('sellers', [PlatformController::class, 'sellers']);
     Route::patch('sellers/{seller}/suspend', [SuperAdminController::class, 'suspendSeller']);
     Route::patch('sellers/{seller}/reinstate', [SuperAdminController::class, 'reinstateSeller']);
+    Route::delete('sellers/{seller}', [SuperAdminController::class, 'destroySeller']);
     Route::get('users', [SuperAdminController::class, 'users']);
     Route::patch('buyers/{user}/suspend', [SuperAdminController::class, 'suspendBuyer']);
     Route::patch('buyers/{user}/reinstate', [SuperAdminController::class, 'reinstateBuyer']);
+    Route::delete('buyers/{user}', [SuperAdminController::class, 'destroyBuyer']);
     Route::get('moderation-log', [SuperAdminController::class, 'moderationLog']);
     Route::get('reviews', [PlatformController::class, 'superReviews']);
     Route::delete('reviews/{review}', [SuperAdminController::class, 'destroyReview']);

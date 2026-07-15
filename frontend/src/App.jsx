@@ -35,6 +35,7 @@ import {
   Search,
   ShieldAlert,
   ShieldCheck,
+  ShoppingBag,
   ShoppingCart,
   Star,
   Store,
@@ -150,13 +151,19 @@ function withdrawalMethodLabel(method) {
 }
 
 /**
- * Turns an axios error from an auth endpoint into a message a user should
- * actually see -- never a raw framework/validation-exception string. Prefers
- * the first field-specific Laravel validation message (e.g. "This email
- * address is already registered.") over the generic top-level "The given
- * data was invalid." that Laravel returns when multiple fields fail.
+ * Turns an axios error into a message a user should actually see -- never a
+ * raw framework/validation-exception string. Prefers the first field-specific
+ * Laravel validation message (e.g. "This email address is already
+ * registered.") over the top-level summary Laravel returns when several
+ * fields fail, which reads like "The account name field is required. (and 2
+ * more errors)" and tells the user nothing about the other two.
+ *
+ * Forms that can fail on several fields at once should still check for empty
+ * required inputs before submitting (see REQUIRED_FIELDS_MESSAGE), so the
+ * common "submitted a blank form" case never has to be described one field at
+ * a time.
  */
-function authErrorMessage(err, fallback = 'Something went wrong. Please try again.') {
+function apiErrorMessage(err, fallback = 'Something went wrong. Please try again.') {
   if (!err?.response) {
     return 'Cannot reach the FishMarket server right now. Please check your connection and try again.'
   }
@@ -165,6 +172,26 @@ function authErrorMessage(err, fallback = 'Something went wrong. Please try agai
   if (Array.isArray(firstFieldError) && firstFieldError[0]) return firstFieldError[0]
   if (typeof data?.message === 'string' && data.message) return data.message
   return fallback
+}
+
+const REQUIRED_FIELDS_MESSAGE = 'Please fill in all required fields.'
+
+/**
+ * True when a withdrawal form is missing anything the server requires, so the
+ * form can say "fill in all required fields" once instead of submitting a
+ * blank form and getting back a one-field-at-a-time validation summary.
+ *
+ * This is a UX shortcut, never the authority -- the same rules are enforced
+ * server-side (see SellerController::requestWithdrawal and
+ * LguController::requestWithdrawal), which also own the checks the client
+ * can't make, like the available-balance ceiling.
+ */
+function withdrawalFormIsIncomplete(form) {
+  return !form.method
+    || !form.account_name.trim()
+    || !form.account_number.trim()
+    || !String(form.amount).trim()
+    || Number(form.amount) <= 0
 }
 
 const BADGE_TONES = {
@@ -190,6 +217,21 @@ const BADGE_TONES = {
 
 function badgeTone(status) {
   return BADGE_TONES[String(status || '').toLowerCase().replace(/\s+/g, '_')] || 'neutral'
+}
+
+/**
+ * Display labels for status values whose stored name doesn't read the way it
+ * should on screen. The stored value is never touched -- orders.status stays
+ * 'in_transit' -- so this is purely what humans see, and only statuses listed
+ * here differ from the default Title Case of their raw value (see
+ * statusChartLabel, the single place this is applied).
+ *
+ * 'in_transit' reads "Out for Delivery" to match what the backend has always
+ * called that stage on the order timeline and delivery status (see
+ * App\Support\OrderTimeline and App\Support\OrderTransactionPresenter).
+ */
+const STATUS_LABELS = {
+  in_transit: 'Out for Delivery',
 }
 
 function Badge({ status, tone, children }) {
@@ -337,7 +379,7 @@ function AppShell({ user, children }) {
   const tab = searchParams.get('tab') || 'overview'
   const homeRoute = roleRoutes[user.role] || '/'
   const menu = {
-    buyer: [['Dashboard', '/buyer/dashboard?tab=overview', LayoutDashboard], ['Browse', '/buyer/dashboard?tab=browse', Search], ['Orders', '/buyer/dashboard?tab=orders', ShoppingCart], ['Messages', '/buyer/dashboard?tab=messages', MessageCircle], ['Notifications', '/buyer/dashboard?tab=notifications', Bell], ['Analytics', '/buyer/dashboard?tab=analytics', BarChart3], ['AI Assistant', '/buyer/dashboard?tab=ai', Bot], ['Profile', '/buyer/dashboard?tab=settings', ShieldCheck]],
+    buyer: [['Dashboard', '/buyer/dashboard?tab=overview', LayoutDashboard], ['Browse', '/buyer/dashboard?tab=browse', Search], ['Cart', '/buyer/dashboard?tab=cart', ShoppingBag], ['Orders', '/buyer/dashboard?tab=orders', ShoppingCart], ['Messages', '/buyer/dashboard?tab=messages', MessageCircle], ['Notifications', '/buyer/dashboard?tab=notifications', Bell], ['Analytics', '/buyer/dashboard?tab=analytics', BarChart3], ['AI Assistant', '/buyer/dashboard?tab=ai', Bot], ['Profile', '/buyer/dashboard?tab=settings', ShieldCheck]],
     seller: [['Dashboard', '/seller/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/seller/dashboard?tab=marketplace', Search], ['Listings', '/seller/dashboard?tab=listings', Store], ['Orders', '/seller/dashboard?tab=orders', ShoppingCart], ['Messages', '/seller/dashboard?tab=messages', MessageCircle], ['Wallet', '/seller/dashboard?tab=wallet', Wallet], ['Notifications', '/seller/dashboard?tab=notifications', Bell], ['Analytics', '/seller/dashboard?tab=analytics', BarChart3], ['Profile', '/seller/dashboard?tab=profile', ShieldCheck]],
     lgu_admin: [['Dashboard', '/lgu/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/lgu/dashboard?tab=marketplace', Search], ['Listing Management', '/lgu/dashboard?tab=listings', Store], ['Approvals', '/lgu/dashboard?tab=approvals', CheckCircle], ['Sellers', '/lgu/dashboard?tab=sellers', ShieldCheck], ['Seller Earnings', '/lgu/dashboard?tab=earnings', Wallet], ['LGU Wallet', '/lgu/dashboard?tab=wallet', Wallet], ['Messages', '/lgu/dashboard?tab=messages', MessageCircle], ['Notifications', '/lgu/dashboard?tab=notifications', Bell], ['Reports', '/lgu/dashboard?tab=reports', BarChart3], ['Activity Log', '/lgu/dashboard?tab=activity-log', History], ['Reviews & Ratings', '/lgu/dashboard?tab=reviews', Star], ['Users', '/lgu/dashboard?tab=users', UsersIcon], ['Profile', '/lgu/dashboard?tab=profile', CircleUserRound]],
     super_admin: [['Dashboard', '/admin/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/admin/dashboard?tab=marketplace', Search], ['Listing Management', '/admin/dashboard?tab=listings', Store], ['LGU Admins', '/admin/dashboard?tab=lgu-admins', ShieldCheck], ['Sellers', '/admin/dashboard?tab=sellers', Store], ['Users', '/admin/dashboard?tab=users', UsersIcon], ['Reviews & Ratings', '/admin/dashboard?tab=reviews', Star], ['Transactions', '/admin/dashboard?tab=transactions', Wallet], ['Payout Management', '/admin/dashboard?tab=payouts', Wallet], ['Municipalities', '/admin/dashboard?tab=municipalities', MapPin], ['Announcements', '/admin/dashboard?tab=announcements', Megaphone], ['Messages', '/admin/dashboard?tab=messages', MessageCircle], ['Notifications', '/admin/dashboard?tab=notifications', Bell], ['Moderation Log', '/admin/dashboard?tab=moderation', ShieldAlert], ['Activity Log', '/admin/dashboard?tab=activity-log', History], ['Reports', '/admin/dashboard?tab=reports', BarChart3], ['Profile', '/admin/dashboard?tab=profile', CircleUserRound]],
@@ -533,7 +575,7 @@ function ListingCard({ item, mode = 'public', onSelect, detailPath }) {
   )
 }
 
-function ListingDetailPanel({ item, isBuyer = false, checkout, qty, setQty, onPay }) {
+function ListingDetailPanel({ item, isBuyer = false, checkout, qty, setQty, onPay, addToCart }) {
   const navigate = useNavigate()
   const session = getSession()
   const outOfStock = Number(item.quantity) <= 0
@@ -580,8 +622,19 @@ function ListingDetailPanel({ item, isBuyer = false, checkout, qty, setQty, onPa
           )}
           <div className="checkout-bar">
             <strong>Total: {currency(outOfStock ? 0 : safeQty * item.price)}</strong>
+            {addToCart && (
+              <button className="ghost" type="button" disabled={outOfStock || addToCart.isPending} onClick={() => addToCart.mutate(safeQty)}>
+                <ShoppingBag size={16} /> {addToCart.isPending ? 'Adding...' : 'Add to Cart'}
+              </button>
+            )}
             <button onClick={onPay} type="button" disabled={outOfStock}>{outOfStock ? 'Out of Stock' : 'Pay with PayMongo'}</button>
           </div>
+          {addToCart?.isSuccess && (
+            <p className="helper-text">
+              Saved to your cart. <Link to="/buyer/dashboard?tab=cart">View cart</Link>
+            </p>
+          )}
+          {addToCart?.error && <p className="error">{addToCart.error.response?.data?.message || 'Could not add this listing to your cart.'}</p>}
           {checkout?.error && <p className="error">{checkout.error.message}</p>}
         </>
       )}
@@ -849,6 +902,10 @@ function BuyerListingDetailPage() {
     },
     onSuccess: (data) => window.location.assign(data.checkout_url),
   })
+  const addToCart = useMutation({
+    mutationFn: async (quantity) => (await api.post('/cart', { fingerling_listing_id: item.id, quantity })).data,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['buyer-cart'] }),
+  })
 
   if (isLoading) return <main className="detail-page"><LoadingState label="Loading listing..." /></main>
   if (isError || !item) return <main className="auth-page"><section className="result-card"><h1>Listing not found</h1><p>This listing may have been removed or is no longer available.</p><Link className="button" to={`/buyer/dashboard?tab=${sourceTab}`}>Back to Browse</Link></section></main>
@@ -857,8 +914,8 @@ function BuyerListingDetailPage() {
     <main className="detail-page">
       <img className="detail-art" src={resolveListingImage(item)} alt={item.title || item.species} />
       <div className="detail-stack">
-        <ListingDetailPanel item={item} isBuyer checkout={buyListing} qty={qty} setQty={setQty} onPay={() => buyListing.mutate()} />
-        <Link className="ghost" to={`/buyer/dashboard?tab=${sourceTab}`}>Back to Browse</Link>
+        <ListingDetailPanel item={item} isBuyer checkout={buyListing} qty={qty} setQty={setQty} onPay={() => buyListing.mutate()} addToCart={addToCart} />
+        <Link className="ghost" to={`/buyer/dashboard?tab=${sourceTab}`}>{sourceTab === 'cart' ? 'Back to Cart' : 'Back to Browse'}</Link>
       </div>
     </main>
   )
@@ -900,7 +957,10 @@ function VerificationNotice({ email, lead }) {
 }
 
 function LoginPage() {
-  const { register, handleSubmit } = useForm({ defaultValues: { email: '', password: '' } })
+  const { register, handleSubmit, formState: { errors } } = useForm({ defaultValues: { email: '', password: '' } })
+  // Strip whitespace from the password as it's typed/pasted, exactly like the
+  // registration form -- see blockSpaceKey/stripSpaces above.
+  const passwordField = register('password')
   const navigate = useNavigate()
   const location = useLocation()
   const [searchParams] = useSearchParams()
@@ -918,13 +978,13 @@ function LoginPage() {
         return data
       } catch (err) {
         if (err.response) {
-          throw new Error(authErrorMessage(err, 'Invalid email or password.'), { cause: err })
+          throw new Error(apiErrorMessage(err, 'Invalid email or password.'), { cause: err })
         }
         // No response at all (backend unreachable) -- fall back to the
         // built-in demo accounts (LGU/Super Admin) so the app stays usable
         // for a quick look without a running API, same as before.
         const user = demoUsers[values.email]
-        if (!user) throw new Error(authErrorMessage(err), { cause: err })
+        if (!user) throw new Error(apiErrorMessage(err), { cause: err })
         return { user, token: `demo-${user.role}` }
       }
     },
@@ -950,9 +1010,16 @@ function LoginPage() {
 
   return (
     <AuthCard title="Login" subtitle="One account gateway for all FishMarket roles.">
-      <form onSubmit={handleSubmit((v) => login.mutate(v))} className="form">
-        <input {...register('email')} placeholder="Email" />
-        <input {...register('password')} type="password" placeholder="Password" />
+      <form onSubmit={handleSubmit((v) => login.mutate({ email: (v.email || '').trim(), password: stripSpaces(v.password) }))} className="form">
+        <input {...register('email', { validate: (value) => validateEmail(value) || true })} placeholder="Email" />
+        <input
+          {...passwordField}
+          type="password"
+          placeholder="Password"
+          onKeyDown={blockSpaceKey}
+          onChange={(e) => { e.target.value = stripSpaces(e.target.value); passwordField.onChange(e) }}
+        />
+        {errors.email && <p className="error">{errors.email.message}</p>}
         <button type="submit" disabled={login.isPending}>{login.isPending ? 'Logging in...' : 'Login'}</button>
         {login.error && <p className="error">{login.error.message}</p>}
         {searchParams.get('google_error') && <p className="error">Google sign-in didn't go through. Please try again or use your email and password.</p>}
@@ -965,10 +1032,55 @@ function LoginPage() {
   )
 }
 
+// Passwords may not contain whitespace. blockSpaceKey stops the space key from
+// typing anything; stripSpaces removes any whitespace that slips in via paste
+// or autofill. Applied to every password field -- including login -- so the
+// behaviour is identical everywhere. This is safe: registration has always
+// forbidden whitespace in passwords, so no stored password contains any and
+// stripping it on login can never lock a real account out.
+function blockSpaceKey(e) {
+  if (e.key === ' ') e.preventDefault()
+}
+
+function stripSpaces(value) {
+  return (value || '').replace(/\s/g, '')
+}
+
+// Shared password policy -- mirrors App\Rules\StrongPassword on the backend so
+// the same rules and messages are enforced client-side before submitting.
+// Returns a user-facing error message, or '' when the password is valid.
+const PASSWORD_HELP = 'Use 8-64 characters with an uppercase letter, a lowercase letter, a number, and a special character. No spaces.'
+
+function validatePassword(value) {
+  const v = value || ''
+  if (/\s/.test(v)) return 'Password cannot contain spaces.'
+  if (v.length < 8) return 'Password must be at least 8 characters.'
+  if (v.length > 64) return 'Password must be at most 64 characters.'
+  if (!/[A-Z]/.test(v)) return 'Password must contain an uppercase letter.'
+  if (!/[a-z]/.test(v)) return 'Password must contain a lowercase letter.'
+  if (!/[0-9]/.test(v)) return 'Password must contain a number.'
+  if (!/[^A-Za-z0-9]/.test(v)) return 'Password must contain a special character.'
+  return ''
+}
+
+// Shared email policy -- mirrors App\Support\AuthValidation on the backend.
+// Leading/trailing spaces are trimmed first (the backend trims them too), then
+// any internal space is rejected, then the basic address format is checked.
+// Returns a user-facing error message, or '' when the email is valid.
+function validateEmail(value) {
+  const v = (value || '').trim()
+  if (/\s/.test(v)) return 'Email address must not contain spaces.'
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return 'Please enter a valid email address.'
+  return ''
+}
+
 function RegisterPage() {
   const { register, handleSubmit, watch, formState: { errors } } = useForm({ defaultValues: { role: 'buyer', municipality_id: '' } })
   const role = watch('role')
   const isSeller = role === 'seller'
+  const passwordField = register('password', {
+    validate: (value) => validatePassword(value) || true,
+  })
   const municipalitiesQuery = useQuery({
     queryKey: ['municipalities'],
     queryFn: async () => (await api.get('/municipalities')).data,
@@ -980,12 +1092,12 @@ function RegisterPage() {
     mutationFn: async (values) => {
       // Buyers/Farmers don't have a municipality -- never send the field
       // for them, even if a stale value lingers from switching roles.
-      const payload = { ...values }
+      const payload = { ...values, email: (values.email || '').trim() }
       if (payload.role !== 'seller') delete payload.municipality_id
       try {
         return (await api.post('/auth/register', payload)).data
       } catch (err) {
-        throw new Error(authErrorMessage(err, 'Could not create your account. Please try again.'), { cause: err })
+        throw new Error(apiErrorMessage(err, 'Could not create your account. Please try again.'), { cause: err })
       }
     },
     onSuccess: (data) => setRegisteredEmail(data.user?.email || null),
@@ -1003,8 +1115,17 @@ function RegisterPage() {
     <AuthCard title="Register" subtitle="Registration is available only for buyers and sellers.">
       <form onSubmit={handleSubmit((v) => registerUser.mutate(v))} className="form">
         <input {...register('name')} placeholder="Full name / Hatchery name" />
-        <input {...register('email')} placeholder="Email" />
-        <input {...register('password')} type="password" placeholder="Password" />
+        <input {...register('email', { validate: (value) => validateEmail(value) || true })} placeholder="Email" />
+        {errors.email && <p className="error">{errors.email.message}</p>}
+        <input
+          {...passwordField}
+          type="password"
+          placeholder="Password"
+          onKeyDown={blockSpaceKey}
+          onChange={(e) => { e.target.value = stripSpaces(e.target.value); passwordField.onChange(e) }}
+        />
+        <p className="helper-text">{PASSWORD_HELP}</p>
+        {errors.password && <p className="error">{errors.password.message}</p>}
         <select {...register('role')}><option value="buyer">Buyer / Fish Farmer</option><option value="seller">Seller / Hatchery</option></select>
         {isSeller && (
           <>
@@ -1099,6 +1220,166 @@ function AuthCard({ title, subtitle, children }) {
   )
 }
 
+/**
+ * One saved line in the Buyer's cart. Quantity edits are committed on blur
+ * rather than on every keystroke, so typing "150" doesn't fire three PATCHes
+ * (and three stock checks) on the way there.
+ */
+function CartItemRow({ item, onUpdateQuantity, onRemove, onBuy, busy }) {
+  const [qty, setQty] = useState(item.quantity)
+  // Re-sync the input when the server's quantity changes under us -- e.g. a
+  // rejected over-stock edit, which snaps the field back to what's actually
+  // saved. Adjusting state during render (rather than in an effect) is the
+  // supported way to do this; it re-renders before anything is painted.
+  const [syncedQuantity, setSyncedQuantity] = useState(item.quantity)
+  if (item.quantity !== syncedQuantity) {
+    setSyncedQuantity(item.quantity)
+    setQty(item.quantity)
+  }
+  const listing = item.listing
+
+  const commitQuantity = () => {
+    const next = Math.max(1, Number(qty) || 1)
+    if (next === item.quantity) return
+    onUpdateQuantity(next)
+  }
+
+  return (
+    <div className="card action">
+      <div className="cart-item-main">
+        <img className="listing-thumb" src={resolveListingImage(listing)} alt={listing?.title || 'Listing'} />
+        <div>
+          <div className="card-row">
+            <strong>{listing?.id ? <Link to={`/buyer/listings/${listing.id}?source=cart`}>{listing.title}</Link> : (listing?.title || 'Listing no longer available')}</strong>
+            {!item.available && <Badge tone="danger">Unavailable</Badge>}
+          </div>
+          <p className="muted">
+            {listing?.sellerProfile?.hatchery_name || 'Unknown seller'}
+            {listing?.municipality?.name ? ` · ${listing.municipality.name}` : ''} · {currency(item.unit_price)}/pc
+          </p>
+          {item.issue && <p className="error">{item.issue}</p>}
+        </div>
+      </div>
+      <div className="row-actions cart-item-actions">
+        <label className="cart-qty">
+          Qty
+          <input
+            type="number"
+            min="1"
+            max={listing?.quantity || undefined}
+            value={qty}
+            onChange={(e) => setQty(e.target.value)}
+            onBlur={commitQuantity}
+          />
+        </label>
+        <strong>{currency(item.line_total)}</strong>
+        <button type="button" disabled={!item.available || busy} onClick={onBuy}>
+          {busy ? 'Starting...' : 'Buy Now'}
+        </button>
+        <button type="button" className="ghost danger" onClick={onRemove}><Trash2 size={15} /> Remove</button>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The Buyer's "buy later" cart -- a shortlist of saved listings, NOT a
+ * separate way to buy.
+ *
+ * Nothing here is reserved: saving a listing doesn't hold stock, so a saved
+ * item can sell out or be taken down, and the backend re-checks price and
+ * availability on every read (see CartController). Buy Now hands off to the
+ * exact same place-order-then-checkout flow as buying from a listing page --
+ * one order per listing, because an order IS a single listing in this system
+ * (see App\Http\Controllers\Api\OrderController). That's also why there's no
+ * "check out everything" button: it would have to silently fan out into N
+ * orders and N PayMongo sessions, which isn't what a combined total implies.
+ */
+function CartPanel() {
+  const [buyingId, setBuyingId] = useState(null)
+
+  const cart = useQuery({
+    queryKey: ['buyer-cart'],
+    queryFn: async () => (await api.get('/cart')).data,
+    retry: false,
+    placeholderData: { items: [], subtotal: 0, count: 0 },
+  })
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['buyer-cart'] })
+
+  const updateQuantity = useMutation({
+    mutationFn: async ({ id, quantity }) => (await api.patch(`/cart/${id}`, { quantity })).data,
+    onSuccess: invalidate,
+    onError: invalidate,
+  })
+  const removeItem = useMutation({
+    mutationFn: async (id) => (await api.delete(`/cart/${id}`)).data,
+    onSuccess: invalidate,
+  })
+  const clearCart = useMutation({
+    mutationFn: async () => (await api.delete('/cart')).data,
+    onSuccess: invalidate,
+  })
+
+  // Mirrors BuyerListingDetailPage's buy flow exactly: place the order, then
+  // start checkout and hand the buyer to PayMongo. The cart line is dropped
+  // once the order exists -- from that point the order itself is the record,
+  // and leaving it saved would invite a duplicate order on the way back.
+  const buyNow = useMutation({
+    mutationFn: async (item) => {
+      const order = await api.post('/orders', { fingerling_listing_id: item.listing.id, quantity: item.quantity })
+      await api.delete(`/cart/${item.id}`).catch(() => {})
+      return (await api.post(`/orders/${order.data.id}/checkout`)).data
+    },
+    onSuccess: (data) => window.location.assign(data.checkout_url),
+    onError: () => { setBuyingId(null); invalidate() },
+  })
+
+  const items = cart.data?.items || []
+
+  return (
+    <Section
+      title="Cart"
+      actions={items.length ? (
+        <button type="button" className="ghost" onClick={() => { if (window.confirm('Remove every saved item from your cart?')) clearCart.mutate() }}>
+          Clear Cart
+        </button>
+      ) : null}
+    >
+      <p className="helper-text">Listings you&apos;ve saved to buy later. Saving doesn&apos;t reserve stock or hold the price -- both are checked again when you buy, and each item checks out as its own order.</p>
+      {cart.isLoading && <LoadingState label="Loading your cart..." />}
+      {buyNow.isError && <p className="error">{buyNow.error?.response?.data?.message || 'Could not start checkout for that item.'}</p>}
+      {updateQuantity.isError && <p className="error">{updateQuantity.error?.response?.data?.message || 'Could not update that quantity.'}</p>}
+      {items.length ? (
+        <>
+          <div className="item-list">
+            {items.map((item) => (
+              <CartItemRow
+                key={item.id}
+                item={item}
+                busy={buyingId === item.id}
+                onUpdateQuantity={(quantity) => updateQuantity.mutate({ id: item.id, quantity })}
+                onRemove={() => removeItem.mutate(item.id)}
+                onBuy={() => { setBuyingId(item.id); buyNow.mutate(item) }}
+              />
+            ))}
+          </div>
+          <div className="checkout-bar">
+            <strong>Available items total: {currency(cart.data?.subtotal ?? 0)}</strong>
+            <span className="helper-text">Each item is paid for separately.</span>
+          </div>
+        </>
+      ) : !cart.isLoading && (
+        <EmptyState
+          icon={ShoppingBag}
+          title="Your cart is empty"
+          message="Browse the marketplace and use Add to Cart to save fingerlings you want to buy later."
+        />
+      )}
+    </Section>
+  )
+}
+
 function BuyerDashboard() {
   const [searchParams] = useSearchParams()
   const tab = searchParams.get('tab') || 'overview'
@@ -1170,7 +1451,7 @@ function BuyerDashboard() {
         <>
           <AnnouncementBanner />
           <StatsRow items={[['Active Orders', data?.active_orders ?? 0], ['Completed Orders', data?.completed_orders ?? 0], ['Unread Messages', data?.unread_messages ?? 0]]} />
-          <Section title="Recent Orders"><OrderTable rows={orders} onReview={handleReview} /></Section>
+          <Section title="Recent Orders"><OrderTable rows={orders} onReview={handleReview} showPaymentStatus={false} /></Section>
           <Section title="Notifications"><NotificationStack notifications={notifications.slice(0, 3)} onMarkRead={handleMarkRead} /></Section>
         </>
       )}
@@ -1179,6 +1460,7 @@ function BuyerDashboard() {
           <MarketplaceBrowser detailPath={(item) => `/buyer/listings/${item.id}?source=browse`} />
         </Section>
       )}
+      {tab === 'cart' && <CartPanel />}
       {tab === 'orders' && (
         <Section title="My Orders">
           <OrderTable
@@ -1186,6 +1468,7 @@ function BuyerDashboard() {
             onReview={handleReview}
             detailsEndpoint={(orderNumber) => `/orders/${orderNumber}`}
             initialExpandedOrderNumber={searchParams.get('order')}
+            showPaymentStatus={false}
           />
         </Section>
       )}
@@ -1354,8 +1637,9 @@ function ChangePasswordForm() {
   })
 
   const submit = () => {
-    if (newPassword.length < 8) {
-      setLocalError('New password must be at least 8 characters.')
+    const pwError = validatePassword(newPassword)
+    if (pwError) {
+      setLocalError(pwError)
       return
     }
     if (newPassword !== confirmPassword) {
@@ -1369,8 +1653,9 @@ function ChangePasswordForm() {
   return (
     <div className="form grid-form">
       <input type="password" placeholder="Current password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} />
-      <input type="password" placeholder="New password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
-      <input type="password" placeholder="Confirm new password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
+      <input type="password" placeholder="New password" value={newPassword} onChange={(e) => setNewPassword(stripSpaces(e.target.value))} onKeyDown={blockSpaceKey} />
+      <input type="password" placeholder="Confirm new password" value={confirmPassword} onChange={(e) => setConfirmPassword(stripSpaces(e.target.value))} onKeyDown={blockSpaceKey} />
+      <p className="helper-text">{PASSWORD_HELP}</p>
       <button type="button" onClick={submit} disabled={changePassword.isPending || !currentPassword || !newPassword}>{changePassword.isPending ? 'Saving...' : 'Change Password'}</button>
       {localError && <p className="error">{localError}</p>}
       {changePassword.isSuccess && <p className="helper-text">Password updated.</p>}
@@ -1489,6 +1774,7 @@ function SellerDashboard() {
       queryClient.invalidateQueries({ queryKey: ['seller-dashboard'] })
     },
   })
+  const [withdrawFormError, setWithdrawFormError] = useState('')
   const requestWithdrawal = useMutation({
     mutationFn: async () => (await api.post('/seller/withdrawals', {
       method: withdrawForm.method,
@@ -1501,6 +1787,14 @@ function SellerDashboard() {
       queryClient.invalidateQueries({ queryKey: ['seller-wallet'] })
     },
   })
+  const submitWithdrawal = () => {
+    if (withdrawalFormIsIncomplete(withdrawForm)) {
+      setWithdrawFormError(REQUIRED_FIELDS_MESSAGE)
+      return
+    }
+    setWithdrawFormError('')
+    requestWithdrawal.mutate()
+  }
   // Platform payout fee is fixed (see CommissionCalculator::WITHDRAWAL_FEE_PERCENT
   // on the backend) -- this is a display-only preview so the seller can see it
   // before submitting; the backend computes and freezes the authoritative fee.
@@ -1709,8 +2003,9 @@ function SellerDashboard() {
                 A 6% platform payout fee applies to every withdrawal: you&apos;re requesting {currency(withdrawRequestAmount)}, a {currency(withdrawFeePreview)} fee will be deducted, and you&apos;ll receive approximately {currency(withdrawNetPreview)}.
               </p>
             )}
-            <button type="button" onClick={() => requestWithdrawal.mutate()} disabled={requestWithdrawal.isPending}>{requestWithdrawal.isPending ? 'Submitting...' : 'Submit Withdrawal Request'}</button>
-            {requestWithdrawal.error && <p className="error">{requestWithdrawal.error.response?.data?.message || 'Could not submit withdrawal request.'}</p>}
+            <button type="button" onClick={submitWithdrawal} disabled={requestWithdrawal.isPending}>{requestWithdrawal.isPending ? 'Submitting...' : 'Submit Withdrawal Request'}</button>
+            {withdrawFormError && <p className="error">{withdrawFormError}</p>}
+            {requestWithdrawal.error && <p className="error">{apiErrorMessage(requestWithdrawal.error, 'Could not submit withdrawal request.')}</p>}
             {requestWithdrawal.isSuccess && (
               <p className="helper-text">
                 Withdrawal request submitted for {currency(requestWithdrawal.data?.amount)}. Platform payout fee: {currency(requestWithdrawal.data?.platform_fee)}. You'll receive {currency(requestWithdrawal.data?.net_amount)} once the Super Admin pays it out.
@@ -1923,7 +2218,7 @@ function SellerProfileForm({ seller, onSave, saving, success, error }) {
 const ORDER_STATUS_TRANSITIONS = {
   placed: [['confirmed', 'Confirm Order'], ['cancelled', 'Cancel Order']],
   paid: [['confirmed', 'Confirm Order'], ['cancelled', 'Cancel Order']],
-  confirmed: [['in_transit', 'Mark In Transit'], ['cancelled', 'Cancel Order']],
+  confirmed: [['in_transit', 'Mark Out for Delivery'], ['cancelled', 'Cancel Order']],
   in_transit: [['completed', 'Mark Completed'], ['cancelled', 'Cancel Order']],
 }
 
@@ -1989,7 +2284,11 @@ function SellerOrderTable({ rows, onUpdateStatus }) {
 function SellerOrderRow({ order, onUpdateStatus }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [rating, setRating] = useState(false)
   const transitions = ORDER_STATUS_TRANSITIONS[order.status] || []
+  // Mirrors the buyer's ReviewCell rules exactly, and the server enforces the
+  // same two (completed only, once per order) in SellerController::rateBuyer.
+  const canRateBuyer = order.status === 'completed' && !order.buyerRating
 
   const applyStatus = async (status) => {
     setSaving(true)
@@ -2004,7 +2303,7 @@ function SellerOrderRow({ order, onUpdateStatus }) {
   }
 
   return (
-    <div className="card action">
+    <div className={`card action${rating ? ' action-stacked' : ''}`}>
       <div>
         <strong>{order.order_number}</strong>
         <p>
@@ -2012,20 +2311,31 @@ function SellerOrderRow({ order, onUpdateStatus }) {
           {order.buyer?.id ? <Link to={`/seller/buyers/${order.buyer.id}`}>{order.buyer.name}</Link> : (order.buyer?.name || 'Buyer')} ·{' '}
           {Number(order.quantity).toLocaleString()} pcs · {currency(order.total_amount)}
         </p>
-        <Badge status={order.status} />
+        <Badge status={order.status}>{statusChartLabel(order.status)}</Badge>
+        {order.buyerRating && (
+          <p className="review-given">You rated this buyer: {renderStars(order.buyerRating.rating)} ({order.buyerRating.rating}/5)</p>
+        )}
         {error && <p className="error">{error}</p>}
       </div>
       <div className="row-actions">
-        {transitions.length === 0 ? (
-          <span className="muted">No further action</span>
-        ) : (
-          transitions.map(([status, label]) => (
-            <button key={status} type="button" className={status === 'cancelled' ? 'ghost danger' : ''} disabled={saving} onClick={() => applyStatus(status)}>
-              {label}
-            </button>
-          ))
+        {transitions.map(([status, label]) => (
+          <button key={status} type="button" className={status === 'cancelled' ? 'ghost danger' : ''} disabled={saving} onClick={() => applyStatus(status)}>
+            {label}
+          </button>
+        ))}
+        {canRateBuyer && !rating && (
+          <button type="button" className="ghost" onClick={() => setRating(true)}><Star size={15} /> Rate Buyer</button>
         )}
+        {transitions.length === 0 && !canRateBuyer && !rating && <span className="muted">No further action</span>}
       </div>
+      {rating && (
+        <BuyerRateOrderForm
+          order={order}
+          invalidateKey="seller-dashboard"
+          showHeader={false}
+          onDone={() => setRating(false)}
+        />
+      )}
     </div>
   )
 }
@@ -2036,11 +2346,17 @@ function SellerOrderRow({ order, onUpdateStatus }) {
  * / App\Support\OrderTransactionPresenter) and renders it with the same
  * OrderDetailPanel every other role uses, so the LGU can review everything
  * about the transaction -- including the revenue distribution preview --
- * before approving, rejecting, or holding it for investigation.
+ * before approving or rejecting it.
+ *
+ * Placing a NEW hold was removed from this UI: approve and reject already
+ * cover the decision, and a hold was just a reject the seller never got an
+ * answer on. Clear Hold stays so any order held before that change can still
+ * be released -- the /lgu/payments/{payment}/hold endpoint is likewise left
+ * intact for backwards compatibility.
  */
-function LguEarningsRow({ payment, onApprove, approvingId, onHold, onClearHold, onReject }) {
+function LguEarningsRow({ payment, onApprove, approvingId, onClearHold, onReject }) {
   const [expanded, setExpanded] = useState(false)
-  const [reasonMode, setReasonMode] = useState(null)
+  const [rejecting, setRejecting] = useState(false)
   const [reasonDraft, setReasonDraft] = useState('')
   const orderNumber = payment.order?.order_number
   const isOnHold = payment.order?.lgu_review_status === 'on_hold'
@@ -2053,9 +2369,8 @@ function LguEarningsRow({ payment, onApprove, approvingId, onHold, onClearHold, 
 
   const submitReason = () => {
     if (!reasonDraft.trim()) return
-    if (reasonMode === 'hold') onHold({ paymentId: payment.id, reason: reasonDraft })
-    if (reasonMode === 'reject') onReject({ paymentId: payment.id, reason: reasonDraft })
-    setReasonMode(null)
+    onReject({ paymentId: payment.id, reason: reasonDraft })
+    setRejecting(false)
     setReasonDraft('')
   }
 
@@ -2089,24 +2404,71 @@ function LguEarningsRow({ payment, onApprove, approvingId, onHold, onClearHold, 
             <button type="button" onClick={() => onApprove(payment.id)} disabled={approvingId === payment.id}>
               {approvingId === payment.id ? 'Approving...' : 'Approve Earnings'}
             </button>
-            <button type="button" className="ghost" onClick={() => setReasonMode('hold')}>Hold for Investigation</button>
-            <button type="button" className="ghost danger" onClick={() => setReasonMode('reject')}>Reject</button>
+            <button type="button" className="ghost danger" onClick={() => setRejecting(true)}>Reject</button>
           </>
         )}
       </div>
-      {reasonMode && (
+      {rejecting && (
         <div className="order-lookup-form">
           <input
-            placeholder={reasonMode === 'hold' ? 'Reason for holding (required)' : 'Reason for rejecting (required)'}
+            placeholder="Reason for rejecting (required)"
             value={reasonDraft}
             onChange={(e) => setReasonDraft(e.target.value)}
           />
-          <button type="button" onClick={submitReason} disabled={!reasonDraft.trim()}>
-            Confirm {reasonMode === 'hold' ? 'Hold' : 'Reject'}
-          </button>
-          <button type="button" className="ghost" onClick={() => { setReasonMode(null); setReasonDraft('') }}>Cancel</button>
+          <button type="button" onClick={submitReason} disabled={!reasonDraft.trim()}>Confirm Reject</button>
+          <button type="button" className="ghost" onClick={() => { setRejecting(false); setReasonDraft('') }}>Cancel</button>
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * One rejected-but-still-held transaction. The money is still sitting in
+ * escrow ('paid_held') -- rejecting never moved it -- so this row exists to
+ * make that visible and to offer the only way back out: Reopen Review, which
+ * returns the order to the approval queue (see
+ * LguController::reopenRejectedEarnings).
+ */
+function LguRejectedEarningsRow({ payment, onReopen, reopeningId }) {
+  const [expanded, setExpanded] = useState(false)
+  const order = payment.order
+  const orderNumber = order?.order_number
+
+  const detail = useQuery({
+    queryKey: ['lgu-order-detail', orderNumber],
+    queryFn: async () => (await api.get(`/lgu/orders/${orderNumber}`)).data,
+    enabled: expanded && Boolean(orderNumber),
+  })
+
+  return (
+    <div className="card action">
+      <div>
+        <div className="card-row">
+          <Avatar src={order?.sellerProfile?.profile_picture} alt={order?.sellerProfile?.hatchery_name} className="listing-seller-avatar" />
+          <strong>{order?.sellerProfile?.hatchery_name || order?.sellerProfile?.user?.name || 'Unknown seller'}</strong>
+          <Badge status="rejected">Rejected</Badge>
+        </div>
+        <p>
+          Order #{orderNumber} · {order?.listing?.title || order?.listing?.species || 'Listing'} · Buyer: {order?.buyer?.name || 'Unknown buyer'}
+        </p>
+        <p className="muted">{currency(payment.amount)} still held · Rejected {order?.lgu_reviewed_at ? new Date(order.lgu_reviewed_at).toLocaleDateString() : ''}{order?.reviewedBy?.name ? ` by ${order.reviewedBy.name}` : ''}</p>
+        {order?.lgu_review_reason && <p className="error">Reason: {order.lgu_review_reason}</p>}
+        {expanded && (
+          <>
+            {detail.isLoading && <LoadingState label="Loading transaction..." />}
+            {detail.data && <OrderDetailPanel detail={detail.data} />}
+          </>
+        )}
+      </div>
+      <div className="row-actions">
+        <button type="button" className="ghost" onClick={() => setExpanded((current) => !current)}>
+          {expanded ? 'Hide Details' : 'View Details'}
+        </button>
+        <button type="button" onClick={() => onReopen(payment.id)} disabled={reopeningId === payment.id}>
+          {reopeningId === payment.id ? 'Reopening...' : 'Reopen Review'}
+        </button>
+      </div>
     </div>
   )
 }
@@ -2671,6 +3033,23 @@ function LguDashboard() {
     retry: false,
     placeholderData: [],
   })
+  const rejectedEarnings = useQuery({
+    queryKey: ['lgu-rejected-earnings'],
+    queryFn: async () => (await api.get('/lgu/earnings/rejected')).data,
+    retry: false,
+    placeholderData: [],
+  })
+  const reopenEarnings = useMutation({
+    mutationFn: async (paymentId) => (await api.patch(`/lgu/payments/${paymentId}/reopen`)).data,
+    onSuccess: () => {
+      // The row moves from the rejected list back into the approval queue, and
+      // the seller's projected earnings return to their Pending Balance, so
+      // both lists and the dashboard counts are refetched.
+      queryClient.invalidateQueries({ queryKey: ['lgu-rejected-earnings'] })
+      queryClient.invalidateQueries({ queryKey: ['lgu-earnings'] })
+      queryClient.invalidateQueries({ queryKey: ['lgu-dashboard'] })
+    },
+  })
   const approveEarnings = useMutation({
     mutationFn: async (paymentId) => (await api.patch(`/lgu/payments/${paymentId}/approve`)).data,
     onSuccess: (data, paymentId) => {
@@ -2694,10 +3073,6 @@ function LguDashboard() {
       }
     },
   })
-  const holdEarnings = useMutation({
-    mutationFn: async ({ paymentId, reason }) => (await api.patch(`/lgu/payments/${paymentId}/hold`, { reason })).data,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['lgu-earnings'] }),
-  })
   const clearHoldEarnings = useMutation({
     mutationFn: async (paymentId) => (await api.patch(`/lgu/payments/${paymentId}/clear-hold`)).data,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['lgu-earnings'] }),
@@ -2719,6 +3094,7 @@ function LguDashboard() {
     placeholderData: { available_balance: 0, pending_balance: 0, processing_amount: 0, total_revenue: 0, withdrawn_amount: 0, revenue_history: [], withdrawal_requests: [] },
   })
   const [lguWithdrawForm, setLguWithdrawForm] = useState({ method: 'gcash', account_name: '', account_number: '', amount: '' })
+  const [lguWithdrawFormError, setLguWithdrawFormError] = useState('')
   const requestLguWithdrawal = useMutation({
     mutationFn: async () => (await api.post('/lgu/withdrawals', {
       method: lguWithdrawForm.method,
@@ -2731,6 +3107,14 @@ function LguDashboard() {
       queryClient.invalidateQueries({ queryKey: ['lgu-wallet'] })
     },
   })
+  const submitLguWithdrawal = () => {
+    if (withdrawalFormIsIncomplete(lguWithdrawForm)) {
+      setLguWithdrawFormError(REQUIRED_FIELDS_MESSAGE)
+      return
+    }
+    setLguWithdrawFormError('')
+    requestLguWithdrawal.mutate()
+  }
 
   return (
     <Dashboard
@@ -2854,7 +3238,6 @@ function LguDashboard() {
                   payment={payment}
                   onApprove={(id) => approveEarnings.mutate(id)}
                   approvingId={approveEarnings.isPending ? approveEarnings.variables : null}
-                  onHold={(vars) => holdEarnings.mutate(vars)}
                   onClearHold={(id) => clearHoldEarnings.mutate(id)}
                   onReject={(vars) => rejectEarnings.mutate(vars)}
                 />
@@ -2864,9 +3247,26 @@ function LguDashboard() {
           {approveEarnings.error && approveEarnings.error.response?.status !== 422 && (
             <p className="error">{approveEarnings.error.response?.data?.message || 'Could not approve earnings.'}</p>
           )}
-          {holdEarnings.error && <p className="error">{holdEarnings.error.response?.data?.message || 'Could not place this order on hold.'}</p>}
           {clearHoldEarnings.error && <p className="error">{clearHoldEarnings.error.response?.data?.message || 'Could not clear the hold.'}</p>}
           {rejectEarnings.error && <p className="error">{rejectEarnings.error.response?.data?.message || 'Could not reject this order.'}</p>}
+        </Section>
+      )}
+      {tab === 'earnings' && (rejectedEarnings.data || []).length > 0 && (
+        <Section title="Rejected Transactions">
+          <p className="helper-text">
+            Orders you rejected. The buyer&apos;s payment is still held for these -- rejecting doesn&apos;t refund it or release it to the seller, and no revenue is distributed. Reopening one puts it back in the queue above so it can be approved after all, and restores the seller&apos;s projected earnings for it.
+          </p>
+          <div className="item-list">
+            {rejectedEarnings.data.map((payment) => (
+              <LguRejectedEarningsRow
+                key={payment.id}
+                payment={payment}
+                onReopen={(id) => reopenEarnings.mutate(id)}
+                reopeningId={reopenEarnings.isPending ? reopenEarnings.variables : null}
+              />
+            ))}
+          </div>
+          {reopenEarnings.error && <p className="error">{reopenEarnings.error.response?.data?.message || 'Could not reopen this transaction.'}</p>}
         </Section>
       )}
       {tab === 'wallet' && (
@@ -2885,8 +3285,9 @@ function LguDashboard() {
               <input value={lguWithdrawForm.amount} onChange={(e) => setLguWithdrawForm({ ...lguWithdrawForm, amount: e.target.value })} placeholder="Amount to withdraw" type="number" min="0" step="0.01" />
             </div>
             <p className="helper-text">Available to withdraw: {currency(wallet.data?.available_balance ?? 0)}</p>
-            <button type="button" onClick={() => requestLguWithdrawal.mutate()} disabled={requestLguWithdrawal.isPending}>{requestLguWithdrawal.isPending ? 'Submitting...' : 'Submit Withdrawal Request'}</button>
-            {requestLguWithdrawal.error && <p className="error">{requestLguWithdrawal.error.response?.data?.message || 'Could not submit withdrawal request.'}</p>}
+            <button type="button" onClick={submitLguWithdrawal} disabled={requestLguWithdrawal.isPending}>{requestLguWithdrawal.isPending ? 'Submitting...' : 'Submit Withdrawal Request'}</button>
+            {lguWithdrawFormError && <p className="error">{lguWithdrawFormError}</p>}
+            {requestLguWithdrawal.error && <p className="error">{apiErrorMessage(requestLguWithdrawal.error, 'Could not submit withdrawal request.')}</p>}
             {requestLguWithdrawal.isSuccess && <p className="helper-text">Withdrawal request submitted for {currency(requestLguWithdrawal.data?.amount)}. You&apos;ll be notified once the Super Admin pays it out.</p>}
           </Section>
           <Section title="Withdrawal Requests">
@@ -3533,6 +3934,7 @@ function SuperAdminDashboard() {
   const [searchParams] = useSearchParams()
   const tab = searchParams.get('tab') || 'overview'
   const [lguForm, setLguForm] = useState({ name: '', email: '', password: '', municipality_id: '' })
+  const [lguFormError, setLguFormError] = useState('')
   const [visibleNotificationIds, setVisibleNotificationIds] = useState([])
   const dashboard = useQuery({
     queryKey: ['super-admin-dashboard'],
@@ -3609,12 +4011,28 @@ function SuperAdminDashboard() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['super-admin-lgu-withdrawals'] }),
   })
   const createLguAdmin = useMutation({
-    mutationFn: async () => (await api.post('/super-admin/lgu-admins', lguForm)).data,
+    mutationFn: async (payload) => (await api.post('/super-admin/lgu-admins', payload)).data,
     onSuccess: () => {
       setLguForm({ name: '', email: '', password: '', municipality_id: '' })
+      setLguFormError('')
       queryClient.invalidateQueries({ queryKey: ['super-admin-lgu-admins'] })
     },
   })
+  const submitLguAdmin = () => {
+    // Same email + password validation as normal registration.
+    const emailError = validateEmail(lguForm.email)
+    if (emailError) {
+      setLguFormError(emailError)
+      return
+    }
+    const pwError = validatePassword(lguForm.password)
+    if (pwError) {
+      setLguFormError(pwError)
+      return
+    }
+    setLguFormError('')
+    createLguAdmin.mutate({ ...lguForm, email: (lguForm.email || '').trim() })
+  }
   const updateLguAdmin = useMutation({
     mutationFn: async ({ id, payload }) => (await api.patch(`/super-admin/lgu-admins/${id}`, payload)).data,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['super-admin-lgu-admins'] }),
@@ -3659,6 +4077,22 @@ function SuperAdminDashboard() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['super-admin-sellers'] })
       queryClient.invalidateQueries({ queryKey: ['super-admin-dashboard'] })
+    },
+  })
+  const removeBuyer = useMutation({
+    mutationFn: async ({ id, reason, notes }) => (await api.delete(`/super-admin/buyers/${id}`, { data: { reason, notes } })).data,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['super-admin-users'] })
+      queryClient.invalidateQueries({ queryKey: ['super-admin-dashboard'] })
+      queryClient.invalidateQueries({ queryKey: ['super-admin-activity-log'] })
+    },
+  })
+  const removeSeller = useMutation({
+    mutationFn: async ({ id, reason, notes }) => (await api.delete(`/super-admin/sellers/${id}`, { data: { reason, notes } })).data,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['super-admin-sellers'] })
+      queryClient.invalidateQueries({ queryKey: ['super-admin-dashboard'] })
+      queryClient.invalidateQueries({ queryKey: ['super-admin-activity-log'] })
     },
   })
   const [moderationFilters, setModerationFilters] = useState({ role: '', action: '' })
@@ -3805,7 +4239,7 @@ function SuperAdminDashboard() {
       )}
       {tab === 'users' && (
         <Section title="Buyers (Platform-Wide)">
-          <p className="helper-text">Suspending a buyer blocks placing orders, payments, messaging, reviews, and contacting sellers -- they can still log in. Existing completed orders are unaffected.</p>
+          <p className="helper-text">Suspending a buyer blocks placing orders, payments, messaging, reviews, and contacting sellers -- they can still log in. Existing completed orders are unaffected. Removing deletes the account permanently and is only possible for buyers with no order history; suspend anyone who has already traded.</p>
           {(usersQuery.data?.buyers || []).length ? (
             <div className="item-list">
               {usersQuery.data.buyers.map((user) => (
@@ -3823,6 +4257,13 @@ function SuperAdminDashboard() {
                       reasons={BUYER_SUSPENSION_REASONS}
                       onSuspend={(reason, notes) => suspendBuyer.mutate({ id: user.id, reason, notes })}
                       onReinstate={(reason, notes) => reinstateBuyer.mutate({ id: user.id, reason, notes })}
+                    />
+                    <AccountRemovalAction
+                      accountName={user.name}
+                      reasons={BUYER_REMOVAL_REASONS}
+                      removing={removeBuyer.isPending && removeBuyer.variables?.id === user.id}
+                      error={removeBuyer.variables?.id === user.id ? removeBuyer.error?.response?.data?.message : null}
+                      onRemove={(reason, notes) => removeBuyer.mutate({ id: user.id, reason, notes })}
                     />
                   </div>
                 </div>
@@ -3882,14 +4323,16 @@ function SuperAdminDashboard() {
             <div className="form grid-form">
               <input value={lguForm.name} onChange={(e) => setLguForm({ ...lguForm, name: e.target.value })} placeholder="Full name" />
               <input value={lguForm.email} onChange={(e) => setLguForm({ ...lguForm, email: e.target.value })} placeholder="Email" />
-              <input value={lguForm.password} onChange={(e) => setLguForm({ ...lguForm, password: e.target.value })} type="password" placeholder="Temporary password" />
+              <input value={lguForm.password} onChange={(e) => setLguForm({ ...lguForm, password: stripSpaces(e.target.value) })} onKeyDown={blockSpaceKey} type="password" placeholder="Temporary password" />
               <select value={lguForm.municipality_id} onChange={(e) => setLguForm({ ...lguForm, municipality_id: e.target.value })}>
                 <option value="">Select municipality</option>
                 {(municipalitiesQuery.data || []).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
               </select>
             </div>
-            <button type="button" onClick={() => createLguAdmin.mutate()}>Create LGU Admin</button>
-            {createLguAdmin.error && <p className="error">{createLguAdmin.error.response?.data?.message || 'Could not create LGU admin.'}</p>}
+            <p className="helper-text">{PASSWORD_HELP}</p>
+            <button type="button" onClick={submitLguAdmin}>Create LGU Admin</button>
+            {lguFormError && <p className="error">{lguFormError}</p>}
+            {createLguAdmin.error && <p className="error">{apiErrorMessage(createLguAdmin.error, 'Could not create LGU admin.')}</p>}
           </Section>
           <Section title="Registered LGU Admins">
             {lguAdmins.data?.length ? (
@@ -3911,7 +4354,7 @@ function SuperAdminDashboard() {
       )}
       {tab === 'sellers' && (
         <Section title="All Sellers (Platform-Wide)">
-          <p className="helper-text">Super Admin may suspend any seller regardless of municipality. Suspended sellers cannot create, edit, or publish listings, receive new orders, or request withdrawals. Existing completed orders are unaffected.</p>
+          <p className="helper-text">Super Admin may suspend any seller regardless of municipality. Suspended sellers cannot create, edit, or publish listings, receive new orders, or request withdrawals. Existing completed orders are unaffected. Removing deletes the account and its listings permanently and is only possible for sellers with no order history; suspend anyone who has already traded.</p>
           {(sellersQuery.data || []).length ? (
             <div className="item-list">
               {sellersQuery.data.map((seller) => (
@@ -3926,6 +4369,13 @@ function SuperAdminDashboard() {
                       suspended={seller.status === 'suspended'}
                       onSuspend={(reason, notes) => suspendSellerGlobal.mutate({ id: seller.id, reason, notes })}
                       onReinstate={(reason, notes) => reinstateSellerGlobal.mutate({ id: seller.id, reason, notes })}
+                    />
+                    <AccountRemovalAction
+                      accountName={seller.hatchery_name}
+                      reasons={SELLER_REMOVAL_REASONS}
+                      removing={removeSeller.isPending && removeSeller.variables?.id === seller.id}
+                      error={removeSeller.variables?.id === seller.id ? removeSeller.error?.response?.data?.message : null}
+                      onRemove={(reason, notes) => removeSeller.mutate({ id: seller.id, reason, notes })}
                     />
                   </div>
                 </div>
@@ -4137,6 +4587,77 @@ function ModerationAction({ suspended, reasons, onSuspend, onReinstate }) {
   )
 }
 
+/**
+ * Enumerated grounds for permanently removing an account -- mirrors
+ * SuperAdminController::BUYER_REMOVAL_REASONS / SELLER_REMOVAL_REASONS, which
+ * validate the same list server-side.
+ */
+const BUYER_REMOVAL_REASONS = [
+  'Spam Account',
+  'Fake or Duplicate Account',
+  'Fraudulent Registration',
+  'Marketplace Policy Violation',
+  'Requested by Account Owner',
+  'Other',
+]
+
+const SELLER_REMOVAL_REASONS = [
+  'Spam Account',
+  'Fake or Duplicate Account',
+  'Fraudulent Registration',
+  'Fake Hatchery Details',
+  'Marketplace Policy Violation',
+  'Requested by Account Owner',
+  'Other',
+]
+
+/**
+ * Super Admin-only permanent account removal, with a required reason -- the
+ * escalation beyond ModerationAction's reversible suspend/reinstate.
+ *
+ * Reveal-on-click like every other reason-taking control in the app, but
+ * deliberately heavier: the reason is a required dropdown (never free text
+ * alone, so the audit trail stays filterable) and the confirm step names the
+ * account, since this can't be undone. The backend refuses removal outright
+ * once the account has order history and says so -- that 422 is surfaced here
+ * via `error` rather than pre-guessed in the UI, so the rule lives in exactly
+ * one place (App\Support\AccountModeration).
+ */
+function AccountRemovalAction({ accountName, reasons, onRemove, error, removing }) {
+  const [open, setOpen] = useState(false)
+  const [reason, setReason] = useState(reasons[0])
+  const [notes, setNotes] = useState('')
+
+  const close = () => {
+    setOpen(false)
+    setReason(reasons[0])
+    setNotes('')
+  }
+
+  if (!open) {
+    return <button type="button" className="ghost danger" onClick={() => setOpen(true)}><Trash2 size={15} /> Remove</button>
+  }
+
+  return (
+    <div className="moderation-form">
+      <p className="helper-text">
+        Permanently remove <strong>{accountName}</strong>? This cannot be undone. Suspend instead if you may want to restore this account later.
+      </p>
+      <select value={reason} onChange={(e) => setReason(e.target.value)}>
+        {reasons.map((r) => <option key={r} value={r}>{r}</option>)}
+      </select>
+      <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Additional notes (optional)" rows={2} />
+      {error && <p className="error">{error}</p>}
+      <div className="row-actions">
+        <button type="button" className="danger" disabled={removing} onClick={() => onRemove(reason, notes.trim() || undefined)}>
+          {removing ? 'Removing...' : 'Confirm Remove'}
+        </button>
+        <button type="button" className="ghost" onClick={close}>Cancel</button>
+      </div>
+    </div>
+  )
+}
+
 function LguAdminRow({ admin, municipalities, onUpdate, onDisable, onEnable }) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(admin.name)
@@ -4339,7 +4860,18 @@ function OrderTableDetailRow({ orderNumber, detailsEndpoint }) {
   )
 }
 
-function OrderTable({ rows, onReview, detailsEndpoint, initialExpandedOrderNumber }) {
+/**
+ * The shared order list, used by the Buyer's own orders and the Super Admin's
+ * platform-wide transactions.
+ *
+ * showPaymentStatus is off for the Buyer: the payment column reports the
+ * escrow lifecycle (paid_held -> released), which tracks when the SELLER's
+ * money is verified and released, not whether the buyer paid. A buyer who has
+ * paid would otherwise sit at "Paid Held" until their LGU settles the order,
+ * which reads like something is still owed. Their Order Status column already
+ * says where the order actually is.
+ */
+function OrderTable({ rows, onReview, detailsEndpoint, initialExpandedOrderNumber, showPaymentStatus = true }) {
   const [expandedOrderNumber, setExpandedOrderNumber] = useState(initialExpandedOrderNumber || null)
 
   const normalized = (rows || []).map((row) => {
@@ -4375,7 +4907,7 @@ function OrderTable({ rows, onReview, detailsEndpoint, initialExpandedOrderNumbe
         <span>Seller</span>
         <span>Qty</span>
         <span>Status</span>
-        <span>Payment</span>
+        {showPaymentStatus && <span>Payment</span>}
         {onReview && <span>Review</span>}
         {detailsEndpoint && <span>Details</span>}
       </div>
@@ -4389,8 +4921,8 @@ function OrderTable({ rows, onReview, detailsEndpoint, initialExpandedOrderNumbe
               {row.seller_name}{row.seller_contact_name ? ` (${row.seller_contact_name})` : ''}
             </span>
             <span>{Number(row.quantity).toLocaleString()}</span>
-            <span><Badge status={row.status} /></span>
-            <span><Badge status={row.payment_status} /></span>
+            <span><Badge status={row.status}>{statusChartLabel(row.status)}</Badge></span>
+            {showPaymentStatus && <span><Badge status={row.payment_status}>{statusChartLabel(row.payment_status)}</Badge></span>}
             {onReview && <ReviewCell row={row} onReview={onReview} />}
             {detailsEndpoint && (
               <span>
@@ -4641,6 +5173,8 @@ function statusChartColor(status) {
 }
 
 function statusChartLabel(status) {
+  const key = String(status || '').toLowerCase()
+  if (STATUS_LABELS[key]) return STATUS_LABELS[key]
   return String(status || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
@@ -5381,21 +5915,38 @@ function StarRatingInput({ value, onChange }) {
   )
 }
 
-function BuyerRateOrderForm({ order }) {
+/**
+ * The seller's side of feedback: rate a buyer for one completed order (the
+ * mirror of a buyer's Review -- see ReviewCell and SellerController::rateBuyer).
+ *
+ * Used from two places, hence the props: the Buyer Profile page's "Rate this
+ * Buyer" list, and inline on a completed row in Order Management. invalidateKey
+ * says which cached query the new rating invalidates, since each entry point
+ * reads its orders from a different endpoint.
+ */
+function BuyerRateOrderForm({ order, invalidateKey = 'seller-buyer-profile', showHeader = true, onDone }) {
   const [rating, setRating] = useState(0)
   const [comment, setComment] = useState('')
   const submit = useMutation({
     mutationFn: async () => (await api.post(`/orders/${order.id}/rate-buyer`, { rating, comment: comment.trim() || null })).data,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['seller-buyer-profile'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [invalidateKey] })
+      onDone?.()
+    },
   })
 
   return (
     <div className="card buyer-rate-form">
-      <div className="card-row"><strong>Order {order.order_number}</strong><span className="muted">{order.listing?.species || order.listing?.title}</span></div>
+      {showHeader && (
+        <div className="card-row"><strong>Order {order.order_number}</strong><span className="muted">{order.listing?.species || order.listing?.title}</span></div>
+      )}
       <StarRatingInput value={rating} onChange={setRating} />
       <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Optional note (payment reliability, communication, pickup, etc.)" />
       {submit.error && <p className="error">{submit.error.response?.data?.message || 'Could not submit rating.'}</p>}
-      <button type="button" onClick={() => submit.mutate()} disabled={!rating || submit.isPending}>{submit.isPending ? 'Submitting...' : 'Submit Rating'}</button>
+      <div className="row-actions">
+        <button type="button" onClick={() => submit.mutate()} disabled={!rating || submit.isPending}>{submit.isPending ? 'Submitting...' : 'Submit Rating'}</button>
+        {onDone && <button type="button" className="ghost" onClick={onDone}>Cancel</button>}
+      </div>
     </div>
   )
 }
@@ -5545,6 +6096,30 @@ const AI_PLACEHOLDER_BY_ROLE = {
   super_admin: 'Ask about platform stats, payouts, or municipalities...',
 }
 
+/**
+ * Reply-language options for the AI Assistant, shared by every role. The
+ * values must match AiAssistantController::LANGUAGES on the backend, which
+ * validates them; '' means "Auto", the original behaviour of detecting the
+ * language from the message itself (see App\Support\AiLanguageDetector).
+ */
+const AI_LANGUAGES = [
+  ['', 'Auto-detect'],
+  ['English', 'English'],
+  ['Tagalog', 'Tagalog'],
+  ['Bisaya', 'Bisaya'],
+]
+
+const AI_LANGUAGE_STORAGE_KEY = 'fishmarket_ai_language'
+
+// Read once at module load rather than on every mount; the widget remounts on
+// navigation and this is a plain string, not reactive state that others share.
+let storedAiLanguage = ''
+try {
+  storedAiLanguage = localStorage.getItem(AI_LANGUAGE_STORAGE_KEY) || ''
+} catch {
+  storedAiLanguage = ''
+}
+
 function aiErrorMessage(err) {
   if (!err?.response) return 'Network error -- please check your connection and try again.'
   const status = err.response.status
@@ -5559,9 +6134,22 @@ function FloatingAi() {
   const [message, setMessage] = useState('')
   const [chat, setChat] = useState([])
   const [error, setError] = useState(null)
+  const [language, setLanguage] = useState(storedAiLanguage)
   const chatLogRef = useRef(null)
   const role = getSession()?.role || 'buyer'
   const aiGreeting = { role: 'ai', text: AI_GREETING_BY_ROLE[role] || AI_GREETING_BY_ROLE.buyer }
+
+  const chooseLanguage = (value) => {
+    setLanguage(value)
+    storedAiLanguage = value
+    try {
+      if (value) localStorage.setItem(AI_LANGUAGE_STORAGE_KEY, value)
+      else localStorage.removeItem(AI_LANGUAGE_STORAGE_KEY)
+    } catch {
+      // Private mode / blocked storage -- the choice still applies for this
+      // session, it just won't be remembered after a reload.
+    }
+  }
 
   const history = useQuery({
     queryKey: ['ai-assistant-history'],
@@ -5581,7 +6169,9 @@ function FloatingAi() {
   const displayChat = [aiGreeting, ...historyMessages, ...chat]
 
   const ask = useMutation({
-    mutationFn: async (question) => (await api.post('/ai-assistant/ask', { question })).data.response,
+    // language is omitted when set to Auto, so the backend keeps detecting it
+    // from the message exactly as it always has.
+    mutationFn: async (question) => (await api.post('/ai-assistant/ask', { question, language: language || null })).data.response,
   })
 
   useEffect(() => {
@@ -5614,7 +6204,18 @@ function FloatingAi() {
       <button className="ai-toggle" onClick={() => setOpen(!open)} type="button"><Bot size={20} /> AI</button>
       {open && (
         <div className="ai-panel">
-          <h3>FishMarket AI Assistant</h3>
+          <div className="ai-panel-head">
+            <h3>FishMarket AI Assistant</h3>
+            <select
+              className="ai-language-picker"
+              value={language}
+              onChange={(e) => chooseLanguage(e.target.value)}
+              aria-label="Reply language"
+              title="Reply language"
+            >
+              {AI_LANGUAGES.map(([value, label]) => <option key={value || 'auto'} value={value}>{label}</option>)}
+            </select>
+          </div>
           <div className="chat-log" ref={chatLogRef}>
             {displayChat.map((m, i) => <p className={m.role} key={`${m.role}-${i}`}>{m.text}</p>)}
             {ask.isPending && (

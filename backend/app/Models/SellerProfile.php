@@ -51,6 +51,11 @@ class SellerProfile extends Model
         return $this->hasMany(FingerlingListing::class);
     }
 
+    public function orders()
+    {
+        return $this->hasMany(Order::class);
+    }
+
     public function reviews()
     {
         return $this->hasMany(Review::class);

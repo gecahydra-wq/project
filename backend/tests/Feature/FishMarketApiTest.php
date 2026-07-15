@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Mail\AccountReinstatedMail;
+use App\Mail\AccountRemovedMail;
 use App\Mail\AccountSuspendedMail;
 use App\Mail\ListingApprovedMail;
 use App\Mail\ListingRejectedMail;
@@ -14,6 +15,7 @@ use App\Mail\OrderDeliveredMail;
 use App\Mail\PaymentReceiptMail;
 use App\Mail\SellerEarningsApprovedMail;
 use App\Mail\WithdrawalReleasedMail;
+use App\Models\ActivityLogEntry;
 use App\Models\AppNotification;
 use App\Models\BuyerProfile;
 use App\Models\FingerlingListing;
@@ -2643,10 +2645,10 @@ class FishMarketApiTest extends TestCase
 
         $this->patchJson('/api/auth/password', [
             'current_password' => 'password',
-            'password' => 'new-secure-password',
+            'password' => 'New-Secure1',
         ])->assertOk();
 
-        $this->postJson('/api/auth/login', ['email' => $buyer->email, 'password' => 'new-secure-password'])->assertOk();
+        $this->postJson('/api/auth/login', ['email' => $buyer->email, 'password' => 'New-Secure1'])->assertOk();
     }
 
     public function test_password_change_is_rejected_with_wrong_current_password(): void
@@ -2656,10 +2658,163 @@ class FishMarketApiTest extends TestCase
 
         $this->patchJson('/api/auth/password', [
             'current_password' => 'wrong-password',
-            'password' => 'new-secure-password',
+            'password' => 'New-Secure1',
         ])->assertStatus(422);
 
         $this->postJson('/api/auth/login', ['email' => $buyer->email, 'password' => 'password'])->assertOk();
+    }
+
+    public function test_passwords_may_not_contain_spaces_but_allow_symbols(): void
+    {
+        // Registration: a spaced password is rejected, a symbol-rich one is fine.
+        $this->postJson('/api/auth/register', [
+            'name' => 'Spacey', 'email' => 'spacey-'.Str::random(6).'@example.test',
+            'password' => 'pass word123', 'role' => 'buyer',
+        ])->assertStatus(422)->assertJsonValidationErrors('password');
+
+        $this->postJson('/api/auth/register', [
+            'name' => 'Secure', 'email' => 'secure-'.Str::random(6).'@example.test',
+            'password' => 'P@ssw0rd!#', 'role' => 'buyer',
+        ])->assertCreated();
+
+        // Change password: same rule.
+        $buyer = $this->makeBuyer();
+        Sanctum::actingAs($buyer);
+        $this->patchJson('/api/auth/password', [
+            'current_password' => 'password',
+            'password' => 'new pass 123',
+        ])->assertStatus(422)->assertJsonValidationErrors('password');
+
+        $this->patchJson('/api/auth/password', [
+            'current_password' => 'password',
+            'password' => 'New$ecure1',
+        ])->assertOk();
+    }
+
+    public function test_password_policy_enforces_strength_requirements(): void
+    {
+        // Each of these fails exactly one requirement of the shared policy.
+        $weakPasswords = [
+            'Ab1!',            // too short (< 8)
+            'password',        // no uppercase, number, or symbol
+            'PASSWORD123!',    // no lowercase
+            'password123!',    // no uppercase
+            'Password!!!',     // no number
+            'Password123',     // no special character
+            'Fish 123!Aa',     // contains a space
+        ];
+
+        foreach ($weakPasswords as $weak) {
+            $this->postJson('/api/auth/register', [
+                'name' => 'Weak', 'email' => 'weak-'.Str::random(8).'@example.test',
+                'password' => $weak, 'role' => 'buyer',
+            ])->assertStatus(422)->assertJsonValidationErrors('password');
+        }
+
+        // A password longer than 64 characters is rejected...
+        $this->postJson('/api/auth/register', [
+            'name' => 'TooLong', 'email' => 'toolong-'.Str::random(8).'@example.test',
+            'password' => 'Aa1!'.str_repeat('x', 61), 'role' => 'buyer', // 65 chars
+        ])->assertStatus(422)->assertJsonValidationErrors('password');
+
+        // ...while a fully compliant strong password is accepted.
+        foreach (['FishMarket123!', 'MySecure@2026', 'Seller#Wallet90'] as $strong) {
+            $this->postJson('/api/auth/register', [
+                'name' => 'Strong', 'email' => 'strong-'.Str::random(8).'@example.test',
+                'password' => $strong, 'role' => 'buyer',
+            ])->assertCreated();
+        }
+    }
+
+    public function test_email_validation_is_consistent_and_friendly_across_registration(): void
+    {
+        // An internal space anywhere in the address is rejected.
+        $this->postJson('/api/auth/register', [
+            'name' => 'Spacey', 'email' => 'john doe@example.test',
+            'password' => 'FishMarket123!', 'role' => 'buyer',
+        ])->assertStatus(422)->assertJsonValidationErrors('email');
+
+        // A malformed address is rejected with a friendly message.
+        $badFormat = $this->postJson('/api/auth/register', [
+            'name' => 'Bad', 'email' => 'not-an-email',
+            'password' => 'FishMarket123!', 'role' => 'buyer',
+        ]);
+        $badFormat->assertStatus(422);
+        $this->assertSame('Please enter a valid email address.', $badFormat->json('errors.email.0'));
+
+        // Leading/trailing spaces are trimmed, so the account is created and
+        // the address is stored clean.
+        $this->postJson('/api/auth/register', [
+            'name' => 'Trim', 'email' => '  trim-me@example.test  ',
+            'password' => 'FishMarket123!', 'role' => 'buyer',
+        ])->assertCreated();
+        $this->assertDatabaseHas('users', ['email' => 'trim-me@example.test']);
+
+        // Registering the same (now-existing) address returns the friendly
+        // duplicate message, never a raw SQL/server error.
+        $dupe = $this->postJson('/api/auth/register', [
+            'name' => 'Dupe', 'email' => 'trim-me@example.test',
+            'password' => 'FishMarket123!', 'role' => 'buyer',
+        ]);
+        $dupe->assertStatus(422);
+        $this->assertSame('This email address is already registered.', $dupe->json('errors.email.0'));
+        $this->assertStringNotContainsString('SQLSTATE', $dupe->json('message') ?? '');
+    }
+
+    public function test_login_trims_password_ends_and_rejects_whitespace_in_credentials(): void
+    {
+        $this->makeBuyer(['email' => 'login-clean@example.test']);
+
+        // Accidental leading/trailing spaces around the password are trimmed,
+        // so a correct password still logs in.
+        $this->postJson('/api/auth/login', [
+            'email' => 'login-clean@example.test', 'password' => '  password  ',
+        ])->assertOk();
+
+        // An email with an internal space is a validation error, not a generic
+        // "invalid credentials".
+        $this->postJson('/api/auth/login', [
+            'email' => 'login clean@example.test', 'password' => 'password',
+        ])->assertStatus(422)->assertJsonValidationErrors('email');
+
+        // A password with an internal space is rejected up front.
+        $this->postJson('/api/auth/login', [
+            'email' => 'login-clean@example.test', 'password' => 'pass word',
+        ])->assertStatus(422)->assertJsonValidationErrors('password');
+    }
+
+    public function test_lgu_admin_creation_uses_the_same_email_and_password_validation_as_registration(): void
+    {
+        Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
+        $municipality = Municipality::firstOrFail();
+
+        // Weak password rejected by the shared strength policy.
+        $this->postJson('/api/super-admin/lgu-admins', [
+            'name' => 'Weak Admin', 'email' => 'weak-admin@example.test',
+            'password' => 'password', 'municipality_id' => $municipality->id,
+        ])->assertStatus(422)->assertJsonValidationErrors('password');
+
+        // Email with an internal space rejected.
+        $this->postJson('/api/super-admin/lgu-admins', [
+            'name' => 'Spaced Admin', 'email' => 'sp ace@example.test',
+            'password' => 'FishMarket123!', 'municipality_id' => $municipality->id,
+        ])->assertStatus(422)->assertJsonValidationErrors('email');
+
+        // Duplicate email returns the same friendly message as registration.
+        $this->makeBuyer(['email' => 'taken@example.test']);
+        $dupe = $this->postJson('/api/super-admin/lgu-admins', [
+            'name' => 'Dupe Admin', 'email' => 'taken@example.test',
+            'password' => 'FishMarket123!', 'municipality_id' => $municipality->id,
+        ]);
+        $dupe->assertStatus(422);
+        $this->assertSame('This email address is already registered.', $dupe->json('errors.email.0'));
+
+        // A clean, compliant account is created.
+        $this->postJson('/api/super-admin/lgu-admins', [
+            'name' => 'Good Admin', 'email' => '  good-admin@example.test  ',
+            'password' => 'FishMarket123!', 'municipality_id' => $municipality->id,
+        ])->assertCreated();
+        $this->assertDatabaseHas('users', ['email' => 'good-admin@example.test', 'role' => 'lgu_admin']);
     }
 
     public function test_seller_registration_requires_municipality_and_is_correctly_assigned(): void
@@ -2669,7 +2824,7 @@ class FishMarketApiTest extends TestCase
         $missingMunicipality = $this->postJson('/api/auth/register', [
             'name' => 'New Hatchery',
             'email' => 'new-hatchery@fishmarket.test',
-            'password' => 'password123',
+            'password' => 'Password123!',
             'role' => 'seller',
         ]);
         $missingMunicipality->assertStatus(422);
@@ -2677,7 +2832,7 @@ class FishMarketApiTest extends TestCase
         $response = $this->postJson('/api/auth/register', [
             'name' => 'New Hatchery',
             'email' => 'new-hatchery@fishmarket.test',
-            'password' => 'password123',
+            'password' => 'Password123!',
             'role' => 'seller',
             'municipality_id' => $municipality->id,
         ]);
@@ -2694,7 +2849,7 @@ class FishMarketApiTest extends TestCase
         $response = $this->postJson('/api/auth/register', [
             'name' => 'New Buyer',
             'email' => 'new-buyer@fishmarket.test',
-            'password' => 'password123',
+            'password' => 'Password123!',
             'role' => 'buyer',
         ]);
 
@@ -2709,7 +2864,7 @@ class FishMarketApiTest extends TestCase
         $response = $this->postJson('/api/auth/register', [
             'name' => 'Pending Buyer',
             'email' => 'pending-buyer@fishmarket.test',
-            'password' => 'password123',
+            'password' => 'Password123!',
             'role' => 'buyer',
         ]);
 
@@ -2728,7 +2883,7 @@ class FishMarketApiTest extends TestCase
         $response = $this->postJson('/api/auth/register', [
             'name' => 'Someone Else',
             'email' => $existing->email,
-            'password' => 'password123',
+            'password' => 'Password123!',
             'role' => 'buyer',
         ]);
 
@@ -2744,7 +2899,7 @@ class FishMarketApiTest extends TestCase
         $response = $this->postJson('/api/auth/register', [
             'name' => 'Resilient Buyer',
             'email' => 'resilient-buyer@fishmarket.test',
-            'password' => 'password123',
+            'password' => 'Password123!',
             'role' => 'buyer',
         ]);
 
@@ -3256,7 +3411,7 @@ class FishMarketApiTest extends TestCase
         $create = $this->postJson('/api/super-admin/lgu-admins', [
             'name' => 'New LGU Officer',
             'email' => 'new-lgu@fishmarket.test',
-            'password' => 'password123',
+            'password' => 'Password123!',
             'municipality_id' => $municipality->id,
         ]);
         $create->assertCreated()->assertJsonPath('role', 'lgu_admin');
@@ -3270,7 +3425,7 @@ class FishMarketApiTest extends TestCase
 
         $this->postJson('/api/auth/login', [
             'email' => 'new-lgu@fishmarket.test',
-            'password' => 'password123',
+            'password' => 'Password123!',
         ])->assertStatus(403);
 
         $enable = $this->patchJson("/api/super-admin/lgu-admins/{$adminId}/enable", ['reason' => 'Review completed']);
@@ -3278,7 +3433,7 @@ class FishMarketApiTest extends TestCase
 
         $this->postJson('/api/auth/login', [
             'email' => 'new-lgu@fishmarket.test',
-            'password' => 'password123',
+            'password' => 'Password123!',
         ])->assertOk();
     }
 
@@ -3316,7 +3471,7 @@ class FishMarketApiTest extends TestCase
         $response = $this->postJson('/api/super-admin/lgu-admins', [
             'name' => 'Cordova LGU Admin',
             'email' => 'cordova-lgu@example.test',
-            'password' => 'password123',
+            'password' => 'Password123!',
             'municipality_id' => $cordova->id,
         ]);
 
@@ -5115,7 +5270,7 @@ class FishMarketApiTest extends TestCase
         $this->postJson('/api/auth/register', [
             'name' => 'Activity Log Buyer',
             'email' => 'activity-log-buyer@fishmarket.test',
-            'password' => 'password123',
+            'password' => 'Password123!',
             'role' => 'buyer',
         ])->assertCreated();
 
@@ -5123,7 +5278,7 @@ class FishMarketApiTest extends TestCase
         $created = $this->postJson('/api/super-admin/lgu-admins', [
             'name' => 'New LGU Admin',
             'email' => 'new-lgu-admin@fishmarket.test',
-            'password' => 'password123',
+            'password' => 'Password123!',
             'municipality_id' => Municipality::firstOrFail()->id,
         ])->assertCreated();
 
@@ -5555,6 +5710,30 @@ class FishMarketApiTest extends TestCase
         $this->postJson("/api/orders/{$order->id}/rate-buyer", ['rating' => 3])->assertStatus(422);
     }
 
+    /**
+     * Order Management shows "Rate Buyer" on a completed order and the given
+     * stars once rated, which it can only do if each order carries its rating
+     * (or lack of one) -- the mirror of the buyer's review column.
+     */
+    public function test_seller_dashboard_orders_carry_their_buyer_rating(): void
+    {
+        $seller = $this->makeSeller();
+        $buyer = $this->makeBuyer();
+        $listing = $this->makeListing($seller);
+        $unrated = $this->makeOrder($buyer, $listing, ['status' => 'completed']);
+        $rated = $this->makeOrder($buyer, $listing, ['status' => 'completed']);
+        $inProgress = $this->makeOrder($buyer, $listing, ['status' => 'in_transit']);
+
+        Sanctum::actingAs($seller->user);
+        $this->postJson("/api/orders/{$rated->id}/rate-buyer", ['rating' => 4])->assertCreated();
+
+        $orders = collect($this->getJson('/api/seller/dashboard')->assertOk()->json('orders'))->keyBy('id');
+
+        $this->assertSame(4, $orders[$rated->id]['buyerRating']['rating']);
+        $this->assertNull($orders[$unrated->id]['buyerRating']);
+        $this->assertNull($orders[$inProgress->id]['buyerRating']);
+    }
+
     public function test_seller_cannot_rate_incomplete_orders_or_other_sellers_orders(): void
     {
         $seller = $this->makeSeller();
@@ -5710,6 +5889,438 @@ class FishMarketApiTest extends TestCase
         Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
         $this->deleteJson("/api/seller-posts/comments/{$commentId}")->assertOk();
         $this->assertDatabaseCount('seller_post_comments', 0);
+    }
+
+    public function test_buyer_can_save_listings_to_the_cart_without_reserving_stock(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 500]);
+        $buyer = $this->makeBuyer();
+        Sanctum::actingAs($buyer);
+
+        $this->postJson('/api/cart', ['fingerling_listing_id' => $listing->id, 'quantity' => 100])
+            ->assertCreated()
+            ->assertJsonPath('quantity', 100)
+            ->assertJsonPath('available', true);
+
+        // A cart entry is a bookmark, not a reservation -- unlike placing an
+        // order (see OrderController::store), it must not touch stock.
+        $this->assertSame(500, $listing->fresh()->quantity);
+
+        $cart = $this->getJson('/api/cart')->assertOk();
+        $cart->assertJsonPath('count', 1);
+        $this->assertSame(100 * (float) $listing->price_per_piece, (float) $cart->json('subtotal'));
+    }
+
+    public function test_saving_an_already_saved_listing_tops_up_the_same_line_rather_than_duplicating_it(): void
+    {
+        $listing = $this->makeListing($this->makeSeller(), ['quantity' => 500]);
+        Sanctum::actingAs($this->makeBuyer());
+
+        $this->postJson('/api/cart', ['fingerling_listing_id' => $listing->id, 'quantity' => 40])->assertCreated();
+        $this->postJson('/api/cart', ['fingerling_listing_id' => $listing->id, 'quantity' => 60])
+            ->assertOk()
+            ->assertJsonPath('quantity', 100);
+
+        $this->assertDatabaseCount('cart_items', 1);
+    }
+
+    public function test_cart_rejects_quantities_beyond_stock_and_reports_stale_saved_items(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 10]);
+        Sanctum::actingAs($this->makeBuyer());
+
+        $this->postJson('/api/cart', ['fingerling_listing_id' => $listing->id, 'quantity' => 50])->assertStatus(422);
+
+        $itemId = $this->postJson('/api/cart', ['fingerling_listing_id' => $listing->id, 'quantity' => 10])->assertCreated()->json('id');
+        $this->patchJson("/api/cart/{$itemId}", ['quantity' => 50])->assertStatus(422);
+
+        // Stock and price are re-read live, so a listing that sells out after
+        // it was saved reports itself unavailable instead of silently
+        // remaining checkout-able.
+        $listing->update(['quantity' => 0]);
+        $cart = $this->getJson('/api/cart')->assertOk();
+        $cart->assertJsonPath('items.0.available', false);
+        $cart->assertJsonPath('subtotal', 0);
+    }
+
+    public function test_a_buyer_can_only_see_and_manage_their_own_cart(): void
+    {
+        $listing = $this->makeListing($this->makeSeller());
+        $owner = $this->makeBuyer();
+        $other = $this->makeBuyer();
+
+        Sanctum::actingAs($owner);
+        $itemId = $this->postJson('/api/cart', ['fingerling_listing_id' => $listing->id, 'quantity' => 5])->assertCreated()->json('id');
+
+        Sanctum::actingAs($other);
+        $this->getJson('/api/cart')->assertOk()->assertJsonPath('count', 0);
+        $this->patchJson("/api/cart/{$itemId}", ['quantity' => 1])->assertForbidden();
+        $this->deleteJson("/api/cart/{$itemId}")->assertForbidden();
+
+        // Non-buyer roles have no cart at all.
+        Sanctum::actingAs($this->makeSeller()->user);
+        $this->getJson('/api/cart')->assertForbidden();
+
+        $this->assertDatabaseHas('cart_items', ['id' => $itemId, 'quantity' => 5]);
+    }
+
+    public function test_buyer_can_clear_their_cart(): void
+    {
+        $seller = $this->makeSeller();
+        Sanctum::actingAs($this->makeBuyer());
+        $this->postJson('/api/cart', ['fingerling_listing_id' => $this->makeListing($seller)->id, 'quantity' => 1])->assertCreated();
+        $this->postJson('/api/cart', ['fingerling_listing_id' => $this->makeListing($seller)->id, 'quantity' => 1])->assertCreated();
+
+        $this->deleteJson('/api/cart')->assertOk();
+        $this->assertDatabaseCount('cart_items', 0);
+    }
+
+    /**
+     * The listing's photo has to reach PayMongo's hosted checkout page --
+     * without it the buyer pays against a nameless line item. See
+     * App\Services\PayMongoService.
+     */
+    public function test_paymongo_checkout_sends_the_listings_photo_as_the_line_item_image(): void
+    {
+        config(['services.paymongo.secret_key' => 'sk_test_fake']);
+        Http::fake([
+            'api.paymongo.com/*' => Http::response(['data' => [
+                'id' => 'cs_test_123',
+                'attributes' => ['checkout_url' => 'https://checkout.paymongo.com/cs_test_123'],
+            ]]),
+        ]);
+
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller);
+        // Media order is the seller's chosen order -- the lead photo wins, and
+        // a video is never offered to PayMongo.
+        $listing->media()->create(['type' => 'video', 'title' => 'Pond clip', 'url' => 'https://cdn.test/clip.mp4', 'position' => 0]);
+        $listing->media()->create(['type' => 'photo', 'title' => 'Lead photo', 'url' => 'https://cdn.test/lead.jpg', 'position' => 1]);
+        $listing->media()->create(['type' => 'photo', 'title' => 'Second photo', 'url' => 'https://cdn.test/second.jpg', 'position' => 2]);
+
+        $buyer = $this->makeBuyer();
+        $order = $this->makeOrder($buyer, $listing);
+        $this->makePayment($order);
+
+        Sanctum::actingAs($buyer);
+        $this->postJson("/api/orders/{$order->id}/checkout")->assertOk();
+
+        Http::assertSent(function ($request) {
+            $lineItem = $request->data()['data']['attributes']['line_items'][0];
+
+            return $lineItem['images'] === ['https://cdn.test/lead.jpg'];
+        });
+    }
+
+    /**
+     * A photo uploaded while APP_URL was localhost keeps that origin in
+     * listing_media.url forever. PayMongo's checkout page can't load it, so
+     * the origin is re-based onto the configured public host at send time --
+     * without re-uploading anything. See App\Services\PayMongoService.
+     */
+    public function test_paymongo_checkout_rebases_locally_uploaded_photos_onto_the_public_https_host(): void
+    {
+        config([
+            'app.url' => 'http://127.0.0.1:8000',
+            'services.paymongo.secret_key' => 'sk_test_fake',
+            'services.paymongo.asset_base_url' => 'https://fishmarket.example.ph',
+        ]);
+        Http::fake(['api.paymongo.com/*' => Http::response(['data' => [
+            'id' => 'cs_test_123',
+            'attributes' => ['checkout_url' => 'https://checkout.paymongo.com/cs_test_123'],
+        ]])]);
+
+        $listing = $this->makeListing($this->makeSeller());
+        $listing->media()->create([
+            'type' => 'photo',
+            'title' => 'Pond photo',
+            'url' => 'http://127.0.0.1:8000/storage/listings/9/lead.png',
+            'position' => 0,
+        ]);
+
+        $buyer = $this->makeBuyer();
+        $order = $this->makeOrder($buyer, $listing);
+        $this->makePayment($order);
+
+        Sanctum::actingAs($buyer);
+        $this->postJson("/api/orders/{$order->id}/checkout")->assertOk();
+
+        Http::assertSent(fn ($request) => $request->data()['data']['attributes']['line_items'][0]['images']
+            === ['https://fishmarket.example.ph/storage/listings/9/lead.png']);
+    }
+
+    /**
+     * Without a public host configured, a localhost photo would render as a
+     * broken image box on PayMongo's HTTPS page (mixed content, and 127.0.0.1
+     * is the buyer's own machine). No image beats a broken one.
+     */
+    public function test_paymongo_checkout_drops_a_non_https_image_rather_than_sending_a_broken_one(): void
+    {
+        config([
+            'app.url' => 'http://127.0.0.1:8000',
+            'services.paymongo.secret_key' => 'sk_test_fake',
+            'services.paymongo.asset_base_url' => null,
+        ]);
+        Http::fake(['api.paymongo.com/*' => Http::response(['data' => [
+            'id' => 'cs_test_123',
+            'attributes' => ['checkout_url' => 'https://checkout.paymongo.com/cs_test_123'],
+        ]])]);
+
+        $listing = $this->makeListing($this->makeSeller());
+        $listing->media()->create([
+            'type' => 'photo',
+            'title' => 'Pond photo',
+            'url' => 'http://127.0.0.1:8000/storage/listings/9/lead.png',
+            'position' => 0,
+        ]);
+
+        $buyer = $this->makeBuyer();
+        $order = $this->makeOrder($buyer, $listing);
+        $this->makePayment($order);
+
+        Sanctum::actingAs($buyer);
+        $this->postJson("/api/orders/{$order->id}/checkout")->assertOk();
+
+        Http::assertSent(fn ($request) => ! array_key_exists('images', $request->data()['data']['attributes']['line_items'][0]));
+    }
+
+    public function test_paymongo_checkout_omits_the_image_key_for_a_listing_with_no_photo(): void
+    {
+        config(['services.paymongo.secret_key' => 'sk_test_fake']);
+        Http::fake([
+            'api.paymongo.com/*' => Http::response(['data' => [
+                'id' => 'cs_test_123',
+                'attributes' => ['checkout_url' => 'https://checkout.paymongo.com/cs_test_123'],
+            ]]),
+        ]);
+
+        $buyer = $this->makeBuyer();
+        $order = $this->makeOrder($buyer, $this->makeListing($this->makeSeller()));
+        $this->makePayment($order);
+
+        Sanctum::actingAs($buyer);
+        $this->postJson("/api/orders/{$order->id}/checkout")->assertOk();
+
+        Http::assertSent(function ($request) {
+            $lineItem = $request->data()['data']['attributes']['line_items'][0];
+
+            return ! array_key_exists('images', $lineItem) && $lineItem['name'] === 'Bangus Fingerlings';
+        });
+    }
+
+    public function test_super_admin_can_permanently_remove_a_buyer_with_a_reason_email_and_audit_trail(): void
+    {
+        Mail::fake();
+        $superAdmin = User::where('role', 'super_admin')->firstOrFail();
+        $buyer = $this->makeBuyer(['name' => 'Spam Signup']);
+        $buyerId = $buyer->id;
+        Sanctum::actingAs($superAdmin);
+
+        $this->deleteJson("/api/super-admin/buyers/{$buyerId}", [
+            'reason' => 'Spam Account',
+            'notes' => 'Signed up 40 times in an hour.',
+        ])->assertOk();
+
+        Mail::assertSent(AccountRemovedMail::class, fn ($mail) => $mail->hasTo($buyer->email) && $mail->reason === 'Spam Account');
+
+        $this->assertDatabaseMissing('users', ['id' => $buyerId]);
+        $this->assertDatabaseMissing('buyer_profiles', ['user_id' => $buyerId]);
+
+        // The audit entry has to outlive the account it documents:
+        // activity_logs.target_user_id is nullOnDelete, so the description is
+        // the only surviving record of who was removed.
+        $entry = ActivityLogEntry::where('action', 'buyer_removed')->sole();
+        $this->assertNull($entry->target_user_id);
+        $this->assertSame($superAdmin->id, $entry->actor_id);
+        $this->assertStringContainsString('Spam Signup', $entry->description);
+        $this->assertStringContainsString($buyer->email, $entry->description);
+        $this->assertStringContainsString('Spam Account', $entry->description);
+    }
+
+    public function test_super_admin_can_permanently_remove_a_seller_and_its_unordered_listings(): void
+    {
+        Mail::fake();
+        $seller = $this->makeSeller();
+        $sellerId = $seller->id;
+        $userId = $seller->user_id;
+        $listing = $this->makeListing($seller);
+
+        Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
+        $this->deleteJson("/api/super-admin/sellers/{$sellerId}", ['reason' => 'Fake Hatchery Details'])->assertOk();
+
+        Mail::assertSent(AccountRemovedMail::class);
+        $this->assertDatabaseMissing('users', ['id' => $userId]);
+        $this->assertDatabaseMissing('seller_profiles', ['id' => $sellerId]);
+        // The hatchery's listings were never ordered, so they go with it.
+        $this->assertDatabaseMissing('listings', ['id' => $listing->id]);
+        $this->assertDatabaseHas('activity_logs', ['action' => 'seller_removed']);
+    }
+
+    /**
+     * The guard that protects the financial record: every transactional table
+     * cascades off users.id, so removing an account that has traded would take
+     * its orders/payments/settlements with it. See App\Support\AccountModeration.
+     */
+    public function test_an_account_with_order_history_cannot_be_removed_and_keeps_all_its_records(): void
+    {
+        Mail::fake();
+        $seller = $this->makeSeller();
+        $buyer = $this->makeBuyer();
+        $listing = $this->makeListing($seller);
+        $order = $this->makeOrder($buyer, $listing, ['status' => 'completed']);
+        $payment = $this->makePayment($order, ['status' => 'paid_held']);
+
+        Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
+
+        $this->deleteJson("/api/super-admin/buyers/{$buyer->id}", ['reason' => 'Spam Account'])->assertStatus(422);
+        $this->deleteJson("/api/super-admin/sellers/{$seller->id}", ['reason' => 'Spam Account'])->assertStatus(422);
+
+        Mail::assertNotSent(AccountRemovedMail::class);
+        $this->assertDatabaseHas('users', ['id' => $buyer->id]);
+        $this->assertDatabaseHas('users', ['id' => $seller->user_id]);
+        $this->assertDatabaseHas('orders', ['id' => $order->id]);
+        $this->assertDatabaseHas('payments', ['id' => $payment->id]);
+    }
+
+    public function test_removing_an_account_requires_an_enumerated_reason_and_is_super_admin_only(): void
+    {
+        $buyer = $this->makeBuyer();
+        $seller = $this->makeSeller();
+
+        Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
+        $this->deleteJson("/api/super-admin/buyers/{$buyer->id}")->assertStatus(422);
+        $this->deleteJson("/api/super-admin/buyers/{$buyer->id}", ['reason' => 'I felt like it'])->assertStatus(422);
+        $this->assertDatabaseHas('users', ['id' => $buyer->id]);
+
+        // A Super Admin can't remove a non-buyer through the buyer route.
+        $this->deleteJson('/api/super-admin/buyers/'.$seller->user_id, ['reason' => 'Spam Account'])->assertNotFound();
+
+        // Every other role is locked out entirely.
+        Sanctum::actingAs($this->makeLguAdmin());
+        $this->deleteJson("/api/super-admin/buyers/{$buyer->id}", ['reason' => 'Spam Account'])->assertForbidden();
+        Sanctum::actingAs($buyer);
+        $this->deleteJson("/api/super-admin/buyers/{$buyer->id}", ['reason' => 'Spam Account'])->assertForbidden();
+        $this->assertDatabaseHas('users', ['id' => $buyer->id]);
+    }
+
+    /**
+     * A rejected order's payment deliberately stays 'paid_held', but it can
+     * never settle while rejected -- so counting it in Pending Balance showed
+     * the seller money that was never coming. See App\Support\SellerWallet.
+     */
+    public function test_rejected_earnings_are_excluded_from_the_sellers_pending_balance(): void
+    {
+        $lgu = $this->makeLguAdmin();
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller);
+        $buyer = $this->makeBuyer();
+
+        $rejected = $this->makeOrder($buyer, $listing, ['status' => 'completed']);
+        $rejectedPayment = $this->makePayment($rejected, ['status' => 'paid_held']);
+        $healthy = $this->makeOrder($buyer, $listing, ['status' => 'completed']);
+        $this->makePayment($healthy, ['status' => 'paid_held']);
+
+        Sanctum::actingAs($seller->user);
+        $before = $this->getJson('/api/seller/wallet')->assertOk()->json('pending_balance');
+
+        Sanctum::actingAs($lgu);
+        $this->patchJson("/api/lgu/payments/{$rejectedPayment->id}/reject", ['reason' => 'Quantity mismatch reported.'])->assertOk();
+
+        Sanctum::actingAs($seller->user);
+        $after = $this->getJson('/api/seller/wallet')->assertOk()->json('pending_balance');
+
+        // The money is still held...
+        $this->assertSame('paid_held', $rejectedPayment->fresh()->status);
+        // ...but it's no longer projected as the seller's.
+        $this->assertSame(round($before / 2, 2), round((float) $after, 2));
+    }
+
+    /**
+     * Rejection used to be a dead end: the payment stays held, the order is
+     * filtered out of the approval queue, and every review action refuses an
+     * already-rejected order -- so nothing could resolve the escrow. Reopening
+     * is the way back. See LguController::reopenRejectedEarnings.
+     */
+    public function test_lgu_can_reopen_a_rejected_transaction_and_then_approve_it(): void
+    {
+        Mail::fake();
+        $lgu = $this->makeLguAdmin();
+        $seller = $this->makeSeller();
+        $order = $this->makeOrder($this->makeBuyer(), $this->makeListing($seller), ['status' => 'completed']);
+        $payment = $this->makePayment($order, ['status' => 'paid_held']);
+
+        Sanctum::actingAs($lgu);
+        $this->patchJson("/api/lgu/payments/{$payment->id}/reject", ['reason' => 'Suspected fake delivery.'])->assertOk();
+
+        // Gone from the approval queue, but visible (and still held) here.
+        $this->assertCount(0, $this->getJson('/api/lgu/earnings')->assertOk()->json());
+        $rejectedList = $this->getJson('/api/lgu/earnings/rejected')->assertOk()->json();
+        $this->assertCount(1, $rejectedList);
+        $this->assertSame('Suspected fake delivery.', $rejectedList[0]['order']['lgu_review_reason']);
+
+        // While rejected, it cannot be approved.
+        $this->patchJson("/api/lgu/payments/{$payment->id}/approve")->assertStatus(422);
+
+        $this->patchJson("/api/lgu/payments/{$payment->id}/reopen")->assertOk();
+
+        // Back in the queue, out of the rejected list, and now approvable.
+        $this->assertCount(0, $this->getJson('/api/lgu/earnings/rejected')->assertOk()->json());
+        $this->assertCount(1, $this->getJson('/api/lgu/earnings')->assertOk()->json());
+        $this->assertNull($order->fresh()->lgu_review_status);
+
+        $this->patchJson("/api/lgu/payments/{$payment->id}/approve")->assertOk();
+        $this->assertSame('released', $payment->fresh()->status);
+        $this->assertDatabaseHas('settlements', ['order_id' => $order->id]);
+
+        // The seller is told at both ends -- on rejection and on reopening.
+        $this->assertDatabaseHas('notifications', ['user_id' => $seller->user_id, 'type' => "earnings_rejected:{$order->id}"]);
+        $this->assertDatabaseHas('notifications', ['user_id' => $seller->user_id, 'type' => "earnings_reopened:{$order->id}"]);
+    }
+
+    public function test_reopen_is_scoped_to_the_lgus_municipality_and_rejects_non_rejected_orders(): void
+    {
+        $seller = $this->makeSeller();
+        $order = $this->makeOrder($this->makeBuyer(), $this->makeListing($seller), ['status' => 'completed']);
+        $payment = $this->makePayment($order, ['status' => 'paid_held']);
+
+        // Not rejected yet -- there's nothing to reopen.
+        Sanctum::actingAs($this->makeLguAdmin());
+        $this->patchJson("/api/lgu/payments/{$payment->id}/reopen")->assertStatus(422);
+
+        $this->patchJson("/api/lgu/payments/{$payment->id}/reject", ['reason' => 'Investigating.'])->assertOk();
+
+        // An admin from another municipality can neither see nor reopen it.
+        $otherMunicipality = Municipality::where('id', '!=', $seller->municipality_id)->firstOrFail();
+        Sanctum::actingAs($this->makeLguAdmin(['municipality_id' => $otherMunicipality->id]));
+        $this->assertCount(0, $this->getJson('/api/lgu/earnings/rejected')->assertOk()->json());
+        $this->patchJson("/api/lgu/payments/{$payment->id}/reopen")->assertForbidden();
+
+        $this->assertSame('rejected', $order->fresh()->lgu_review_status);
+    }
+
+    public function test_ai_assistant_replies_in_the_chosen_language_and_rejects_unsupported_ones(): void
+    {
+        Sanctum::actingAs($this->makeBuyer());
+
+        // Pinning the language overrides what the message itself looks like:
+        // this question is plain English, but the reply language is Bisaya.
+        $this->postJson('/api/ai-assistant/ask', ['question' => 'How do I place an order?', 'language' => 'Bisaya'])
+            ->assertCreated()
+            ->assertJsonPath('language', 'Bisaya');
+
+        $this->postJson('/api/ai-assistant/ask', ['question' => 'How do I place an order?', 'language' => 'Tagalog'])
+            ->assertCreated()
+            ->assertJsonPath('language', 'Tagalog');
+
+        // Omitting it keeps the original auto-detect behaviour.
+        $this->postJson('/api/ai-assistant/ask', ['question' => 'Unsa ang presyo sa bangus?'])
+            ->assertCreated()
+            ->assertJsonPath('language', 'Bisaya');
+
+        $this->postJson('/api/ai-assistant/ask', ['question' => 'How do I place an order?', 'language' => 'Klingon'])
+            ->assertStatus(422);
     }
 
     public function test_guests_cannot_like_or_comment_and_see_no_like_state(): void

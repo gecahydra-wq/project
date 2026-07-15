@@ -37,7 +37,11 @@ class SellerController extends Controller
             'ratings' => $seller->rating,
             'unread_messages' => Message::where('receiver_id', $request->user()->id)->whereNull('read_at')->count(),
             'listings' => FingerlingListing::with('media')->where('seller_profile_id', $seller->id)->latest()->get(),
-            'orders' => Order::with(['listing', 'payment', 'buyer'])->where('seller_profile_id', $seller->id)->latest()->get(),
+            // buyerRating is what lets Order Management show "Rate Buyer" on a
+            // completed order and the given stars once it's rated -- the mirror
+            // of the buyer's own review column, which reads order.review the
+            // same way (see OrderController::index).
+            'orders' => Order::with(['listing', 'payment', 'buyer', 'buyerRating'])->where('seller_profile_id', $seller->id)->latest()->get(),
             'notifications' => AppNotification::where('user_id', $request->user()->id)->whereNull('read_at')->latest()->get(),
         ]);
     }

@@ -39,6 +39,18 @@ return [
         'public_key' => env('PAYMONGO_PUBLIC_KEY'),
         'secret_key' => env('PAYMONGO_SECRET_KEY'),
         'webhook_secret' => env('PAYMONGO_WEBHOOK_SECRET'),
+
+        // Public HTTPS origin for listing photos shown on PayMongo's hosted
+        // checkout page, e.g. https://your-app.ngrok-free.app or your deployed
+        // domain. Optional -- when unset, APP_URL is used.
+        //
+        // This exists because listing_media.url stores the absolute URL that
+        // was current when the photo was uploaded (see App\Support\ImageUploader),
+        // so a local upload keeps a localhost host forever. PayMongo's page is
+        // HTTPS and fetches images from the public internet, so a localhost or
+        // plain-HTTP URL renders as a broken image. Setting this rewrites the
+        // origin at checkout time without re-uploading anything.
+        'asset_base_url' => env('PAYMONGO_ASSET_BASE_URL'),
     ],
 
     'gemini' => [
