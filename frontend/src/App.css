@@ -1228,7 +1228,10 @@ footer {
   font-weight: var(--fw-semibold);
 }
 
-.stat-card span,
+/* :not(.stars) so a rating shown as a stat value (renderStars inside <Stat>,
+   e.g. the seller/buyer profile header) keeps its gold .stars colour instead
+   of being greyed as if it were the muted stat label. */
+.stat-card span:not(.stars),
 .card p,
 .about-card p {
   color: var(--color-text-muted);
