@@ -1,6 +1,6 @@
-# FishMarket — Fish Fingerlings Web-Based Marketplace
+# AbaiMarket — Fish Fingerlings Web-Based Marketplace
 
-FishMarket is a production-grade, role-based marketplace that connects local **fingerling buyers (fish farmers)** with **sellers (hatcheries)**, under the oversight of **LGU (Local Government Unit) Admins** and a **Super Admin**. It provides listing governance, escrow-style payments via PayMongo, an automated revenue-sharing model, transactional email, a database-driven Google Gemini AI assistant, and full analytics/audit tooling for every role.
+AbaiMarket is a production-grade, role-based marketplace that connects local **fingerling buyers (fish farmers)** with **sellers (hatcheries)**, under the oversight of **LGU (Local Government Unit) Admins** and a **Super Admin**. It provides listing governance, escrow-style payments via PayMongo, an automated revenue-sharing model, transactional email, a database-driven Google Gemini AI assistant, and full analytics/audit tooling for every role.
 
 Built as a BSIT capstone project, but engineered and maintained as a real production application.
 
@@ -30,7 +30,7 @@ Built as a BSIT capstone project, but engineered and maintained as a real produc
 
 ## Project Overview
 
-FishMarket digitizes the fingerling supply chain for a cluster of coastal municipalities. The platform is intentionally **multi-tenant by role and municipality**:
+AbaiMarket digitizes the fingerling supply chain for a cluster of coastal municipalities. The platform is intentionally **multi-tenant by role and municipality**:
 
 - Sellers list fingerling stock; buyers order and pay online.
 - Every listing and seller is **governed by the LGU** for the seller's municipality (verification, approval, moderation).
@@ -53,6 +53,7 @@ The system emphasizes correctness of money movement, strict role permissions, a 
 **Marketplace**
 - Fingerling listings with multi-photo/video media galleries and a lightbox
 - Species / municipality / price / search filtering
+- Buy-later **Cart** — buyers save listings to purchase later (a bookmark, not a stock reservation; price and availability are re-checked at checkout)
 - Seller profiles with a "Farm Posts" social feed (likes + comments), ratings and reviews
 - Buyer ↔ Seller two-way feedback (buyers review sellers; sellers rate buyers)
 - Direct messaging between all roles
@@ -71,8 +72,8 @@ The system emphasizes correctness of money movement, strict role permissions, a 
 - Platform payout fee accounting
 
 **Governance & Moderation**
-- LGU: seller verification, listing approval/rejection/archival, seller suspension, earnings verification (approve / hold / reject)
-- Super Admin: platform-wide suspension of buyers/sellers/LGU admins, listing management, review/rating removal
+- LGU: seller verification, listing approval/rejection/archival, seller suspension, earnings verification (approve / hold / reject / **reopen** a rejected transaction back into the queue)
+- Super Admin: platform-wide suspension of buyers/sellers/LGU admins, **permanent account removal** (buyers/sellers, with a required reason — blocked when the account has order history, to protect the financial record), listing management, review/rating removal
 - Global Activity Log / audit trail and a dedicated Moderation Log
 
 **Analytics & Reporting**
@@ -82,7 +83,7 @@ The system emphasizes correctness of money movement, strict role permissions, a 
 
 **Platform**
 - Global announcement system with scheduled publishing
-- Role-aware, database-driven Gemini AI assistant (English / Filipino / Cebuano)
+- Role-aware, database-driven Gemini AI assistant (English / Filipino / Cebuano) with auto-detection **and a manual language selector**
 
 ---
 
@@ -114,8 +115,8 @@ The system emphasizes correctness of money movement, strict role permissions, a 
 ### Clone & install
 
 ```bash
-git clone <your-repo-url> fishmarket
-cd fishmarket
+git clone <your-repo-url> abaimarket
+cd abaimarket
 
 # Backend
 cd backend
@@ -169,7 +170,7 @@ All backend configuration lives in `backend/.env`. Copy from `.env.example` and 
 | Variable | Description |
 | --- | --- |
 | `GEMINI_API_KEY` | Gemini API key (blank ⇒ local knowledge-base fallback) |
-| `GEMINI_MODEL` | Model id (default `gemini-2.0-flash`) |
+| `GEMINI_MODEL` | Model id (default `gemini-2.5-flash`) |
 
 ### Google OAuth
 
@@ -282,6 +283,7 @@ There are four roles. Every endpoint and screen enforces role permissions.
 ### Buyer
 Fish farmers who purchase fingerlings.
 - Browse and search the marketplace; view seller profiles, farm posts, ratings, and reviews
+- Save listings to a **cart** to buy later
 - Place and pay for orders (PayMongo)
 - Track orders and look them up by order number
 - Review and rate sellers after completed orders
@@ -313,7 +315,7 @@ Platform-wide authority.
 - Executive dashboard (today's orders/revenue, pending queues, top performers, recent activity)
 - Provision and manage LGU Admin accounts and municipalities
 - Approve/release seller and LGU payouts
-- Suspend/reinstate buyers, sellers, and LGU admins
+- Suspend/reinstate buyers, sellers, and LGU admins; **permanently remove** buyers/sellers that have no order history
 - Global listing management, review/rating moderation
 - Announcements, global activity & moderation logs, platform reports and exports
 
@@ -321,7 +323,7 @@ Platform-wide authority.
 
 ## Payment Workflow
 
-FishMarket uses an **escrow-style** flow so a seller is never paid before the transaction is verified by the LGU.
+AbaiMarket uses an **escrow-style** flow so a seller is never paid before the transaction is verified by the LGU.
 
 ```
 Buyer places order
@@ -372,9 +374,9 @@ The seller share is rounded to the centavo first; the LGU absorbs any rounding r
 
 A single, role-aware Gemini assistant is available on every page.
 
-- **Database-driven:** marketplace questions are answered from live database facts first (`AiDataQueryResolver`), then ranked recommendations (`AiRecommendationEngine`), then the app's own scripted knowledge base (`AiIntentClassifier`) — Gemini is only asked to phrase real, grounded context, never to invent FishMarket facts.
+- **Database-driven:** marketplace questions are answered from live database facts first (`AiDataQueryResolver`), then ranked recommendations (`AiRecommendationEngine`), then the app's own scripted knowledge base (`AiIntentClassifier`) — Gemini is only asked to phrase real, grounded context, never to invent AbaiMarket facts.
 - **Role-scoped:** a buyer, seller, LGU admin, and super admin each get answers scoped to what they're allowed to see (e.g. a seller's wallet answer is computed by the exact same rules as the wallet page).
-- **Multilingual:** automatically detects and replies in **English, Filipino, or Cebuano**.
+- **Multilingual:** replies in **English, Filipino, or Cebuano** — auto-detected from the message, or pinned via the in-chat language selector.
 - **On-topic only:** off-topic questions get a polite refusal before ever reaching the model.
 - **Graceful fallback:** when `GEMINI_API_KEY` is blank or the API is unreachable, the app serves its own scripted answer.
 - **Privacy:** only aggregate usage metadata is retained for analytics — never message contents beyond the user's own chat history.
@@ -391,14 +393,14 @@ Implemented emails include:
 - Listing Approved / Rejected
 - Seller Earnings Approved, Seller Payout Released
 - LGU Payout Approved / Released
-- Account Suspended / Reinstated
+- Account Suspended / Reinstated / Removed
 
 ---
 
 ## Folder Structure
 
 ```
-fishmarket/
+abaimarket/
 ├── backend/                      # Laravel 12 API
 │   ├── app/
 │   │   ├── Console/Commands/     # Scheduled commands (announcement publishing)
@@ -412,7 +414,7 @@ fishmarket/
 │   │   ├── Services/              # GeminiService, PayMongoService
 │   │   └── Support/               # Domain "service layer" (wallets, revenue, AI, moderation…)
 │   ├── config/                   # services.php holds PayMongo/Gemini/Google keys
-│   ├── database/migrations/      # Schema (33 migrations)
+│   ├── database/migrations/      # Schema (34 migrations)
 │   ├── resources/views/          # Blade (email templates, PayMongo/verification return page)
 │   ├── routes/
 │   │   ├── api.php               # All API routes, grouped by role middleware
@@ -458,4 +460,4 @@ fishmarket/
 
 ---
 
-_FishMarket — connecting hatcheries, farmers, and local government in one trusted marketplace._
+_AbaiMarket — connecting hatcheries, farmers, and local government in one trusted marketplace._
