@@ -6,7 +6,7 @@ use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
 
 /**
- * The single source of truth for FishMarket's password policy. Applied wherever
+ * The single source of truth for AbaiMarket's password policy. Applied wherever
  * a user chooses a password -- self-registration, changing an existing password,
  * and Super-Admin provisioning of LGU admins -- so the rules can never drift
  * apart between endpoints.

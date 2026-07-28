@@ -35,7 +35,7 @@ class EmailVerificationController extends Controller
                 'cancelled',
                 'Invalid Link',
                 'This verification link is invalid.',
-                "The link you used doesn't match any FishMarket account. Please register again or request a new verification email from the login page."
+                "The link you used doesn't match any AbaiMarket account. Please register again or request a new verification email from the login page."
             );
         }
 
@@ -54,7 +54,7 @@ class EmailVerificationController extends Controller
                 'success',
                 'Already Verified',
                 'Your email is already verified.',
-                'Your FishMarket account is already active -- you can log in now.'
+                'Your AbaiMarket account is already active -- you can log in now.'
             );
         }
 
@@ -64,7 +64,7 @@ class EmailVerificationController extends Controller
             'success',
             'Email Verified',
             'Your email is verified.',
-            'Your FishMarket account is now active. You can log in now.'
+            'Your AbaiMarket account is now active. You can log in now.'
         );
     }
 
@@ -109,7 +109,7 @@ class EmailVerificationController extends Controller
             'message' => $message,
             'primary_label' => 'Go to Login',
             'primary_url' => $loginUrl,
-            'secondary_label' => 'Back to FishMarket',
+            'secondary_label' => 'Back to AbaiMarket',
             'secondary_url' => $frontend.'/',
         ]);
     }

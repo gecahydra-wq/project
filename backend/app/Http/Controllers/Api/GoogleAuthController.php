@@ -79,7 +79,7 @@ class GoogleAuthController extends Controller
             }
         } else {
             $user = User::create([
-                'name' => $googleUser->getName() ?: $googleUser->getNickname() ?: 'FishMarket Buyer',
+                'name' => $googleUser->getName() ?: $googleUser->getNickname() ?: 'AbaiMarket Buyer',
                 'email' => $email,
                 // Unusable random password -- this account only ever signs
                 // in through Google, but the column is non-nullable and

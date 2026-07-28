@@ -6,5 +6,5 @@
 
     @include('emails.partials.details', ['rows' => $rows])
 
-    <p style="margin:16px 0 0;">{{ $closingLine ?? 'Thanks for selling on FishMarket!' }}</p>
+    <p style="margin:16px 0 0;">{{ $closingLine ?? 'Thanks for selling on AbaiMarket!' }}</p>
 @endsection

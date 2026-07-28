@@ -6,7 +6,7 @@ use App\Rules\StrongPassword;
 use Illuminate\Validation\Rule;
 
 /**
- * The single source of truth for how FishMarket validates account credentials.
+ * The single source of truth for how AbaiMarket validates account credentials.
  * Every authentication and account-creation flow -- buyer/seller registration,
  * login, change password, and Super-Admin provisioning of LGU admins -- pulls
  * its email and password rules (and messages) from here, so validation is

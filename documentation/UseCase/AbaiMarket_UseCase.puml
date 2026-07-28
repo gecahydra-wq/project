@@ -1,0 +1,175 @@
+@startuml AbaiMarket_UseCase
+' AbaiMarket -- Use Case Diagram
+' Derived from routes/api.php and app/Http/Middleware/EnsureRole.php.
+' Every use case maps to a real, role-guarded API endpoint. Renders with
+' the official PlantUML (plantuml.jar / plantuml.com server).
+
+left to right direction
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam actorStyle awesome
+skinparam usecase {
+  BackgroundColor #F7FBFC
+  BorderColor #0F5C7A
+  FontColor #10202B
+}
+skinparam actor {
+  BackgroundColor #EAF3F6
+  BorderColor #0F5C7A
+}
+title AbaiMarket -- Use Case Diagram
+
+' ============================ ACTORS ============================
+actor "Guest" as Guest
+actor "Buyer" as Buyer
+actor "Seller\n(Hatchery)" as Seller
+actor "LGU Admin" as LGU
+actor "Super Admin" as Admin
+
+actor "Authenticated\nUser" as Auth
+
+' Secondary / external actors
+actor "PayMongo" as PayMongo
+actor "Google OAuth" as Google
+actor "Gemini AI" as Gemini
+actor "Email (SMTP)" as Email
+
+' Role generalization: every signed-in role IS an Authenticated User.
+Buyer --|> Auth
+Seller --|> Auth
+LGU --|> Auth
+Admin --|> Auth
+
+' ======================= PUBLIC (GUEST) =======================
+rectangle "Public / Pre-login" {
+  usecase "Register account" as UC_reg
+  usecase "Log in" as UC_login
+  usecase "Log in with Google" as UC_glogin
+  usecase "Verify email" as UC_verify
+  usecase "Browse listings" as UC_browse
+  usecase "View listing details" as UC_listing
+  usecase "View seller profiles & posts" as UC_vseller
+  usecase "View municipalities" as UC_muni
+}
+Guest --> UC_reg
+Guest --> UC_login
+Guest --> UC_glogin
+Guest --> UC_verify
+Guest --> UC_browse
+Guest --> UC_listing
+Guest --> UC_vseller
+Guest --> UC_muni
+UC_reg ..> Email : <<include>>
+UC_verify ..> Email : <<include>>
+UC_glogin ..> Google : <<include>>
+
+' ============ SHARED BY ALL AUTHENTICATED ROLES ============
+rectangle "Common (all signed-in roles)" {
+  usecase "Manage account\n(logout, change password)" as UC_acct
+  usecase "Send / edit / delete messages" as UC_msg
+  usecase "Like & comment on seller posts" as UC_engage
+  usecase "Ask AI Assistant\n(EN / Tagalog / Bisaya)" as UC_ai
+  usecase "View active announcements" as UC_ann_view
+}
+Auth --> UC_acct
+Auth --> UC_msg
+Auth --> UC_engage
+Auth --> UC_ai
+Auth --> UC_ann_view
+UC_ai ..> Gemini : <<include>>
+
+' ========================= BUYER =========================
+rectangle "Buyer" {
+  usecase "Manage buyer profile" as UC_bprof
+  usecase "View dashboard & analytics" as UC_bdash
+  usecase "Add to cart (buy later)" as UC_cart
+  usecase "Place order" as UC_place
+  usecase "Checkout & pay" as UC_pay
+  usecase "Track / look up own orders" as UC_borders
+  usecase "Review seller\n(completed order)" as UC_review
+  usecase "Manage notifications" as UC_bnotif
+}
+Buyer --> UC_bprof
+Buyer --> UC_bdash
+Buyer --> UC_cart
+Buyer --> UC_place
+Buyer --> UC_pay
+Buyer --> UC_borders
+Buyer --> UC_review
+Buyer --> UC_bnotif
+UC_pay ..> PayMongo : <<include>>
+UC_cart ..> UC_place : <<extend>>
+
+' ========================= SELLER =========================
+rectangle "Seller (Hatchery)" {
+  usecase "Manage hatchery profile\n(picture, cover)" as UC_sprof
+  usecase "Manage listings & media" as UC_slist
+  usecase "Publish seller posts\n(farm updates)" as UC_sposts
+  usecase "Update order delivery status" as UC_sstatus
+  usecase "Add seller notes to order" as UC_snotes
+  usecase "Rate buyer\n(completed order)" as UC_rateb
+  usecase "View buyer profile" as UC_vbuyer
+  usecase "View wallet & request withdrawal" as UC_swallet
+  usecase "View dashboard & analytics" as UC_sdash
+  usecase "Manage notifications" as UC_snotif
+}
+Seller --> UC_sprof
+Seller --> UC_slist
+Seller --> UC_sposts
+Seller --> UC_sstatus
+Seller --> UC_snotes
+Seller --> UC_rateb
+Seller --> UC_vbuyer
+Seller --> UC_swallet
+Seller --> UC_sdash
+Seller --> UC_snotif
+Seller --> UC_borders
+
+' ========================= LGU ADMIN =========================
+rectangle "LGU Admin (municipality-scoped)" {
+  usecase "Moderate listings\n(approve/reject/archive/delete)" as UC_lmod
+  usecase "Verify / suspend / reinstate sellers" as UC_lsellers
+  usecase "Approve seller earnings\n(create settlement)" as UC_approve
+  usecase "Hold / reject / reopen earnings" as UC_hold
+  usecase "Remove unfair reviews & ratings" as UC_lrev
+  usecase "View reports & export" as UC_lrep
+  usecase "Manage LGU wallet & withdrawals" as UC_lwallet
+  usecase "View activity log" as UC_llog
+  usecase "View dashboard" as UC_ldash
+}
+LGU --> UC_lmod
+LGU --> UC_lsellers
+LGU --> UC_approve
+LGU --> UC_hold
+LGU --> UC_lrev
+LGU --> UC_lrep
+LGU --> UC_lwallet
+LGU --> UC_llog
+LGU --> UC_ldash
+
+' ========================= SUPER ADMIN =========================
+rectangle "Super Admin (platform-wide)" {
+  usecase "Executive dashboard & order lookup" as UC_adash
+  usecase "Manage municipalities" as UC_amuni
+  usecase "Manage LGU admins" as UC_almgu
+  usecase "Moderate sellers & buyers\n(suspend/reinstate/remove)" as UC_amod
+  usecase "Approve seller & LGU payouts" as UC_apay
+  usecase "Manage listings (global)" as UC_alist
+  usecase "Manage announcements" as UC_aann
+  usecase "Remove reviews & ratings" as UC_arev
+  usecase "Reports, activity & moderation logs" as UC_alog
+}
+Admin --> UC_adash
+Admin --> UC_amuni
+Admin --> UC_almgu
+Admin --> UC_amod
+Admin --> UC_apay
+Admin --> UC_alist
+Admin --> UC_aann
+Admin --> UC_arev
+Admin --> UC_alog
+
+' PayMongo also drives the unauthenticated payment webhook that confirms payment
+PayMongo --> UC_pay
+
+@enduml

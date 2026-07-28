@@ -33,17 +33,17 @@ class AppServiceProvider extends ServiceProvider
         // changes to AuthController/GoogleAuthController.
         User::observe(UserActivityObserver::class);
 
-        // FishMarket-branded copy for Laravel's built-in verification email --
+        // AbaiMarket-branded copy for Laravel's built-in verification email --
         // the notification class, signed-URL generation, and expiry are all
         // still the framework defaults; only the message text changes here.
         VerifyEmail::toMailUsing(function ($notifiable, string $url) {
             return (new MailMessage)
-                ->subject('Verify your FishMarket account')
+                ->subject('Verify your AbaiMarket account')
                 ->greeting("Hello {$notifiable->name},")
-                ->line('Thanks for joining FishMarket, the LGU-supervised fisheries marketplace. Please verify your email address to activate your account.')
+                ->line('Thanks for joining AbaiMarket, the LGU-supervised fisheries marketplace. Please verify your email address to activate your account.')
                 ->action('Verify Email Address', $url)
                 ->line('This verification link expires in 60 minutes.')
-                ->line('If you did not create a FishMarket account, no further action is required.');
+                ->line('If you did not create a AbaiMarket account, no further action is required.');
         });
     }
 }

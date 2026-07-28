@@ -40,7 +40,7 @@ class AccountRemovedMail extends Mailable
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'Your FishMarket Account Has Been Removed',
+            subject: 'Your AbaiMarket Account Has Been Removed',
         );
     }
 
@@ -62,15 +62,15 @@ class AccountRemovedMail extends Mailable
         return new Content(
             view: 'emails.account.status-changed',
             with: [
-                'subject' => 'Your FishMarket Account Has Been Removed',
+                'subject' => 'Your AbaiMarket Account Has Been Removed',
                 'eyebrow' => 'Account Update',
                 'headline' => 'Your account has been removed',
-                'preheader' => 'Your FishMarket account has been permanently removed.',
+                'preheader' => 'Your AbaiMarket account has been permanently removed.',
                 'recipientName' => $this->account->name,
-                'introLine' => "Your FishMarket {$roleLabel} account has been permanently removed by an administrator. You will no longer be able to log in, and your profile is no longer on the marketplace.",
+                'introLine' => "Your AbaiMarket {$roleLabel} account has been permanently removed by an administrator. You will no longer be able to log in, and your profile is no longer on the marketplace.",
                 'restrictions' => [],
                 'rows' => $rows,
-                'appealLine' => 'If you believe this was a mistake, or would like to appeal this decision, please contact FishMarket support and reference the date and reason above. You are welcome to register a new account once any issue has been resolved.',
+                'appealLine' => 'If you believe this was a mistake, or would like to appeal this decision, please contact AbaiMarket support and reference the date and reason above. You are welcome to register a new account once any issue has been resolved.',
             ],
         );
     }

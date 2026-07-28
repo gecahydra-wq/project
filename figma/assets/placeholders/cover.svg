@@ -1,0 +1,16 @@
+<svg width="1200" height="300" viewBox="0 0 1200 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Default farm cover photo placeholder">
+  <defs>
+    <linearGradient id="coverBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#d1fae5"/>
+      <stop offset="100%" stop-color="#e0f2fe"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="300" fill="url(#coverBg)"/>
+  <g fill="#0f4c81" opacity="0.85">
+    <ellipse cx="520" cy="150" rx="95" ry="40"/>
+    <polygon points="430,150 382,110 382,190"/>
+    <polygon points="520,112 548,92 562,120"/>
+    <circle cx="578" cy="146" r="7" fill="#0f172a"/>
+  </g>
+  <text x="600" y="255" font-family="Arial, sans-serif" font-size="22" fill="#0f172a" text-anchor="middle" opacity="0.7">No cover photo yet</text>
+</svg>

@@ -49,7 +49,7 @@ class GeminiService
      * greeting, or (5) a polite off-topic refusal. Cases 1-3 all ground
      * Gemini with a context object built from real data or real app
      * knowledge via answerWithContext() -- Gemini is only ever asked to
-     * phrase that context naturally, never to invent FishMarket facts or
+     * phrase that context naturally, never to invent AbaiMarket facts or
      * ask clarifying questions about how the system works.
      */
     public function answer(string $prompt, string $language = 'English', ?User $user = null, array $history = [], ?string $preferredLanguage = null): string
@@ -145,7 +145,7 @@ class GeminiService
      * (AiRecommendationEngine), or the app's own scripted knowledge for a
      * recognized topic (AiIntentClassifier). Gemini is grounded with that
      * fact via systemInstruction and told never to invent anything beyond
-     * it or ask the user clarifying questions about how FishMarket works;
+     * it or ask the user clarifying questions about how AbaiMarket works;
      * recent conversation turns are threaded in as multi-turn contents so
      * follow-ups ("how many are in Cordova?") read naturally. On any
      * provider failure, $context['fallback'] is used instead of a generic
@@ -179,7 +179,7 @@ class GeminiService
             }
             $contents[] = ['role' => 'user', 'parts' => [['text' => $prompt]]];
 
-            $systemInstruction = "You are the FishMarket AI assistant, an expert built specifically for this Fisheries Marketplace application -- not a general-purpose chatbot. Use ONLY the following application knowledge/data to answer -- never invent or estimate anything beyond it, and never ask the user a clarifying question about how FishMarket works (e.g. what item they mean) since this context already fully describes it. Respond fluently in {$language} (or whichever language the user's message is predominantly written in, if it mixes languages), concisely and naturally.\n\nCONTEXT: {$context['context']}";
+            $systemInstruction = "You are the AbaiMarket AI assistant, an expert built specifically for this Fisheries Marketplace application -- not a general-purpose chatbot. Use ONLY the following application knowledge/data to answer -- never invent or estimate anything beyond it, and never ask the user a clarifying question about how AbaiMarket works (e.g. what item they mean) since this context already fully describes it. Respond fluently in {$language} (or whichever language the user's message is predominantly written in, if it mixes languages), concisely and naturally.\n\nCONTEXT: {$context['context']}";
 
             $response = Http::timeout(30)->post($url, [
                 'contents' => $contents,

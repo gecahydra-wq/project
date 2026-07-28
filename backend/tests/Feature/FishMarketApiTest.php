@@ -1408,6 +1408,15 @@ class FishMarketApiTest extends TestCase
             'What species is good for a beginner?' => 'Fish Care',
             'How often should I feed my fingerlings?' => 'Fish Care',
             'Where can I track my orders?' => 'Orders',
+            // Two-pass matching: a specific phrase wins over a broad single word
+            // in an earlier topic, so these no longer shadow to Marketplace.
+            'How do I create a listing?' => 'Listings',
+            'How do I approve a listing?' => 'Listings',
+            'How do I sell fingerlings?' => 'Listings',
+            'How do I withdraw my earnings?' => 'Withdrawals',
+            'How do I add items to my cart?' => 'Marketplace',
+            'How do I leave feedback?' => 'Reviews',
+            'Why are my fingerlings dying?' => 'Fish Care',
             'Hello there!' => 'Greeting',
             'Kumusta!' => 'Greeting',
             'Who won the last World Cup?' => 'Unknown',
@@ -1435,6 +1444,22 @@ class FishMarketApiTest extends TestCase
         $result = \App\Support\AiIntentClassifier::classify('Tell me about fish farming');
 
         $this->assertNotSame('Greeting', $result['category']);
+        // "fish farming" is now a recognized Fish Care topic, not an off-topic refusal.
+        $this->assertSame('Fish Care', $result['category']);
+    }
+
+    /**
+     * Keyword matching anchors on a word boundary, so a short keyword like
+     * "rate" no longer fires on the middle of an unrelated word ("accurate").
+     */
+    public function test_ai_intent_classifier_ignores_keywords_hidden_inside_unrelated_words(): void
+    {
+        foreach ([
+            'Is the listed weight accurate?',   // "rate" inside "accurate" must NOT be Reviews
+            'Can you generate a summary?',       // "rate" inside "generate" must NOT be Reviews
+        ] as $message) {
+            $this->assertNotSame('Reviews', \App\Support\AiIntentClassifier::classify($message)['category'], $message);
+        }
     }
 
     public function test_gemini_service_politely_refuses_off_topic_questions_without_fabricating_answers(): void
@@ -1448,7 +1473,7 @@ class FishMarketApiTest extends TestCase
             'Help me with my algebra homework',
         ] as $offTopicQuestion) {
             $response = $service->answer($offTopicQuestion, 'English');
-            $this->assertStringContainsString('FishMarket fisheries marketplace', $response);
+            $this->assertStringContainsString('AbaiMarket fisheries marketplace', $response);
             $this->assertStringNotContainsString('World Cup', $response);
             $this->assertStringNotContainsString('Python', $response);
         }
@@ -1459,8 +1484,8 @@ class FishMarketApiTest extends TestCase
         config(['services.gemini.api_key' => null]);
         $service = new \App\Services\GeminiService();
 
-        $this->assertStringContainsString('FishMarket assistant', $service->answer('Hello!', 'English'));
-        $this->assertStringContainsString('FishMarket assistant', $service->answer('Kumusta!', 'Bisaya'));
+        $this->assertStringContainsString('AbaiMarket assistant', $service->answer('Hello!', 'English'));
+        $this->assertStringContainsString('AbaiMarket assistant', $service->answer('Kumusta!', 'Bisaya'));
     }
 
     public function test_ai_assistant_grounds_live_gemini_with_real_database_counts(): void
@@ -1706,7 +1731,7 @@ class FishMarketApiTest extends TestCase
         $response = $this->postJson('/api/ai-assistant/ask', ['question' => 'Who won the last World Cup?']);
 
         $response->assertCreated();
-        $this->assertStringContainsString('FishMarket', $response->json('response'));
+        $this->assertStringContainsString('AbaiMarket', $response->json('response'));
         $this->assertStringNotContainsString('World Cup', $response->json('response'));
     }
 
@@ -2718,7 +2743,7 @@ class FishMarketApiTest extends TestCase
         ])->assertStatus(422)->assertJsonValidationErrors('password');
 
         // ...while a fully compliant strong password is accepted.
-        foreach (['FishMarket123!', 'MySecure@2026', 'Seller#Wallet90'] as $strong) {
+        foreach (['AbaiMarket123!', 'MySecure@2026', 'Seller#Wallet90'] as $strong) {
             $this->postJson('/api/auth/register', [
                 'name' => 'Strong', 'email' => 'strong-'.Str::random(8).'@example.test',
                 'password' => $strong, 'role' => 'buyer',
@@ -2731,13 +2756,13 @@ class FishMarketApiTest extends TestCase
         // An internal space anywhere in the address is rejected.
         $this->postJson('/api/auth/register', [
             'name' => 'Spacey', 'email' => 'john doe@example.test',
-            'password' => 'FishMarket123!', 'role' => 'buyer',
+            'password' => 'AbaiMarket123!', 'role' => 'buyer',
         ])->assertStatus(422)->assertJsonValidationErrors('email');
 
         // A malformed address is rejected with a friendly message.
         $badFormat = $this->postJson('/api/auth/register', [
             'name' => 'Bad', 'email' => 'not-an-email',
-            'password' => 'FishMarket123!', 'role' => 'buyer',
+            'password' => 'AbaiMarket123!', 'role' => 'buyer',
         ]);
         $badFormat->assertStatus(422);
         $this->assertSame('Please enter a valid email address.', $badFormat->json('errors.email.0'));
@@ -2746,7 +2771,7 @@ class FishMarketApiTest extends TestCase
         // the address is stored clean.
         $this->postJson('/api/auth/register', [
             'name' => 'Trim', 'email' => '  trim-me@example.test  ',
-            'password' => 'FishMarket123!', 'role' => 'buyer',
+            'password' => 'AbaiMarket123!', 'role' => 'buyer',
         ])->assertCreated();
         $this->assertDatabaseHas('users', ['email' => 'trim-me@example.test']);
 
@@ -2754,7 +2779,7 @@ class FishMarketApiTest extends TestCase
         // duplicate message, never a raw SQL/server error.
         $dupe = $this->postJson('/api/auth/register', [
             'name' => 'Dupe', 'email' => 'trim-me@example.test',
-            'password' => 'FishMarket123!', 'role' => 'buyer',
+            'password' => 'AbaiMarket123!', 'role' => 'buyer',
         ]);
         $dupe->assertStatus(422);
         $this->assertSame('This email address is already registered.', $dupe->json('errors.email.0'));
@@ -2797,14 +2822,14 @@ class FishMarketApiTest extends TestCase
         // Email with an internal space rejected.
         $this->postJson('/api/super-admin/lgu-admins', [
             'name' => 'Spaced Admin', 'email' => 'sp ace@example.test',
-            'password' => 'FishMarket123!', 'municipality_id' => $municipality->id,
+            'password' => 'AbaiMarket123!', 'municipality_id' => $municipality->id,
         ])->assertStatus(422)->assertJsonValidationErrors('email');
 
         // Duplicate email returns the same friendly message as registration.
         $this->makeBuyer(['email' => 'taken@example.test']);
         $dupe = $this->postJson('/api/super-admin/lgu-admins', [
             'name' => 'Dupe Admin', 'email' => 'taken@example.test',
-            'password' => 'FishMarket123!', 'municipality_id' => $municipality->id,
+            'password' => 'AbaiMarket123!', 'municipality_id' => $municipality->id,
         ]);
         $dupe->assertStatus(422);
         $this->assertSame('This email address is already registered.', $dupe->json('errors.email.0'));
@@ -2812,7 +2837,7 @@ class FishMarketApiTest extends TestCase
         // A clean, compliant account is created.
         $this->postJson('/api/super-admin/lgu-admins', [
             'name' => 'Good Admin', 'email' => '  good-admin@example.test  ',
-            'password' => 'FishMarket123!', 'municipality_id' => $municipality->id,
+            'password' => 'AbaiMarket123!', 'municipality_id' => $municipality->id,
         ])->assertCreated();
         $this->assertDatabaseHas('users', ['email' => 'good-admin@example.test', 'role' => 'lgu_admin']);
     }
@@ -3954,7 +3979,7 @@ class FishMarketApiTest extends TestCase
 
         $this->assertStringContainsString('name="viewport"', $html);
         $this->assertStringContainsString('@media only screen and (max-width: 600px)', $html);
-        $this->assertStringContainsString('FishMarket', $html);
+        $this->assertStringContainsString('AbaiMarket', $html);
         $this->assertStringContainsString($order->order_number, $html);
     }
 

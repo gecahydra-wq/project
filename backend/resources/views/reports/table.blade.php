@@ -13,7 +13,7 @@
 </style>
 </head>
 <body>
-    <h1>FishMarket -- {{ $title }}</h1>
+    <h1>AbaiMarket -- {{ $title }}</h1>
     <p class="meta">Generated {{ $generatedAt }}{{ $rangeLabel ? " -- {$rangeLabel}" : '' }}</p>
     <table>
         <thead>

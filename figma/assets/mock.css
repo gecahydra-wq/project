@@ -1,0 +1,52 @@
+/* ------------------------------------------------------------------
+   Static-mock overrides. Loaded AFTER app.css. These files are design
+   references only -- no JS, no data, no interactivity. The class names and
+   structure mirror the live React app so the visuals match 1:1.
+   ------------------------------------------------------------------ */
+
+/* app.css points the sidebar image at the site root ('/sidebar-bg.jpg');
+   re-point it at the copy that ships inside this folder so it shows offline. */
+:root { --sidebar-image: url('sidebar-bg.jpg'); }
+
+html, body { margin: 0; padding: 0; background: var(--color-bg); }
+
+/* The live app fades/slides content in on mount. With no JS driving them, a
+   static snapshot can freeze mid-animation (washed-out, half-transparent).
+   Collapse every animation to its final frame so the mock shows the settled
+   design. Keyframes in app.css use fill-mode:both, so duration 0 lands on the
+   100% frame. */
+*, *::before, *::after {
+  animation-duration: 0s !important;
+  animation-delay: 0s !important;
+  transition: none !important;
+}
+
+/* Inline lucide-style icons rendered via <use>. */
+svg.ic {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex-shrink: 0;
+}
+
+/* Thin banner at the very top of each mock, marking it as a design reference
+   and not the running app. Sits above the shell, full width. */
+.mock-banner {
+  background: #0f172a;
+  color: #cbd5e1;
+  font-family: Inter, system-ui, sans-serif;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  padding: 6px 16px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+}
+.mock-banner strong { color: #fff; }
+.mock-banner a { color: #5eead4; text-decoration: none; }
+
+/* Let the shell fill the viewport under the banner. */
+.mock-banner + .shell { min-height: calc(100vh - 29px); }

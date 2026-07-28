@@ -1,0 +1,372 @@
+%% AbaiMarket -- Entity Relationship Diagram
+%% Generated from the actual Laravel implementation (migrations, models, foreign keys).
+%% Framework-only tables (password_reset_tokens, sessions, cache, jobs,
+%% personal_access_tokens) are intentionally omitted -- they are not domain entities.
+%% Renders in Mermaid Live Editor and GitHub.
+erDiagram
+    MUNICIPALITIES ||--o{ USERS : "locates (app-level, no DB FK)"
+    MUNICIPALITIES ||--o{ BUYER_PROFILES : "locates"
+    MUNICIPALITIES ||--o{ SELLER_PROFILES : "locates"
+    MUNICIPALITIES ||--o{ LISTINGS : "scopes"
+    MUNICIPALITIES ||--o{ SETTLEMENTS : "receives share"
+    MUNICIPALITIES ||--o{ LGU_WITHDRAWAL_REQUESTS : "owns"
+    MUNICIPALITIES ||--o{ ACTIVITY_LOGS : "scopes"
+
+    USERS ||--o| BUYER_PROFILES : "has"
+    USERS ||--o| SELLER_PROFILES : "has"
+    USERS ||--o{ ORDERS : "places (buyer)"
+    USERS ||--o{ ORDERS : "reviews (lgu_reviewed_by)"
+    USERS ||--o{ CART_ITEMS : "saves"
+    USERS ||--o{ REVIEWS : "writes (buyer)"
+    USERS ||--o{ BUYER_RATINGS : "is rated (buyer)"
+    USERS ||--o{ MESSAGES : "sends"
+    USERS ||--o{ MESSAGES : "receives"
+    USERS ||--o{ NOTIFICATIONS : "receives"
+    USERS ||--o{ AI_CHATS : "asks"
+    USERS ||--o{ AI_USAGE_EVENTS : "triggers"
+    USERS ||--o{ ANNOUNCEMENTS : "creates"
+    USERS ||--o{ SETTLEMENTS : "approves (approved_by)"
+    USERS ||--o{ LGU_WITHDRAWAL_REQUESTS : "requests (requested_by)"
+    USERS ||--o{ SELLER_POST_LIKES : "likes"
+    USERS ||--o{ SELLER_POST_COMMENTS : "comments"
+    USERS ||--o{ MODERATION_LOGS : "is subject of (user_id)"
+    USERS ||--o{ MODERATION_LOGS : "performs (moderator_id)"
+    USERS ||--o{ ACTIVITY_LOGS : "acts (actor_id)"
+    USERS ||--o{ ACTIVITY_LOGS : "is target (target_user_id)"
+
+    SELLER_PROFILES ||--o{ LISTINGS : "publishes"
+    SELLER_PROFILES ||--o{ ORDERS : "fulfills"
+    SELLER_PROFILES ||--o{ REVIEWS : "is reviewed"
+    SELLER_PROFILES ||--o{ BUYER_RATINGS : "gives"
+    SELLER_PROFILES ||--o{ WITHDRAWAL_REQUESTS : "requests"
+    SELLER_PROFILES ||--o{ SETTLEMENTS : "earns"
+    SELLER_PROFILES ||--o{ SELLER_POSTS : "authors"
+
+    LISTINGS ||--o{ LISTING_MEDIA : "has"
+    LISTINGS ||--o{ ORDERS : "is ordered in"
+    LISTINGS ||--o{ CART_ITEMS : "is saved in"
+
+    ORDERS ||--|| PAYMENTS : "has"
+    ORDERS ||--o| REVIEWS : "receives"
+    ORDERS ||--o| BUYER_RATINGS : "receives"
+    ORDERS ||--o| SETTLEMENTS : "settles into"
+
+    PAYMENTS ||--o{ PAYMENT_LOGS : "logs"
+    PAYMENTS ||--o| SETTLEMENTS : "is split by"
+
+    SELLER_POSTS ||--o{ SELLER_POST_MEDIA : "has"
+    SELLER_POSTS ||--o{ SELLER_POST_LIKES : "receives"
+    SELLER_POSTS ||--o{ SELLER_POST_COMMENTS : "receives"
+
+    USERS {
+        bigint id PK
+        string name
+        string email UK
+        timestamp email_verified_at "nullable"
+        string password
+        string google_id UK "nullable"
+        string role "buyer|seller|lgu_admin|super_admin"
+        bigint municipality_id FK "nullable, no DB constraint"
+        string phone "nullable"
+        string status "active|suspended|disabled"
+        string profile_picture "nullable"
+        timestamps created_updated
+    }
+
+    MUNICIPALITIES {
+        bigint id PK
+        string name UK
+        string province "default Cebu"
+        timestamps created_updated
+    }
+
+    BUYER_PROFILES {
+        bigint id PK
+        bigint user_id FK "cascade"
+        bigint municipality_id FK "nullable, nullOnDelete"
+        string farm_name "nullable"
+        string water_source "nullable"
+        decimal pond_area "nullable"
+        string address "nullable"
+        text bio "nullable"
+        decimal rating "nullable"
+        int ratings_count "default 0"
+        timestamps created_updated
+    }
+
+    SELLER_PROFILES {
+        bigint id PK
+        bigint user_id FK "cascade"
+        bigint municipality_id FK "cascade"
+        string hatchery_name
+        text description "nullable"
+        decimal rating "default 0"
+        boolean verified "default false"
+        string status "pending|verified|suspended"
+        text farming_methods "nullable"
+        text fish_raising_practices "nullable"
+        text farm_history "nullable"
+        string address "nullable"
+        string profile_picture "nullable"
+        string cover_photo "nullable"
+        json gallery "nullable"
+        string water_source "nullable"
+        text feeding_practices "nullable"
+        smallint years_experience "nullable"
+        text certifications "nullable"
+        timestamps created_updated
+    }
+
+    LISTINGS {
+        bigint id PK
+        bigint seller_profile_id FK "cascade"
+        bigint municipality_id FK "cascade"
+        string species
+        string scientific_name "nullable"
+        string title
+        text description "nullable"
+        int quantity
+        decimal price_per_piece
+        string average_size "nullable"
+        string availability_status "default in_stock"
+        string approval_status "pending|approved|rejected|archived"
+        text rejection_reason "nullable"
+        timestamps created_updated
+    }
+
+    LISTING_MEDIA {
+        bigint id PK
+        bigint listing_id FK "cascade"
+        string type "photo|video"
+        string title
+        string url "nullable"
+        int position "default 0"
+        timestamps created_updated
+    }
+
+    ORDERS {
+        bigint id PK
+        string order_number UK
+        bigint buyer_id FK "cascade -> users"
+        bigint seller_profile_id FK "cascade"
+        bigint listing_id FK "cascade"
+        int quantity
+        decimal unit_price
+        decimal total_amount
+        string status "placed|confirmed|in_transit|completed|cancelled|failed"
+        string pickup_notes "nullable"
+        text seller_notes "nullable"
+        string lgu_review_status "nullable: on_hold|rejected"
+        string lgu_review_reason "nullable"
+        timestamp lgu_reviewed_at "nullable"
+        bigint lgu_reviewed_by FK "nullable, nullOnDelete -> users"
+        timestamps created_updated
+    }
+
+    PAYMENTS {
+        bigint id PK
+        bigint order_id FK "cascade"
+        decimal amount
+        string status "pending|checkout_created|paid_held|released|failed"
+        string provider "default paymongo"
+        string provider_reference "nullable"
+        string checkout_url "nullable"
+        timestamp released_at "nullable"
+        timestamps created_updated
+    }
+
+    PAYMENT_LOGS {
+        bigint id PK
+        bigint payment_id FK "cascade"
+        string event
+        json payload "nullable"
+        timestamps created_updated
+    }
+
+    SETTLEMENTS {
+        bigint id PK
+        bigint order_id FK "unique, cascade"
+        bigint payment_id FK "cascade"
+        bigint seller_profile_id FK "cascade"
+        bigint municipality_id FK "cascade"
+        bigint approved_by FK "nullable, nullOnDelete -> users"
+        decimal gross_amount
+        decimal seller_share
+        decimal lgu_share
+        decimal platform_share
+        decimal seller_percent
+        decimal lgu_percent
+        decimal platform_percent
+        string status "default settled"
+        timestamp settled_at
+        timestamps created_updated
+    }
+
+    WITHDRAWAL_REQUESTS {
+        bigint id PK
+        bigint seller_profile_id FK "cascade"
+        string method "gcash|maya|bank_transfer"
+        string account_name
+        string account_number
+        decimal amount
+        decimal platform_fee "default 0"
+        string status "pending|approved|paid|rejected"
+        text rejection_reason "nullable"
+        timestamp reviewed_at "nullable"
+        timestamp paid_at "nullable"
+        timestamps created_updated
+    }
+
+    LGU_WITHDRAWAL_REQUESTS {
+        bigint id PK
+        bigint municipality_id FK "cascade"
+        bigint requested_by FK "nullable, nullOnDelete -> users"
+        string method
+        string account_name
+        string account_number
+        decimal amount
+        string status "pending|approved|paid|rejected"
+        text rejection_reason "nullable"
+        timestamp reviewed_at "nullable"
+        timestamp paid_at "nullable"
+        timestamps created_updated
+    }
+
+    REVIEWS {
+        bigint id PK
+        bigint order_id FK "cascade"
+        bigint buyer_id FK "cascade -> users"
+        bigint seller_profile_id FK "cascade"
+        tinyint rating
+        text comment "nullable"
+        string title "nullable"
+        timestamps created_updated
+    }
+
+    BUYER_RATINGS {
+        bigint id PK
+        bigint order_id FK "unique, cascade"
+        bigint seller_profile_id FK "cascade"
+        bigint buyer_id FK "cascade -> users"
+        tinyint rating
+        text comment "nullable"
+        timestamps created_updated
+    }
+
+    CART_ITEMS {
+        bigint id PK
+        bigint buyer_id FK "cascade -> users"
+        bigint listing_id FK "cascade"
+        int quantity "default 1"
+        timestamps created_updated
+    }
+
+    MESSAGES {
+        bigint id PK
+        bigint sender_id FK "cascade -> users"
+        bigint receiver_id FK "cascade -> users"
+        text body
+        timestamp read_at "nullable"
+        timestamp edited_at "nullable"
+        timestamp deleted_at "nullable"
+        timestamps created_updated
+    }
+
+    NOTIFICATIONS {
+        bigint id PK
+        bigint user_id FK "cascade"
+        string type
+        string title
+        text body "nullable"
+        timestamp read_at "nullable"
+        timestamps created_updated
+    }
+
+    ANNOUNCEMENTS {
+        bigint id PK
+        string title
+        text body
+        string category "maintenance|update|policy|holiday|general"
+        bigint created_by FK "nullable, nullOnDelete -> users"
+        timestamp starts_at "nullable"
+        timestamp expires_at "nullable"
+        timestamp notified_at "nullable"
+        timestamps created_updated
+    }
+
+    AI_CHATS {
+        bigint id PK
+        bigint user_id FK "nullable, nullOnDelete"
+        string language "default Bisaya"
+        text message
+        text response
+        string data_subject "nullable"
+        timestamps created_updated
+    }
+
+    AI_USAGE_EVENTS {
+        bigint id PK
+        bigint user_id FK "nullable, nullOnDelete"
+        string role
+        string category "nullable"
+        boolean was_fallback "default false"
+        int response_time_ms "nullable"
+        timestamps created_updated
+    }
+
+    SELLER_POSTS {
+        bigint id PK
+        bigint seller_profile_id FK "cascade"
+        text body "nullable"
+        timestamps created_updated
+    }
+
+    SELLER_POST_MEDIA {
+        bigint id PK
+        bigint seller_post_id FK "cascade"
+        string type
+        string title
+        string url "nullable"
+        int position "default 0"
+        timestamps created_updated
+    }
+
+    SELLER_POST_LIKES {
+        bigint id PK
+        bigint seller_post_id FK "cascade"
+        bigint user_id FK "cascade"
+        timestamps created_updated
+    }
+
+    SELLER_POST_COMMENTS {
+        bigint id PK
+        bigint seller_post_id FK "cascade"
+        bigint user_id FK "cascade"
+        text body
+        timestamps created_updated
+    }
+
+    MODERATION_LOGS {
+        bigint id PK
+        bigint user_id FK "cascade"
+        string role
+        bigint moderator_id FK "nullable, nullOnDelete -> users"
+        string action "suspended|reinstated"
+        string reason "nullable"
+        text notes "nullable"
+        string resulting_status
+        timestamps created_updated
+    }
+
+    ACTIVITY_LOGS {
+        bigint id PK
+        bigint actor_id FK "nullable, nullOnDelete -> users"
+        string actor_role "nullable"
+        string action
+        bigint target_user_id FK "nullable, nullOnDelete -> users"
+        bigint municipality_id FK "nullable, nullOnDelete"
+        string reference_type "nullable"
+        string reference_number "nullable"
+        text description "nullable"
+        timestamps created_updated
+    }

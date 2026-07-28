@@ -165,7 +165,7 @@ function withdrawalMethodLabel(method) {
  */
 function apiErrorMessage(err, fallback = 'Something went wrong. Please try again.') {
   if (!err?.response) {
-    return 'Cannot reach the FishMarket server right now. Please check your connection and try again.'
+    return 'Cannot reach the AbaiMarket server right now. Please check your connection and try again.'
   }
   const data = err.response.data
   const firstFieldError = data?.errors && Object.values(data.errors)[0]
@@ -346,7 +346,7 @@ function PublicLayout() {
   return (
     <>
       <header className="site-header">
-        <Link className="brand" to={homeRoute}><span><Fish size={22} /></span>FishMarket</Link>
+        <Link className="brand" to={homeRoute}><span><Fish size={22} /></span>AbaiMarket</Link>
         <nav>
           <Link to="/">Home</Link>
           <Link to="/browse">Browse</Link>
@@ -400,7 +400,7 @@ function AppShell({ user, children }) {
   return (
     <div className="shell">
       <aside className="sidebar">
-        <Link className="brand" to={homeRoute}><span><Fish size={22} /></span>FishMarket</Link>
+        <Link className="brand" to={homeRoute}><span><Fish size={22} /></span>AbaiMarket</Link>
         <div className="profile-chip">
           <Avatar src={user.profile_picture} alt={user.name} className="profile-chip-avatar" />
           <div className="profile-chip-info">
@@ -476,7 +476,7 @@ function LandingPage() {
       <Section title="How It Works"><div className="steps"><Step n="1" t="Register" d="Buyers and sellers create verified marketplace accounts." /><Step n="2" t="Order & Pay" d="Buyers place orders and pay through PayMongo Checkout." /><Step n="3" t="LGU Oversight" d="LGU admins verify sellers and approve local listings." /><Step n="4" t="Release" d="Super Admin releases held seller funds after completion." /></div></Section>
       <Section title="Supported Species"><div className="species-list">{['Bangus', 'Tilapia', 'Grouper', 'Catfish', 'Sea Bass', 'Carp'].map((s) => <span key={s}>{s}</span>)}</div></Section>
       <AboutPage compact />
-      <footer>FishMarket - LGU, Sellers, and Fish Farmers working together for local aquaculture.</footer>
+      <footer>AbaiMarket - LGU, Sellers, and Fish Farmers working together for local aquaculture.</footer>
     </main>
   )
 }
@@ -1009,7 +1009,7 @@ function LoginPage() {
   }
 
   return (
-    <AuthCard title="Login" subtitle="One account gateway for all FishMarket roles.">
+    <AuthCard title="Login" subtitle="One account gateway for all AbaiMarket roles.">
       <form onSubmit={handleSubmit((v) => login.mutate({ email: (v.email || '').trim(), password: stripSpaces(v.password) }))} className="form">
         <input {...register('email', { validate: (value) => validateEmail(value) || true })} placeholder="Email" />
         <input
@@ -1106,7 +1106,7 @@ function RegisterPage() {
   if (registeredEmail) {
     return (
       <AuthCard title="Check Your Email" subtitle="You're almost there.">
-        <VerificationNotice email={registeredEmail} lead="Your FishMarket account has been created." />
+        <VerificationNotice email={registeredEmail} lead="Your AbaiMarket account has been created." />
       </AuthCard>
     )
   }
@@ -1201,7 +1201,7 @@ function AuthCard({ title, subtitle, children }) {
     <main className="auth-page">
       <div className="auth-layout">
         <section className="auth-brand-panel">
-          <Link className="brand" to="/"><span><Fish size={22} /></span>FishMarket</Link>
+          <Link className="brand" to="/"><span><Fish size={22} /></span>AbaiMarket</Link>
           <h2>Fresh fingerlings, verified hatcheries, one marketplace.</h2>
           <ul className="auth-benefits">
             {AUTH_BENEFITS.map(([Icon, text]) => (
@@ -1210,7 +1210,7 @@ function AuthCard({ title, subtitle, children }) {
           </ul>
         </section>
         <section className="auth-card">
-          <p className="eyebrow">FishMarket Access</p>
+          <p className="eyebrow">AbaiMarket Access</p>
           <h1>{title}</h1>
           <p>{subtitle}</p>
           {children}
@@ -1500,14 +1500,14 @@ function BuyerDashboard() {
       )}
       {tab === 'ai' && (
         <Section title="AI Assistant">
-          <p>Meet the <strong>FishMarket AI Assistant</strong> -- your built-in guide for buying fingerlings and learning fish-farming basics. Open it any time from the floating <strong>AI</strong> button at the bottom-right of every page; your buyer session stays intact.</p>
+          <p>Meet the <strong>AbaiMarket AI Assistant</strong> -- your built-in guide for buying fingerlings and learning fish-farming basics. Open it any time from the floating <strong>AI</strong> button at the bottom-right of every page; your buyer session stays intact.</p>
           <div className="card ai-help-card">
             <div className="ai-capability-head"><span className="top-performer-icon"><Bot size={18} /></span><strong>How to use it</strong></div>
             <ul className="ai-help-list">
               <li>Tap the <strong>AI</strong> button (bottom-right), type your question, and press <strong>Enter</strong> to send.</li>
               <li>Ask naturally and follow up -- it remembers your recent messages, so "and how much is it?" works.</li>
               <li>Write in <strong>English, Filipino, or Cebuano</strong> -- it replies in the language you use.</li>
-              <li>It answers <strong>FishMarket questions only</strong> and reads live marketplace data, so prices, sellers, and order details stay up to date.</li>
+              <li>It answers <strong>AbaiMarket questions only</strong> and reads live marketplace data, so prices, sellers, and order details stay up to date.</li>
             </ul>
           </div>
           <h3>What you can ask</h3>
@@ -1697,7 +1697,7 @@ function AdminProfilePanel({ endpointBase }) {
   return (
     <>
       <Section title="Profile">
-        <p className="helper-text">Update the profile picture shown across FishMarket -- in the sidebar, messages, and anywhere your account appears.</p>
+        <p className="helper-text">Update the profile picture shown across AbaiMarket -- in the sidebar, messages, and anywhere your account appears.</p>
         <div className="admin-profile-card">
           <ImageUploadControl
             src={picture}
@@ -4144,12 +4144,17 @@ function SuperAdminDashboard() {
       {tab === 'overview' && (
         <>
           <AnnouncementBanner />
-          {/* Executive at-a-glance -- today's pulse and headline revenue. */}
+          {/* Executive at-a-glance -- today's pulse and GROSS marketplace
+              revenue (today / month / all-time). These are the full buyer-paid
+              value, NOT the platform's own income; the Super Admin's actual
+              revenue (the 6% payout fee) is the "Platform Revenue" cards in the
+              Marketplace Revenue section below. Labels say "Gross" so the top
+              figures are never mistaken for the platform's cut. */}
           <StatsRow items={[
             ["Today's Orders", dashboard.data?.executive?.todays_orders ?? 0, true],
-            ["Today's Revenue", currency(dashboard.data?.executive?.todays_gross_revenue ?? 0), true],
-            ['Monthly Revenue', currency(dashboard.data?.executive?.monthly_gross_revenue ?? 0), true],
-            ['Gross Marketplace Revenue', currency(dashboard.data?.platform_revenue?.gross_marketplace_revenue ?? 0)],
+            ["Today's Gross Revenue", currency(dashboard.data?.executive?.todays_gross_revenue ?? 0), true],
+            ['Monthly Gross Revenue', currency(dashboard.data?.executive?.monthly_gross_revenue ?? 0), true],
+            ['Gross Marketplace Revenue (All-Time)', currency(dashboard.data?.platform_revenue?.gross_marketplace_revenue ?? 0)],
           ]} />
           <StatsRow items={[['Total LGUs', reports.data?.total_lgus ?? 0], ['Total Sellers', reports.data?.total_sellers ?? 0], ['Total Buyers', reports.data?.total_buyers ?? 0], ['Total Settled Orders', dashboard.data?.platform_revenue?.total_settled_orders ?? 0]]} />
           <Section title="Action Required" actions={<Link className="ghost" to="/admin/dashboard?tab=payouts">Manage Payouts</Link>}>
@@ -5684,7 +5689,7 @@ function SellerPostCard({ post, isOwner, seller }) {
                   <Avatar src={comment.user?.profile_picture} alt={comment.user?.name} className="seller-post-comment-avatar" />
                   <div className="seller-post-comment-body">
                     <div className="seller-post-comment-head">
-                      <strong>{comment.user?.name || 'FishMarket user'}</strong>
+                      <strong>{comment.user?.name || 'AbaiMarket user'}</strong>
                       <RoleBadge role={comment.user?.role} />
                       <span className="muted">{new Date(comment.created_at).toLocaleDateString()}</span>
                       {canDeleteComment(comment) && (
@@ -5886,7 +5891,7 @@ function SellerProfilePage() {
                   <strong>{renderStars(review.rating)}</strong>
                   <span className="muted">{new Date(review.created_at).toLocaleDateString()}</span>
                 </div>
-                <p className="review-author"><Avatar src={review.buyer?.profile_picture} alt={review.buyer?.name} className="review-avatar" />{review.buyer?.name || 'FishMarket Buyer'}</p>
+                <p className="review-author"><Avatar src={review.buyer?.profile_picture} alt={review.buyer?.name} className="review-avatar" />{review.buyer?.name || 'AbaiMarket Buyer'}</p>
                 {review.title && <p className="review-title">{review.title}</p>}
                 <p>{review.comment || 'No comment left.'}</p>
               </div>
@@ -6066,7 +6071,7 @@ function BuyerProfileForSellerPage() {
 }
 
 function AboutPage({ compact = false }) {
-  return <Section title="About the Platform"><div className="about-card"><p>FishMarket is a web-based marketplace for local fingerling supply. It supports buyers, hatcheries, LGU admins, and platform admins with role-based dashboards, listing approval, PayMongo checkout, messaging, reviews, notifications, and Gemini AI farming assistance.</p>{!compact && <Link className="button" to="/register">Join FishMarket</Link>}</div></Section>
+  return <Section title="About the Platform"><div className="about-card"><p>AbaiMarket is a web-based marketplace for local fingerling supply. It supports buyers, hatcheries, LGU admins, and platform admins with role-based dashboards, listing approval, PayMongo checkout, messaging, reviews, notifications, and Gemini AI farming assistance.</p>{!compact && <Link className="button" to="/register">Join AbaiMarket</Link>}</div></Section>
 }
 
 function Section({ title, actions, children }) {
@@ -6083,10 +6088,10 @@ function Step({ n, t, d }) {
 }
 
 const AI_GREETING_BY_ROLE = {
-  buyer: 'Ask FishMarket AI about buying fingerlings, contacting sellers, orders, wallet, reviews, or fish farming basics like species, water quality, and feeding.',
-  seller: 'Ask FishMarket AI about your listings, orders, wallet, seller earnings, withdrawals, reviews, or business recommendations like restocking and top-performing species.',
-  lgu_admin: 'Ask FishMarket AI about pending approvals, seller verification, seller earnings, reports, or municipality statistics -- scoped to your own municipality.',
-  super_admin: 'Ask FishMarket AI about platform-wide statistics, listings, payouts, reports, or municipality comparisons and trends.',
+  buyer: 'Ask AbaiMarket AI about buying fingerlings, contacting sellers, orders, wallet, reviews, or fish farming basics like species, water quality, and feeding.',
+  seller: 'Ask AbaiMarket AI about your listings, orders, wallet, seller earnings, withdrawals, reviews, or business recommendations like restocking and top-performing species.',
+  lgu_admin: 'Ask AbaiMarket AI about pending approvals, seller verification, seller earnings, reports, or municipality statistics -- scoped to your own municipality.',
+  super_admin: 'Ask AbaiMarket AI about platform-wide statistics, listings, payouts, reports, or municipality comparisons and trends.',
 }
 
 const AI_PLACEHOLDER_BY_ROLE = {
@@ -6205,7 +6210,7 @@ function FloatingAi() {
       {open && (
         <div className="ai-panel">
           <div className="ai-panel-head">
-            <h3>FishMarket AI Assistant</h3>
+            <h3>AbaiMarket AI Assistant</h3>
             <select
               className="ai-language-picker"
               value={language}
@@ -6241,7 +6246,7 @@ function FloatingAi() {
             disabled={ask.isPending}
           />
           <button onClick={submit} type="button" disabled={ask.isPending || !message.trim()}>
-            {ask.isPending ? 'Thinking...' : 'Ask FishMarket AI'}
+            {ask.isPending ? 'Thinking...' : 'Ask AbaiMarket AI'}
           </button>
         </div>
       )}

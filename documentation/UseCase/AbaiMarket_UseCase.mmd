@@ -1,0 +1,116 @@
+%% AbaiMarket -- Use Case Diagram (Mermaid flowchart emulation)
+%% Mermaid has no native use-case diagram type, so actors and use cases are
+%% modelled as a flowchart: this is the idiomatic way to show a use-case model
+%% in Mermaid and renders correctly in Mermaid Live Editor and on GitHub.
+%% Every use case maps to a real role-guarded API endpoint (see routes/api.php).
+flowchart LR
+    %% ===== Actors =====
+    GUEST([👤 Guest]):::actor
+    BUYER([👤 Buyer]):::actor
+    SELLER([👤 Seller / Hatchery]):::actor
+    LGU([👤 LGU Admin]):::actor
+    ADMIN([👤 Super Admin]):::actor
+    PAYMONGO([⚙ PayMongo]):::ext
+    GOOGLE([⚙ Google OAuth]):::ext
+    GEMINI([⚙ Gemini AI]):::ext
+    EMAIL([⚙ Email / SMTP]):::ext
+
+    %% ===== Public / Guest =====
+    subgraph PUBLIC[Public / Pre-login]
+        direction TB
+        P1(Register account)
+        P2(Log in)
+        P3(Log in with Google)
+        P4(Verify email)
+        P5(Browse listings)
+        P6(View listing details)
+        P7(View seller profiles & posts)
+        P8(View municipalities)
+    end
+    GUEST --> P1 & P2 & P3 & P4 & P5 & P6 & P7 & P8
+    P1 -. include .-> EMAIL
+    P4 -. include .-> EMAIL
+    P3 -. include .-> GOOGLE
+
+    %% ===== Common to all signed-in roles =====
+    subgraph COMMON[Common — all signed-in roles]
+        direction TB
+        C1(Manage account: logout, change password)
+        C2(Send / edit / delete messages)
+        C3(Like & comment on seller posts)
+        C4(Ask AI Assistant: EN / Tagalog / Bisaya)
+        C5(View active announcements)
+    end
+    BUYER & SELLER & LGU & ADMIN --> C1
+    BUYER & SELLER & LGU & ADMIN --> C2
+    BUYER & SELLER & LGU & ADMIN --> C3
+    BUYER & SELLER & LGU & ADMIN --> C4
+    BUYER & SELLER & LGU & ADMIN --> C5
+    C4 -. include .-> GEMINI
+
+    %% ===== Buyer =====
+    subgraph SBUYER[Buyer]
+        direction TB
+        B1(Manage buyer profile)
+        B2(View dashboard & analytics)
+        B3(Add to cart — buy later)
+        B4(Place order)
+        B5(Checkout & pay)
+        B6(Track / look up own orders)
+        B7(Review seller — completed order)
+        B8(Manage notifications)
+    end
+    BUYER --> B1 & B2 & B3 & B4 & B5 & B6 & B7 & B8
+    B3 -. extend .-> B4
+    B5 -. include .-> PAYMONGO
+    PAYMONGO -. webhook .-> B5
+
+    %% ===== Seller =====
+    subgraph SSELLER[Seller / Hatchery]
+        direction TB
+        S1(Manage hatchery profile)
+        S2(Manage listings & media)
+        S3(Publish seller posts)
+        S4(Update order delivery status)
+        S5(Add seller notes to order)
+        S6(Rate buyer — completed order)
+        S7(View buyer profile)
+        S8(Wallet & request withdrawal)
+        S9(Dashboard & analytics)
+        S10(Manage notifications)
+    end
+    SELLER --> S1 & S2 & S3 & S4 & S5 & S6 & S7 & S8 & S9 & S10
+    SELLER --> B6
+
+    %% ===== LGU Admin =====
+    subgraph SLGU[LGU Admin — municipality-scoped]
+        direction TB
+        L1(Moderate listings: approve/reject/archive/delete)
+        L2(Verify / suspend / reinstate sellers)
+        L3(Approve seller earnings — create settlement)
+        L4(Hold / reject / reopen earnings)
+        L5(Remove unfair reviews & ratings)
+        L6(Reports & export)
+        L7(LGU wallet & withdrawals)
+        L8(Activity log)
+        L9(Dashboard)
+    end
+    LGU --> L1 & L2 & L3 & L4 & L5 & L6 & L7 & L8 & L9
+
+    %% ===== Super Admin =====
+    subgraph SADMIN[Super Admin — platform-wide]
+        direction TB
+        A1(Executive dashboard & order lookup)
+        A2(Manage municipalities)
+        A3(Manage LGU admins)
+        A4(Moderate sellers & buyers: suspend/reinstate/remove)
+        A5(Approve seller & LGU payouts)
+        A6(Manage listings — global)
+        A7(Manage announcements)
+        A8(Remove reviews & ratings)
+        A9(Reports, activity & moderation logs)
+    end
+    ADMIN --> A1 & A2 & A3 & A4 & A5 & A6 & A7 & A8 & A9
+
+    classDef actor fill:#0F5C7A,stroke:#0b465e,color:#fff,font-weight:bold;
+    classDef ext fill:#EAF3F6,stroke:#0F9B8E,color:#10202B,stroke-dasharray:4 3;

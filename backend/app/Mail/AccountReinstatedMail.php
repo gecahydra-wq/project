@@ -36,7 +36,7 @@ class AccountReinstatedMail extends Mailable
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'Your FishMarket Account Has Been Reinstated',
+            subject: 'Your AbaiMarket Account Has Been Reinstated',
         );
     }
 
@@ -58,15 +58,15 @@ class AccountReinstatedMail extends Mailable
         return new Content(
             view: 'emails.account.status-changed',
             with: [
-                'subject' => 'Your FishMarket Account Has Been Reinstated',
+                'subject' => 'Your AbaiMarket Account Has Been Reinstated',
                 'eyebrow' => 'Account Update',
                 'headline' => 'Your account has been reinstated',
-                'preheader' => 'Your FishMarket account has been reinstated.',
+                'preheader' => 'Your AbaiMarket account has been reinstated.',
                 'recipientName' => $this->account->name,
-                'introLine' => "Good news -- your FishMarket {$roleLabel} account has been reinstated and full access has been restored.",
+                'introLine' => "Good news -- your AbaiMarket {$roleLabel} account has been reinstated and full access has been restored.",
                 'restrictions' => [],
                 'rows' => $rows,
-                'appealLine' => 'If you have any questions about this decision, please contact FishMarket support.',
+                'appealLine' => 'If you have any questions about this decision, please contact AbaiMarket support.',
             ],
         );
     }

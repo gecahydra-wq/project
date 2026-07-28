@@ -136,13 +136,13 @@ class AiIntentClassifier
         [
             'category' => 'Payments',
             'keywords' => ['refund'],
-            'English' => 'FishMarket does not currently support automated refunds through the app. If there\'s a problem with an order, message the seller directly first -- most issues are resolved that way. If it involves a rule violation, your municipality\'s LGU Admin can review the listing and take action.',
-            'Tagalog' => 'Wala pang automated refund ang FishMarket sa app. Kung may problema sa order, i-message muna nang direkta ang seller -- karamihan ng isyu ay naaayos sa ganitong paraan. Kung may paglabag sa alituntunin, maaaring suriin ito ng LGU Admin ng iyong munisipyo.',
-            'Bisaya' => 'Wala pay automated refund ang FishMarket sa app. Kung naay problema sa order, i-message una direkta ang seller -- kadaghanan sa isyu masulbad ana nga paagi. Kung naay paglapas sa lagda, mahimong susihon kini sa LGU Admin sa imong munisipyo.',
+            'English' => 'AbaiMarket does not currently support automated refunds through the app. If there\'s a problem with an order, message the seller directly first -- most issues are resolved that way. If it involves a rule violation, your municipality\'s LGU Admin can review the listing and take action.',
+            'Tagalog' => 'Wala pang automated refund ang AbaiMarket sa app. Kung may problema sa order, i-message muna nang direkta ang seller -- karamihan ng isyu ay naaayos sa ganitong paraan. Kung may paglabag sa alituntunin, maaaring suriin ito ng LGU Admin ng iyong munisipyo.',
+            'Bisaya' => 'Wala pay automated refund ang AbaiMarket sa app. Kung naay problema sa order, i-message una direkta ang seller -- kadaghanan sa isyu masulbad ana nga paagi. Kung naay paglapas sa lagda, mahimong susihon kini sa LGU Admin sa imong munisipyo.',
         ],
         [
             'category' => 'Delivery',
-            'keywords' => ['delivery', 'shipping', 'deliver', 'arrive', 'when will my order', 'order arrive', 'eta'],
+            'keywords' => ['delivery', 'shipping', 'deliver', 'arrive', 'when will my order', 'order arrive', 'eta', 'pickup', 'pick up', 'received my order', 'order received'],
             'English' => 'Delivery is coordinated directly with the seller after your order is placed and paid -- check your order\'s pickup notes or message the seller to confirm timing and location. The seller updates the order status as it moves from confirmed to in-transit to completed.',
             'Tagalog' => 'Direktang inaayos ang delivery kasama ang seller pagkatapos mailagay at mabayaran ang order -- tingnan ang pickup notes ng order o i-message ang seller para kumpirmahin ang oras at lokasyon. Ina-update ng seller ang status ng order mula confirmed hanggang in-transit hanggang completed.',
             'Bisaya' => 'Direkta nga gi-coordinate ang delivery uban sa seller human mabutang ug mabayran ang order -- tan-awa ang pickup notes sa order o i-message ang seller para makumpirma ang oras ug lokasyon. Gi-update sa seller ang status sa order gikan sa confirmed hangtod in-transit hangtod completed.',
@@ -154,7 +154,7 @@ class AiIntentClassifier
         ],
         [
             'category' => 'Reviews',
-            'keywords' => ['review', 'rate', 'rating', 'leave a review'],
+            'keywords' => ['review', 'rate', 'rating', 'leave a review', 'feedback', 'star rating', 'leave feedback'],
             'English' => 'Once an order is marked completed, a review option appears on that order in your Orders tab -- rate the seller 1-5 stars and add an optional comment. Your review contributes to the seller\'s public rating shown on their profile and listings.',
             'Tagalog' => 'Kapag na-mark na completed ang isang order, lalabas ang review option sa order na iyon sa Orders tab mo -- bigyan ng 1-5 star rating ang seller at maaaring magdagdag ng comment. Ang review mo ay nakakaapekto sa public rating ng seller na makikita sa profile at listings nila.',
             'Bisaya' => 'Kung ma-mark na completed ang usa ka order, mogawas ang review option sa maong order sa imong Orders tab -- hatagi og 1-5 star rating ang seller ug pwede magdugang og comment. Ang imong review makaapekto sa public rating sa seller nga makita sa ilang profile ug listings.',
@@ -208,7 +208,7 @@ class AiIntentClassifier
         ],
         [
             'category' => 'Orders',
-            'keywords' => ['order status', 'my order', 'orders', 'track'],
+            'keywords' => ['order status', 'my order', 'orders', 'track', 'order history', 'past orders', 'track my order', 'where is my order'],
             'English' => 'Your Orders tab lists every purchase with its current status: placed, confirmed, out for delivery, or completed. Each order shows the seller, listing, and quantity, and a completed order unlocks the review option.',
             'Tagalog' => 'Ang Orders tab mo ay naglilista ng bawat binili mo kasama ang kasalukuyang status: placed, confirmed, out for delivery, o completed. Ipinapakita ng bawat order ang seller, listing, at dami, at ang completed order ay nagbubukas ng review option.',
             'Bisaya' => 'Ang imong Orders tab naglista sa matag palit nimo uban ang karon nga status: placed, confirmed, out for delivery, o completed. Gipakita sa matag order ang seller, listing, ug kantidad, ug ang completed nga order moabli sa review option.',
@@ -239,9 +239,9 @@ class AiIntentClassifier
         [
             'category' => 'Fish Care',
             'keywords' => ['beginner', 'good species', 'what species', 'which species', 'species available'],
-            'English' => 'For beginners, Tilapia is a great starting point -- hardy, tolerates imperfect water, grows fast (about 6 months to harvest), and has strong market demand. FishMarket also lists Bangus, Grouper, Catfish, Sea Bass, and Carp fingerlings; use the Species filter on Browse to compare what local sellers currently have in stock.',
-            'Tagalog' => 'Para sa mga baguhan, magandang simulan ang Tilapia -- matibay, kayang mag-adjust sa di-perpektong tubig, mabilis lumaki (mga 6 buwan hanggang harvest), at may mataas na demand sa merkado. May Bangus, Grouper, Catfish, Sea Bass, at Carp fingerlings din sa FishMarket -- gamitin ang Species filter sa Browse para makita kung ano ang available ngayon.',
-            'Bisaya' => 'Para sa mga baguhan, maayo ang Tilapia isugod -- lig-on siya, ka-adjust sa dili perpekto nga tubig, paspas motubo (mga 6 ka bulan hangtod sa harvest), ug taas ang demand sa merkado. Naa say Bangus, Grouper, Catfish, Sea Bass, ug Carp fingerlings sa FishMarket -- gamita ang Species filter sa Browse para makita unsay naa karon.',
+            'English' => 'For beginners, Tilapia is a great starting point -- hardy, tolerates imperfect water, grows fast (about 6 months to harvest), and has strong market demand. AbaiMarket also lists Bangus, Grouper, Catfish, Sea Bass, and Carp fingerlings; use the Species filter on Browse to compare what local sellers currently have in stock.',
+            'Tagalog' => 'Para sa mga baguhan, magandang simulan ang Tilapia -- matibay, kayang mag-adjust sa di-perpektong tubig, mabilis lumaki (mga 6 buwan hanggang harvest), at may mataas na demand sa merkado. May Bangus, Grouper, Catfish, Sea Bass, at Carp fingerlings din sa AbaiMarket -- gamitin ang Species filter sa Browse para makita kung ano ang available ngayon.',
+            'Bisaya' => 'Para sa mga baguhan, maayo ang Tilapia isugod -- lig-on siya, ka-adjust sa dili perpekto nga tubig, paspas motubo (mga 6 ka bulan hangtod sa harvest), ug taas ang demand sa merkado. Naa say Bangus, Grouper, Catfish, Sea Bass, ug Carp fingerlings sa AbaiMarket -- gamita ang Species filter sa Browse para makita unsay naa karon.',
         ],
         [
             'category' => 'Fish Care',
@@ -298,6 +298,7 @@ class AiIntentClassifier
                 'create a listing', 'add a listing', 'edit my listing', 'update my listing', 'delete my listing',
                 'manage my listings', 'post a listing', 'how do i list my', 'approve a listing', 'reject a listing',
                 'listing approval', 'archive a listing',
+                'sell fingerlings', 'how do i sell', 'how to sell', 'start selling', 'list my fingerlings', 'out of stock',
             ],
             'English' => 'Listings are created by Sellers and must be approved by their municipality\'s LGU Admin before they appear in the Marketplace. As a Buyer you can browse and filter approved listings from Marketplace or Browse.',
             'Tagalog' => 'Ang mga listing ay ginagawa ng Seller at kailangang aprubahan ng LGU Admin ng kanilang munisipyo bago lumabas sa Marketplace. Bilang Buyer, maaari kang mag-browse at mag-filter ng mga approved na listing mula sa Marketplace o Browse.',
@@ -389,26 +390,82 @@ class AiIntentClassifier
         [
             'category' => 'Municipality',
             'keywords' => ['municipalities list', 'which municipalities', 'what municipality', 'municipality information', 'about the municipality', 'municipalities are covered'],
-            'English' => 'FishMarket operates across several municipalities, each supervised by its own LGU Admin who approves the sellers and listings registered there. Ask me for counts (e.g. "how many sellers are in Cordova?") for live numbers.',
-            'Tagalog' => 'Ang FishMarket ay gumagana sa ilang munisipyo, bawat isa ay sinusubaybayan ng sariling LGU Admin na siyang nag-aaprubang ng mga seller at listing na naka-rehistro doon. Magtanong ng bilang (hal. "ilan ang seller sa Cordova?") para sa live na numero.',
-            'Bisaya' => 'Ang FishMarket naglihok sa daghang munisipyo, matag usa gibantayan sa kaugalingong LGU Admin nga nag-aprubar sa mga seller ug listing nga narehistro didto. Pangutana og count (pananglitan, "pila ka seller sa Cordova?") para sa live nga numero.',
+            'English' => 'AbaiMarket operates across several municipalities, each supervised by its own LGU Admin who approves the sellers and listings registered there. Ask me for counts (e.g. "how many sellers are in Cordova?") for live numbers.',
+            'Tagalog' => 'Ang AbaiMarket ay gumagana sa ilang munisipyo, bawat isa ay sinusubaybayan ng sariling LGU Admin na siyang nag-aaprubang ng mga seller at listing na naka-rehistro doon. Magtanong ng bilang (hal. "ilan ang seller sa Cordova?") para sa live na numero.',
+            'Bisaya' => 'Ang AbaiMarket naglihok sa daghang munisipyo, matag usa gibantayan sa kaugalingong LGU Admin nga nag-aprubar sa mga seller ug listing nga narehistro didto. Pangutana og count (pananglitan, "pila ka seller sa Cordova?") para sa live nga numero.',
+        ],
+        // -- Second appended block (Cart + general Fish Care). Kept at the very
+        // end so, together with the two-pass matcher, no existing single-word
+        // keyword above changes the category it always resolved to.
+        [
+            // Reuses the existing 'Marketplace' category (rather than adding a
+            // new one) so CATEGORIES and any category-based telemetry are
+            // untouched; the Cart is a buyer marketplace feature.
+            'category' => 'Marketplace',
+            'keywords' => ['cart', 'add to cart', 'save for later', 'shopping cart', 'my cart', 'saved listing', 'saved listings'],
+            'English' => 'The Cart lets you save listings to buy later -- open a listing and tap "Add to Cart". Saving doesn\'t reserve stock or lock the price; both are re-checked when you actually buy, and each cart item is checked out as its own order from the Cart tab.',
+            'Tagalog' => 'Sa Cart, maaari mong i-save ang mga listing para bilhin mamaya -- buksan ang isang listing at pindutin ang "Add to Cart". Ang pag-save ay hindi nagre-reserve ng stock o nagla-lock ng presyo; sinusuri ulit ang dalawa kapag talagang bumili ka, at bawat item sa cart ay chi-check out bilang sariling order mula sa Cart tab.',
+            'Bisaya' => 'Ang Cart magtugot nimo nga i-save ang mga listing para paliton unya -- ablihi ang usa ka listing ug i-tap ang "Add to Cart". Ang pag-save wala magreserba og stock o mag-lock sa presyo; susihon usab ang duha inig palit gyud nimo, ug ang matag item sa cart i-checkout as kaugalingong order gikan sa Cart tab.',
+            'roles' => [
+                'seller' => [
+                    'English' => 'The Cart is a Buyer feature -- buyers save your listings there to purchase later. As a Seller you don\'t have a cart; you manage your listings and fulfill the orders buyers place.',
+                ],
+                'lgu_admin' => [
+                    'English' => 'The Cart is a Buyer feature for saving listings to buy later. It isn\'t part of LGU administration -- your tools are listing approval, seller verification, and earnings approval.',
+                ],
+                'super_admin' => [
+                    'English' => 'The Cart is a Buyer feature for saving listings to buy later. It isn\'t part of platform administration.',
+                ],
+            ],
+        ],
+        [
+            'category' => 'Fish Care',
+            'keywords' => [
+                'fish farming', 'fish care', 'aquaculture', 'raising fish', 'raise fish', 'grow fish', 'farm fish',
+                'disease', 'sick fish', 'fish disease', 'dying', 'aeration', 'oxygen', 'algae',
+            ],
+            'English' => 'AbaiMarket\'s AI can help with fish-farming basics -- choosing a species, preparing and stocking a pond, water quality, feeding, disease prevention, and harvesting. Ask a specific question (e.g. "how do I keep pond oxygen up?" or "why are my fingerlings dying?") and I\'ll give practical guidance for local conditions.',
+            'Tagalog' => 'Makakatulong ang AI ng AbaiMarket sa mga batayan ng fish farming -- pagpili ng species, paghahanda at pag-stock ng pond, kalidad ng tubig, pagpapakain, pag-iwas sa sakit, at pag-harvest. Magtanong nang tiyak (hal. "paano ko itaas ang oxygen sa pond?" o "bakit namamatay ang aking fingerlings?") at bibigyan kita ng praktikal na gabay para sa lokal na kondisyon.',
+            'Bisaya' => 'Ang AI sa AbaiMarket makatabang sa mga sukaranan sa fish farming -- pagpili og species, pag-andam ug pag-stock sa pond, kalidad sa tubig, pagpakaon, pag-iwas sa sakit, ug pag-harvest. Pangutana og espisipiko (pananglitan, "unsaon nako pagpataas sa oxygen sa pond?" o "nganong nangamatay ang akong fingerlings?") ug hatagan tika og praktikal nga giya para sa lokal nga kondisyon.',
         ],
     ];
 
     /**
-     * Classify a message into one of CATEGORIES. Topic keywords are checked
-     * before the greeting pattern, so a substantive question that happens to
-     * open with "hi" (e.g. "Hi, how do I buy fingerlings?") is answered on
-     * its merits rather than treated as a bare greeting.
+     * Classify a message into one of CATEGORIES.
+     *
+     * Matching is done in two passes, each walking TOPICS in order:
+     *   1. multi-word phrase keywords (e.g. "create a listing", "how do i pay")
+     *   2. single-word keywords (e.g. "listing", "pay")
+     *
+     * A specific phrase therefore wins over a broad single word even when the
+     * single word sits in an earlier topic -- so "how do I create a listing?"
+     * resolves to Listings instead of being shadowed by Marketplace's generic
+     * "listing" keyword, while "how do I buy fingerlings from a listing?" still
+     * resolves to Marketplace on the single-word "buy". Topics are still tried
+     * in declaration order within each pass, so ties keep their original,
+     * curated priority.
+     *
+     * Keywords match on a word boundary at their leading edge (see
+     * keywordMatches), so a short keyword like "rate" matches
+     * "rate"/"rating"/"rated" but never the middle of an unrelated word such as
+     * "accurate" or "generate" -- eliminating the substring false positives the
+     * previous str_contains matching produced.
+     *
+     * Topic keywords are checked before the greeting pattern, so a substantive
+     * question that merely opens with "hi" (e.g. "Hi, how do I buy
+     * fingerlings?") is answered on its merits rather than treated as a bare
+     * greeting.
      */
     public static function classify(string $message): array
     {
         $lower = strtolower($message);
 
-        foreach (self::TOPICS as $topic) {
-            foreach ($topic['keywords'] as $keyword) {
-                if (str_contains($lower, $keyword)) {
-                    return ['category' => $topic['category'], 'topic' => $topic];
+        foreach ([true, false] as $phrasePass) {
+            foreach (self::TOPICS as $topic) {
+                foreach ($topic['keywords'] as $keyword) {
+                    if ((str_contains($keyword, ' ') === $phrasePass) && self::keywordMatches($lower, $keyword)) {
+                        return ['category' => $topic['category'], 'topic' => $topic];
+                    }
                 }
             }
         }
@@ -426,9 +483,22 @@ class AiIntentClassifier
     }
 
     /**
+     * True when $keyword appears in $lower at a word boundary on its leading
+     * edge. This still matches trailing inflections ("rate" -> "rating",
+     * "listing" -> "listings") because only the front of the keyword is
+     * anchored, but it never fires on the middle of a larger word
+     * ("rate" in "accurate", "pay" in "display"), which plain substring
+     * matching did.
+     */
+    private static function keywordMatches(string $lower, string $keyword): bool
+    {
+        return (bool) preg_match('/\b'.preg_quote($keyword, '/').'/', $lower);
+    }
+
+    /**
      * The English fact GeminiService grounds Gemini with for a matched
      * topic -- the app's own knowledge, scoped to the asking user's role, so
-     * Gemini paraphrases naturally instead of guessing how FishMarket works.
+     * Gemini paraphrases naturally instead of guessing how AbaiMarket works.
      */
     public static function topicContext(array $topic, string $role): string
     {
@@ -491,9 +561,9 @@ class AiIntentClassifier
         $capabilities = $roleCapabilities[$language] ?? $roleCapabilities['English'];
 
         $responses = [
-            'English' => "Hello! I'm the FishMarket assistant. Ask me about {$capabilities}.",
-            'Tagalog' => "Kumusta! Ako ang FishMarket assistant. Magtanong tungkol sa {$capabilities}.",
-            'Bisaya' => "Kumusta! Ako ang FishMarket assistant. Pangutan-a ko bahin sa {$capabilities}.",
+            'English' => "Hello! I'm the AbaiMarket assistant. Ask me about {$capabilities}.",
+            'Tagalog' => "Kumusta! Ako ang AbaiMarket assistant. Magtanong tungkol sa {$capabilities}.",
+            'Bisaya' => "Kumusta! Ako ang AbaiMarket assistant. Pangutan-a ko bahin sa {$capabilities}.",
         ];
 
         return $responses[$language] ?? $responses['English'];
@@ -508,9 +578,9 @@ class AiIntentClassifier
     public static function offTopicResponse(string $language): string
     {
         $responses = [
-            'English' => "I'm your FishMarket AI Assistant, dedicated to the FishMarket fisheries marketplace. I can help you with buying and selling fingerlings, fish farming, marketplace features, listings, orders, wallets, deliveries, messaging, reviews, analytics, and other features of this Fisheries Marketplace system -- I can't answer unrelated general knowledge questions.",
-            'Tagalog' => 'Ako ang iyong FishMarket AI Assistant, nakatuon sa FishMarket fisheries marketplace. Matutulungan kita sa pagbili at pagbebenta ng fingerlings, fish farming, mga feature ng marketplace, listings, orders, wallets, delivery, messaging, reviews, analytics, at iba pang feature ng Fisheries Marketplace system na ito -- hindi ako makakasagot ng mga hindi kaugnay na pangkalahatang tanong.',
-            'Bisaya' => 'Ako ang imong FishMarket AI Assistant, nakatuon sa FishMarket fisheries marketplace. Makatabang ko nimo sa pagpalit ug pagbaligya og fingerlings, fish farming, mga feature sa marketplace, listings, orders, wallets, delivery, messaging, reviews, analytics, ug uban pang feature niining Fisheries Marketplace system -- dili ko makatubag sa dili kalabot nga kinatibuk-ang mga pangutana.',
+            'English' => "I'm your AbaiMarket AI Assistant, dedicated to the AbaiMarket fisheries marketplace. I can help you with buying and selling fingerlings, fish farming, marketplace features, listings, orders, wallets, deliveries, messaging, reviews, analytics, and other features of this Fisheries Marketplace system -- I can't answer unrelated general knowledge questions.",
+            'Tagalog' => 'Ako ang iyong AbaiMarket AI Assistant, nakatuon sa AbaiMarket fisheries marketplace. Matutulungan kita sa pagbili at pagbebenta ng fingerlings, fish farming, mga feature ng marketplace, listings, orders, wallets, delivery, messaging, reviews, analytics, at iba pang feature ng Fisheries Marketplace system na ito -- hindi ako makakasagot ng mga hindi kaugnay na pangkalahatang tanong.',
+            'Bisaya' => 'Ako ang imong AbaiMarket AI Assistant, nakatuon sa AbaiMarket fisheries marketplace. Makatabang ko nimo sa pagpalit ug pagbaligya og fingerlings, fish farming, mga feature sa marketplace, listings, orders, wallets, delivery, messaging, reviews, analytics, ug uban pang feature niining Fisheries Marketplace system -- dili ko makatubag sa dili kalabot nga kinatibuk-ang mga pangutana.',
         ];
 
         return $responses[$language] ?? $responses['English'];

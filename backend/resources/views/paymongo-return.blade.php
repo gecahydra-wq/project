@@ -26,7 +26,7 @@
     <main>
         <section class="card">
             <div class="tag {{ $status }}">{{ $title }}</div>
-            <p class="eyebrow">FishMarket</p>
+            <p class="eyebrow">AbaiMarket</p>
             <h1>{{ $headline }}</h1>
             <p>{{ $message }}</p>
         <div class="actions">

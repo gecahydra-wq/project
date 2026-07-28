@@ -61,7 +61,7 @@ class AccountSuspendedMail extends Mailable
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'Your FishMarket Account Has Been Suspended',
+            subject: 'Your AbaiMarket Account Has Been Suspended',
         );
     }
 
@@ -83,15 +83,15 @@ class AccountSuspendedMail extends Mailable
         return new Content(
             view: 'emails.account.status-changed',
             with: [
-                'subject' => 'Your FishMarket Account Has Been Suspended',
+                'subject' => 'Your AbaiMarket Account Has Been Suspended',
                 'eyebrow' => 'Account Update',
                 'headline' => 'Your account has been suspended',
-                'preheader' => 'Your FishMarket account has been suspended.',
+                'preheader' => 'Your AbaiMarket account has been suspended.',
                 'recipientName' => $this->account->name,
-                'introLine' => "Your FishMarket {$roleLabel} account has been suspended by an administrator.",
+                'introLine' => "Your AbaiMarket {$roleLabel} account has been suspended by an administrator.",
                 'restrictions' => self::RESTRICTIONS[$this->role] ?? [],
                 'rows' => $rows,
-                'appealLine' => 'If you believe this was a mistake, or would like to appeal this decision, please contact FishMarket support and reference the date and reason above.',
+                'appealLine' => 'If you believe this was a mistake, or would like to appeal this decision, please contact AbaiMarket support and reference the date and reason above.',
             ],
         );
     }

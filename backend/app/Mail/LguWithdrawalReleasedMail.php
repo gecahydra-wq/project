@@ -65,7 +65,7 @@ class LguWithdrawalReleasedMail extends Mailable
                 'preheader' => 'Your LGU revenue withdrawal has been paid out.',
                 'recipientName' => $withdrawal->requestedBy?->name ?? ($municipality?->name ?? 'there'),
                 'rows' => $rows,
-                'closingLine' => 'Thanks for using FishMarket!',
+                'closingLine' => 'Thanks for using AbaiMarket!',
                 'ctaLabel' => 'View LGU Wallet',
                 'ctaUrl' => "{$frontend}/lgu/dashboard?tab=wallet",
             ],

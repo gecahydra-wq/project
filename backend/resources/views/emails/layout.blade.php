@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light">
-    <title>{{ $subject ?? 'FishMarket' }}</title>
+    <title>{{ $subject ?? 'AbaiMarket' }}</title>
     <style>
         @media only screen and (max-width: 600px) {
             .fm-container { width: 100% !important; }
@@ -23,7 +23,7 @@
                     <tr>
                         <td class="fm-header" style="background-color:#0b5a8a;background-image:linear-gradient(135deg,#073b5c 0%,#0b5a8a 55%,#0f9b8e 100%);border-radius:16px 16px 0 0;padding:28px 32px;text-align:center;">
                             <span style="display:inline-block;width:40px;height:40px;line-height:40px;border-radius:10px;background-color:rgba(255,255,255,0.18);color:#ffffff;font-size:20px;vertical-align:middle;">&#128031;</span>
-                            <span style="display:inline-block;vertical-align:middle;margin-left:10px;color:#ffffff;font-size:20px;font-weight:700;font-family:Arial,Helvetica,sans-serif;">FishMarket</span>
+                            <span style="display:inline-block;vertical-align:middle;margin-left:10px;color:#ffffff;font-size:20px;font-weight:700;font-family:Arial,Helvetica,sans-serif;">AbaiMarket</span>
                         </td>
                     </tr>
                     <tr>
@@ -48,7 +48,7 @@
                     </tr>
                     <tr>
                         <td class="fm-footer" style="padding:24px 32px;border-top:1px solid #e2e8f0;background-color:#f8fafc;border-radius:0 0 16px 16px;text-align:center;">
-                            <p style="margin:0 0 6px;font-size:12px;color:#64748b;">FishMarket &ndash; LGU, Sellers, and Fish Farmers working together for local aquaculture.</p>
+                            <p style="margin:0 0 6px;font-size:12px;color:#64748b;">AbaiMarket &ndash; LGU, Sellers, and Fish Farmers working together for local aquaculture.</p>
                             <p style="margin:0;font-size:12px;color:#94a3b8;">This is an automated message &ndash; please do not reply directly to this email.</p>
                         </td>
                     </tr>

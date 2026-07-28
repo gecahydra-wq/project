@@ -64,7 +64,7 @@ class PayMongoService
                         'payment_method_types' => ['gcash', 'card', 'paymaya'],
                         'success_url' => $successUrl,
                         'cancel_url' => $cancelUrl,
-                        'description' => 'FishMarket order '.$order->order_number,
+                        'description' => 'AbaiMarket order '.$order->order_number,
                         'line_items' => [$lineItem],
                     ],
                 ],

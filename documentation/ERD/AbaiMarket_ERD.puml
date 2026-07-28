@@ -1,0 +1,395 @@
+@startuml AbaiMarket_ERD
+' AbaiMarket -- Entity Relationship Diagram
+' Generated from the actual Laravel implementation (migrations, models, foreign keys).
+' Framework-only tables (password_reset_tokens, sessions, cache, jobs,
+' personal_access_tokens) are intentionally omitted -- they are not domain entities.
+' Renders with the official PlantUML (plantuml.jar / plantuml.com server).
+
+hide circle
+skinparam linetype ortho
+skinparam roundcorner 6
+skinparam shadowing false
+skinparam ArrowColor #33556E
+skinparam entity {
+  BackgroundColor #F7FBFC
+  BorderColor #0F5C7A
+  FontColor #10202B
+}
+skinparam entityStereotypeFontColor #0F9B8E
+title AbaiMarket -- Entity Relationship Diagram (Domain Schema)
+
+' ============================= ENTITIES =============================
+
+entity "users" as users {
+  * id : bigint <<PK>>
+  --
+  name : string
+  email : string <<UK>>
+  email_verified_at : timestamp
+  password : string
+  google_id : string <<UK>>
+  role : string
+  municipality_id : bigint <<FK app-level>>
+  phone : string
+  status : string
+  profile_picture : string
+}
+
+entity "municipalities" as municipalities {
+  * id : bigint <<PK>>
+  --
+  name : string <<UK>>
+  province : string
+}
+
+entity "buyer_profiles" as buyer_profiles {
+  * id : bigint <<PK>>
+  --
+  * user_id : bigint <<FK>>
+  municipality_id : bigint <<FK>>
+  farm_name : string
+  water_source : string
+  pond_area : decimal
+  address : string
+  bio : text
+  rating : decimal
+  ratings_count : int
+}
+
+entity "seller_profiles" as seller_profiles {
+  * id : bigint <<PK>>
+  --
+  * user_id : bigint <<FK>>
+  * municipality_id : bigint <<FK>>
+  hatchery_name : string
+  description : text
+  rating : decimal
+  verified : boolean
+  status : string
+  farming_methods : text
+  fish_raising_practices : text
+  farm_history : text
+  address : string
+  profile_picture : string
+  cover_photo : string
+  gallery : json
+  water_source : string
+  feeding_practices : text
+  years_experience : smallint
+  certifications : text
+}
+
+entity "listings" as listings {
+  * id : bigint <<PK>>
+  --
+  * seller_profile_id : bigint <<FK>>
+  * municipality_id : bigint <<FK>>
+  species : string
+  scientific_name : string
+  title : string
+  description : text
+  quantity : int
+  price_per_piece : decimal
+  average_size : string
+  availability_status : string
+  approval_status : string
+  rejection_reason : text
+}
+
+entity "listing_media" as listing_media {
+  * id : bigint <<PK>>
+  --
+  * listing_id : bigint <<FK>>
+  type : string
+  title : string
+  url : string
+  position : int
+}
+
+entity "orders" as orders {
+  * id : bigint <<PK>>
+  --
+  order_number : string <<UK>>
+  * buyer_id : bigint <<FK>>
+  * seller_profile_id : bigint <<FK>>
+  * listing_id : bigint <<FK>>
+  quantity : int
+  unit_price : decimal
+  total_amount : decimal
+  status : string
+  pickup_notes : string
+  seller_notes : text
+  lgu_review_status : string
+  lgu_review_reason : string
+  lgu_reviewed_at : timestamp
+  lgu_reviewed_by : bigint <<FK>>
+}
+
+entity "payments" as payments {
+  * id : bigint <<PK>>
+  --
+  * order_id : bigint <<FK>>
+  amount : decimal
+  status : string
+  provider : string
+  provider_reference : string
+  checkout_url : string
+  released_at : timestamp
+}
+
+entity "payment_logs" as payment_logs {
+  * id : bigint <<PK>>
+  --
+  * payment_id : bigint <<FK>>
+  event : string
+  payload : json
+}
+
+entity "settlements" as settlements {
+  * id : bigint <<PK>>
+  --
+  * order_id : bigint <<FK,UK>>
+  * payment_id : bigint <<FK>>
+  * seller_profile_id : bigint <<FK>>
+  * municipality_id : bigint <<FK>>
+  approved_by : bigint <<FK>>
+  gross_amount : decimal
+  seller_share : decimal
+  lgu_share : decimal
+  platform_share : decimal
+  seller_percent : decimal
+  lgu_percent : decimal
+  platform_percent : decimal
+  status : string
+  settled_at : timestamp
+}
+
+entity "withdrawal_requests" as withdrawal_requests {
+  * id : bigint <<PK>>
+  --
+  * seller_profile_id : bigint <<FK>>
+  method : string
+  account_name : string
+  account_number : string
+  amount : decimal
+  platform_fee : decimal
+  status : string
+  rejection_reason : text
+  reviewed_at : timestamp
+  paid_at : timestamp
+}
+
+entity "lgu_withdrawal_requests" as lgu_withdrawal_requests {
+  * id : bigint <<PK>>
+  --
+  * municipality_id : bigint <<FK>>
+  requested_by : bigint <<FK>>
+  method : string
+  account_name : string
+  account_number : string
+  amount : decimal
+  status : string
+  rejection_reason : text
+  reviewed_at : timestamp
+  paid_at : timestamp
+}
+
+entity "reviews" as reviews {
+  * id : bigint <<PK>>
+  --
+  * order_id : bigint <<FK>>
+  * buyer_id : bigint <<FK>>
+  * seller_profile_id : bigint <<FK>>
+  rating : tinyint
+  comment : text
+  title : string
+}
+
+entity "buyer_ratings" as buyer_ratings {
+  * id : bigint <<PK>>
+  --
+  * order_id : bigint <<FK,UK>>
+  * seller_profile_id : bigint <<FK>>
+  * buyer_id : bigint <<FK>>
+  rating : tinyint
+  comment : text
+}
+
+entity "cart_items" as cart_items {
+  * id : bigint <<PK>>
+  --
+  * buyer_id : bigint <<FK>>
+  * listing_id : bigint <<FK>>
+  quantity : int
+  .. unique(buyer_id, listing_id) ..
+}
+
+entity "messages" as messages {
+  * id : bigint <<PK>>
+  --
+  * sender_id : bigint <<FK>>
+  * receiver_id : bigint <<FK>>
+  body : text
+  read_at : timestamp
+  edited_at : timestamp
+  deleted_at : timestamp
+}
+
+entity "notifications" as notifications {
+  * id : bigint <<PK>>
+  --
+  * user_id : bigint <<FK>>
+  type : string
+  title : string
+  body : text
+  read_at : timestamp
+}
+
+entity "announcements" as announcements {
+  * id : bigint <<PK>>
+  --
+  title : string
+  body : text
+  category : string
+  created_by : bigint <<FK>>
+  starts_at : timestamp
+  expires_at : timestamp
+  notified_at : timestamp
+}
+
+entity "ai_chats" as ai_chats {
+  * id : bigint <<PK>>
+  --
+  user_id : bigint <<FK>>
+  language : string
+  message : text
+  response : text
+  data_subject : string
+}
+
+entity "ai_usage_events" as ai_usage_events {
+  * id : bigint <<PK>>
+  --
+  user_id : bigint <<FK>>
+  role : string
+  category : string
+  was_fallback : boolean
+  response_time_ms : int
+}
+
+entity "seller_posts" as seller_posts {
+  * id : bigint <<PK>>
+  --
+  * seller_profile_id : bigint <<FK>>
+  body : text
+}
+
+entity "seller_post_media" as seller_post_media {
+  * id : bigint <<PK>>
+  --
+  * seller_post_id : bigint <<FK>>
+  type : string
+  title : string
+  url : string
+  position : int
+}
+
+entity "seller_post_likes" as seller_post_likes {
+  * id : bigint <<PK>>
+  --
+  * seller_post_id : bigint <<FK>>
+  * user_id : bigint <<FK>>
+  .. unique(seller_post_id, user_id) ..
+}
+
+entity "seller_post_comments" as seller_post_comments {
+  * id : bigint <<PK>>
+  --
+  * seller_post_id : bigint <<FK>>
+  * user_id : bigint <<FK>>
+  body : text
+}
+
+entity "moderation_logs" as moderation_logs {
+  * id : bigint <<PK>>
+  --
+  * user_id : bigint <<FK>>
+  role : string
+  moderator_id : bigint <<FK>>
+  action : string
+  reason : string
+  notes : text
+  resulting_status : string
+}
+
+entity "activity_logs" as activity_logs {
+  * id : bigint <<PK>>
+  --
+  actor_id : bigint <<FK>>
+  actor_role : string
+  action : string
+  target_user_id : bigint <<FK>>
+  municipality_id : bigint <<FK>>
+  reference_type : string
+  reference_number : string
+  description : text
+}
+
+' ============================= RELATIONSHIPS =============================
+' Crow's foot: || = exactly one, o| = zero-or-one, o{ = zero-or-many
+
+municipalities ||--o{ users : "locates (app-level)"
+municipalities ||--o{ buyer_profiles
+municipalities ||--o{ seller_profiles
+municipalities ||--o{ listings
+municipalities ||--o{ settlements
+municipalities ||--o{ lgu_withdrawal_requests
+municipalities ||--o{ activity_logs
+
+users ||--o| buyer_profiles
+users ||--o| seller_profiles
+users ||--o{ orders : "buyer"
+users ||--o{ orders : "lgu_reviewed_by"
+users ||--o{ cart_items
+users ||--o{ reviews : "buyer"
+users ||--o{ buyer_ratings : "buyer"
+users ||--o{ messages : "sender"
+users ||--o{ messages : "receiver"
+users ||--o{ notifications
+users ||--o{ ai_chats
+users ||--o{ ai_usage_events
+users ||--o{ announcements : "created_by"
+users ||--o{ settlements : "approved_by"
+users ||--o{ lgu_withdrawal_requests : "requested_by"
+users ||--o{ seller_post_likes
+users ||--o{ seller_post_comments
+users ||--o{ moderation_logs : "user_id"
+users ||--o{ moderation_logs : "moderator_id"
+users ||--o{ activity_logs : "actor_id"
+users ||--o{ activity_logs : "target_user_id"
+
+seller_profiles ||--o{ listings
+seller_profiles ||--o{ orders
+seller_profiles ||--o{ reviews
+seller_profiles ||--o{ buyer_ratings
+seller_profiles ||--o{ withdrawal_requests
+seller_profiles ||--o{ settlements
+seller_profiles ||--o{ seller_posts
+
+listings ||--o{ listing_media
+listings ||--o{ orders
+listings ||--o{ cart_items
+
+orders ||--|| payments
+orders ||--o| reviews
+orders ||--o| buyer_ratings
+orders ||--o| settlements
+
+payments ||--o{ payment_logs
+payments ||--o| settlements
+
+seller_posts ||--o{ seller_post_media
+seller_posts ||--o{ seller_post_likes
+seller_posts ||--o{ seller_post_comments
+
+@enduml

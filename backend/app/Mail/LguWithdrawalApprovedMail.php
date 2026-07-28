@@ -60,7 +60,7 @@ class LguWithdrawalApprovedMail extends Mailable
                 'recipientName' => $withdrawal->requestedBy?->name ?? ($municipality?->name ?? 'there'),
                 'introLine' => 'Your LGU revenue withdrawal request has been approved and is now being processed. You will receive a separate email once the payment has actually been made.',
                 'rows' => $rows,
-                'closingLine' => 'Thanks for using FishMarket!',
+                'closingLine' => 'Thanks for using AbaiMarket!',
                 'ctaLabel' => 'View LGU Wallet',
                 'ctaUrl' => "{$frontend}/lgu/dashboard?tab=wallet",
             ],

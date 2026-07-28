@@ -17,7 +17,7 @@ use App\Models\User;
 use App\Models\WithdrawalRequest;
 
 /**
- * Resolves a question against the live FishMarket database when it asks for
+ * Resolves a question against the live AbaiMarket database when it asks for
  * a concrete, fetchable fact -- role-scoped so a Buyer never sees seller
  * financials, an LGU Admin never sees another municipality's data, and a
  * Seller never sees another seller's wallet. Runs before AiIntentClassifier
@@ -192,15 +192,15 @@ class AiDataQueryResolver
 
     private static function walletInapplicableForBuyer(): array
     {
-        $context = "Buyers don't have a wallet or balance on FishMarket -- your payments go through PayMongo checkout directly. Wallets (available/pending balance) are a Seller-only feature for tracking their earnings.";
+        $context = "Buyers don't have a wallet or balance on AbaiMarket -- your payments go through PayMongo checkout directly. Wallets (available/pending balance) are a Seller-only feature for tracking their earnings.";
 
         return [
             'subject' => 'wallet_inapplicable',
             'context' => $context,
             'fallback' => [
                 'English' => $context,
-                'Tagalog' => 'Walang wallet o balance ang mga Buyer sa FishMarket -- direktang dumadaan ang bayad mo sa PayMongo checkout. Ang Wallet (available/pending balance) ay feature lamang ng Seller para subaybayan ang kanilang kita.',
-                'Bisaya' => 'Walay wallet o balance ang mga Buyer sa FishMarket -- direkta nga moagi ang imong bayad sa PayMongo checkout. Ang Wallet (available/pending balance) usa ka feature ra sa Seller para subayon ang ilang kita.',
+                'Tagalog' => 'Walang wallet o balance ang mga Buyer sa AbaiMarket -- direktang dumadaan ang bayad mo sa PayMongo checkout. Ang Wallet (available/pending balance) ay feature lamang ng Seller para subaybayan ang kanilang kita.',
+                'Bisaya' => 'Walay wallet o balance ang mga Buyer sa AbaiMarket -- direkta nga moagi ang imong bayad sa PayMongo checkout. Ang Wallet (available/pending balance) usa ka feature ra sa Seller para subayon ang ilang kita.',
             ],
         ];
     }
@@ -524,7 +524,7 @@ class AiDataQueryResolver
     {
         if (self::matchesAny($lower, ['total users'])) {
             $count = User::count();
-            $context = "There are {$count} total user accounts on FishMarket (buyers, sellers, LGU admins, and Super Admin).";
+            $context = "There are {$count} total user accounts on AbaiMarket (buyers, sellers, LGU admins, and Super Admin).";
 
             return ['subject' => 'super_total_users', 'context' => $context, 'fallback' => ['English' => $context, 'Tagalog' => $context, 'Bisaya' => $context]];
         }
@@ -927,15 +927,15 @@ class AiDataQueryResolver
             'listing' => [FingerlingListing::where('approval_status', 'approved')->count(), 'approved listings', 'approved_listings_count'],
         };
 
-        $context = "There are {$count} {$label} on FishMarket.";
+        $context = "There are {$count} {$label} on AbaiMarket.";
 
         return [
             'subject' => $subject,
             'context' => $context,
             'fallback' => [
                 'English' => $context,
-                'Tagalog' => "Mayroong {$count} {$label} sa FishMarket.",
-                'Bisaya' => "Naa'y {$count} {$label} sa FishMarket.",
+                'Tagalog' => "Mayroong {$count} {$label} sa AbaiMarket.",
+                'Bisaya' => "Naa'y {$count} {$label} sa AbaiMarket.",
             ],
         ];
     }
@@ -1113,15 +1113,15 @@ class AiDataQueryResolver
         $listings = FingerlingListing::where('approval_status', 'approved')->count();
         $municipalitiesRepresented = SellerProfile::distinct('municipality_id')->count('municipality_id');
 
-        $context = "FishMarket currently has {$sellers} registered sellers, {$buyers} registered buyers, and {$listings} approved listings, across {$municipalitiesRepresented} municipalities.";
+        $context = "AbaiMarket currently has {$sellers} registered sellers, {$buyers} registered buyers, and {$listings} approved listings, across {$municipalitiesRepresented} municipalities.";
 
         return [
             'subject' => 'marketplace_stats_overview',
             'context' => $context,
             'fallback' => [
                 'English' => $context,
-                'Tagalog' => "Ang FishMarket ay may {$sellers} rehistradong seller, {$buyers} rehistradong buyer, at {$listings} approved na listing, sa {$municipalitiesRepresented} munisipyo.",
-                'Bisaya' => "Ang FishMarket naay {$sellers} rehistradong seller, {$buyers} rehistradong buyer, ug {$listings} approved nga listing, sa {$municipalitiesRepresented} ka munisipyo.",
+                'Tagalog' => "Ang AbaiMarket ay may {$sellers} rehistradong seller, {$buyers} rehistradong buyer, at {$listings} approved na listing, sa {$municipalitiesRepresented} munisipyo.",
+                'Bisaya' => "Ang AbaiMarket naay {$sellers} rehistradong seller, {$buyers} rehistradong buyer, ug {$listings} approved nga listing, sa {$municipalitiesRepresented} ka munisipyo.",
             ],
         ];
     }

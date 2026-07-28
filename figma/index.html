@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AbaiMarket — Design Mockups (Figma reference)</title>
+<link rel="stylesheet" href="assets/app.css">
+<link rel="stylesheet" href="assets/mock.css">
+<style>
+  .gallery-wrap { max-width: 1180px; margin: 0 auto; padding: 32px 24px 64px; }
+  .gallery-head h1 { font-size: var(--fs-3xl); margin: 0 0 6px; color: var(--color-primary-dark); }
+  .gallery-head p { color: var(--color-text-muted); margin: 0 0 28px; max-width: 70ch; }
+  .gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; }
+  .screen-card { display: flex; flex-direction: column; overflow: hidden; text-decoration: none; color: inherit; }
+  .screen-card .shot { aspect-ratio: 16 / 10; overflow: hidden; background: var(--color-gray-100); border-bottom: 1px solid var(--color-border); }
+  .screen-card .shot img { width: 100%; height: 100%; object-fit: cover; object-position: top left; display: block; }
+  .screen-card .meta { padding: 14px 16px; }
+  .screen-card .meta strong { display: block; font-size: var(--fs-md); }
+  .screen-card .meta span { color: var(--color-text-muted); font-size: var(--fs-sm); }
+  .role-pill { display: inline-block; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="mock-banner"><strong>DESIGN MOCKS</strong> · AbaiMarket UI reference for Figma · static HTML, styled with the app's real stylesheet</div>
+
+<div class="gallery-wrap">
+  <div class="gallery-head">
+    <h1>AbaiMarket — Design Mockups</h1>
+    <p>Static HTML replicas of key AbaiMarket screens across all four roles, built with the application's actual stylesheet (<code>assets/app.css</code>) so the visuals match the live app 1:1. Open any screen, inspect the layout, colours, spacing, and components, then rebuild it as a Figma frame. No JavaScript, no data — these are design references only.</p>
+  </div>
+
+  <div class="gallery-grid">
+    <a class="card screen-card" href="01-login.html">
+      <div class="shot"><img src="previews/01-login.png" alt="Login screen"></div>
+      <div class="meta"><strong>01 · Login &amp; Registration</strong><span>Split brand panel + auth card, Google sign-in.</span><br><span class="badge badge-neutral role-pill">Public</span></div>
+    </a>
+    <a class="card screen-card" href="02-buyer-dashboard.html">
+      <div class="shot"><img src="previews/02-buyer-dashboard.png" alt="Buyer dashboard"></div>
+      <div class="meta"><strong>02 · Buyer Dashboard</strong><span>Stats, recent orders table, notifications.</span><br><span class="badge badge-role-buyer role-pill">Buyer</span></div>
+    </a>
+    <a class="card screen-card" href="03-buyer-browse.html">
+      <div class="shot"><img src="previews/03-buyer-browse.png" alt="Marketplace browse"></div>
+      <div class="meta"><strong>03 · Marketplace (Browse)</strong><span>Filters + listing card grid with ratings.</span><br><span class="badge badge-role-buyer role-pill">Buyer</span></div>
+    </a>
+    <a class="card screen-card" href="04-seller-dashboard.html">
+      <div class="shot"><img src="previews/04-seller-dashboard.png" alt="Seller dashboard"></div>
+      <div class="meta"><strong>04 · Seller Dashboard</strong><span>KPI tiles + order management, rate-buyer.</span><br><span class="badge badge-role-seller role-pill">Seller</span></div>
+    </a>
+    <a class="card screen-card" href="05-lgu-earnings.html">
+      <div class="shot"><img src="previews/05-lgu-earnings.png" alt="LGU seller earnings"></div>
+      <div class="meta"><strong>05 · LGU Seller Earnings</strong><span>Approval queue + rejected/reopen flow.</span><br><span class="badge badge-role-lgu role-pill">LGU Admin</span></div>
+    </a>
+    <a class="card screen-card" href="06-admin-users.html">
+      <div class="shot"><img src="previews/06-admin-users.png" alt="Super admin buyers"></div>
+      <div class="meta"><strong>06 · Super Admin · Buyers</strong><span>Account moderation: suspend / reinstate / remove.</span><br><span class="badge badge-role-admin role-pill">Super Admin</span></div>
+    </a>
+  </div>
+</div>
+</body>
+</html>

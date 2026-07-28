@@ -36,7 +36,7 @@ class ListingApprovedMail extends Mailable
                 'subject' => "Listing Approved -- {$listing->species}",
                 'eyebrow' => 'Listing Update',
                 'headline' => 'Your listing is now live',
-                'preheader' => "{$listing->species} is now visible in the FishMarket marketplace.",
+                'preheader' => "{$listing->species} is now visible in the AbaiMarket marketplace.",
                 'sellerName' => $listing->sellerProfile?->hatchery_name ?? ($listing->sellerProfile?->user?->name ?? 'there'),
                 'rows' => [
                     ['Listing', $listing->title ?: $listing->species],
