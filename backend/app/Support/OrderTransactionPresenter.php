@@ -32,6 +32,11 @@ class OrderTransactionPresenter
                 'id' => $order->listing->id,
                 'title' => $order->listing->title,
                 'species' => $order->listing->species,
+                // So the order detail panel labels the quantity in the unit
+                // the listing is actually sold in, not always "pcs".
+                'unit_type' => $order->listing->unit_type,
+                'unit_label' => $order->listing->unit_label,
+                'unit_label_plural' => $order->listing->unit_label_plural,
             ] : null,
             'buyer' => $order->buyer ? [
                 'id' => $order->buyer->id,

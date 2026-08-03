@@ -9,6 +9,7 @@ use App\Models\Message;
 use App\Models\Order;
 use App\Models\Review;
 use App\Support\AnalyticsPeriod;
+use App\Support\BuyerInvestmentReport;
 use App\Support\ImageUploader;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -158,6 +159,15 @@ class BuyerController extends Controller
             'purchases_over_time' => $purchasesOverTime,
             'orders_by_status' => $ordersByStatus,
             'top_species' => $topSpecies,
+            // Buyer Turnout / ROI -- recorded investment and engagement, plus
+            // a clearly-labelled harvest projection the farmer drives with
+            // their own survival rate and farm-gate price. See
+            // App\Support\BuyerInvestmentReport for why the return figures are
+            // an estimate and never presented as realised earnings.
+            'investment' => BuyerInvestmentReport::build($buyerId, $start, $end, [
+                'survival_rate' => $request->query('survival_rate'),
+                'harvest_value_per_piece' => $request->query('harvest_value_per_piece'),
+            ]),
         ]);
     }
 

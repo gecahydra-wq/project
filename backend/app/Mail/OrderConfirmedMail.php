@@ -42,7 +42,7 @@ class OrderConfirmedMail extends Mailable
                     ['Order Number', $order->order_number],
                     ['Seller', $order->sellerProfile?->hatchery_name ?? 'Unknown seller'],
                     ['Item', $order->listing?->species ?? 'Fingerlings'],
-                    ['Quantity', number_format($order->quantity).' pcs'],
+                    ['Quantity', number_format($order->quantity).' '.($order->listing?->unit_label_plural ?? 'pcs')],
                     ['Order Status', 'Confirmed'],
                 ],
                 'ctaLabel' => 'View My Order',

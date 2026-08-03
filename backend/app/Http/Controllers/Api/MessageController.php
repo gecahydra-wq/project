@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Message;
+use App\Models\SellerProfile;
 use App\Models\User;
 use Illuminate\Http\Request;
 
@@ -53,14 +54,21 @@ class MessageController extends Controller
             ->latest()
             ->get();
 
-        $threads = $messages
-            ->groupBy(fn ($message) => $message->sender_id === $userId ? $message->receiver_id : $message->sender_id)
-            ->map(function ($group) use ($userId) {
+        $grouped = $messages->groupBy(fn ($message) => $message->sender_id === $userId ? $message->receiver_id : $message->sender_id);
+
+        // Resolve every seller counterpart's hatchery profile id in ONE query
+        // rather than one per thread -- see counterpartPayload() for why the
+        // id is needed at all.
+        $counterparts = $grouped->map(fn ($group) => $group->first()->sender_id === $userId ? $group->first()->receiver : $group->first()->sender);
+        $sellerProfileIds = self::sellerProfileIdsFor($counterparts->filter());
+
+        $threads = $grouped
+            ->map(function ($group) use ($userId, $sellerProfileIds) {
                 $last = $group->first();
                 $counterpart = $last->sender_id === $userId ? $last->receiver : $last->sender;
 
                 return [
-                    'user' => $counterpart?->only(['id', 'name', 'role', 'profile_picture']),
+                    'user' => self::counterpartPayload($counterpart, $sellerProfileIds),
                     'last_message' => $last,
                     'unread_count' => $group->where('receiver_id', $userId)->whereNull('read_at')->count(),
                 ];
@@ -68,6 +76,44 @@ class MessageController extends Controller
             ->values();
 
         return response()->json($threads);
+    }
+
+    /**
+     * The person on the other side of a conversation, as the messages UI needs
+     * them. A seller counterpart also carries seller_profile_id: their public
+     * hatchery page is addressed by seller_profiles.id, not users.id, so
+     * without it the buyer's "View Profile" button has no route to link to.
+     *
+     * @param  array<int,int>  $sellerProfileIds  user_id => seller_profile_id
+     */
+    private static function counterpartPayload(?User $user, array $sellerProfileIds = []): ?array
+    {
+        if (! $user) {
+            return null;
+        }
+
+        $payload = $user->only(['id', 'name', 'role', 'profile_picture']);
+
+        if ($user->role === 'seller') {
+            $payload['seller_profile_id'] = $sellerProfileIds[$user->id]
+                ?? SellerProfile::where('user_id', $user->id)->value('id');
+        }
+
+        return $payload;
+    }
+
+    /** @return array<int,int> user_id => seller_profile_id */
+    private static function sellerProfileIdsFor($users): array
+    {
+        $sellerUserIds = collect($users)->where('role', 'seller')->pluck('id');
+
+        if ($sellerUserIds->isEmpty()) {
+            return [];
+        }
+
+        return SellerProfile::whereIn('user_id', $sellerUserIds)
+            ->pluck('id', 'user_id')
+            ->all();
     }
 
     public function thread(Request $request, User $user)
@@ -81,7 +127,7 @@ class MessageController extends Controller
         })->oldest()->get();
 
         return response()->json([
-            'user' => $user->only(['id', 'name', 'role', 'profile_picture']),
+            'user' => self::counterpartPayload($user),
             'messages' => $messages,
         ]);
     }

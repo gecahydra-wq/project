@@ -20,9 +20,14 @@
   /* Semantic surface aliases */
   --color-bg: var(--color-gray-50);
   --color-surface: var(--color-white);
+  --color-surface-subtle: #fbfcfe;
   --color-border: var(--color-gray-200);
+  /* A hair lighter than --color-border, for dividers INSIDE a card where a
+     full-strength line reads as a box rather than a separator. */
+  --color-border-subtle: #eef2f7;
   --color-text: var(--color-ink);
   --color-text-muted: var(--color-gray-500);
+  --color-primary-soft: #e8f2f9;
 
   /* Status */
   --color-success: #15803d;
@@ -76,16 +81,33 @@
   --chart-grid: var(--color-gray-200);
   --chart-axis: var(--color-text-muted);
 
-  /* Elevation */
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06), 0 1px 3px rgba(15, 23, 42, 0.05);
-  --shadow-md: 0 8px 20px rgba(15, 23, 42, 0.1);
-  --shadow-lg: 0 20px 45px rgba(15, 23, 42, 0.16);
+  /* Elevation. Layered rather than single-blur: a tight contact shadow plus a
+     wider ambient one reads as a real surface instead of a grey halo. */
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05), 0 2px 6px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 2px 4px rgba(15, 23, 42, 0.05), 0 10px 24px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 4px 10px rgba(15, 23, 42, 0.07), 0 24px 48px rgba(15, 23, 42, 0.13);
+
+  /* Focus ring, shared by every interactive element so focus looks like one
+     idea across the app rather than per-control. */
+  --ring: 0 0 0 3px rgba(11, 90, 138, 0.18);
+  --ring-danger: 0 0 0 3px rgba(185, 28, 28, 0.16);
 
   /* Radius */
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 20px;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 22px;
   --radius-full: 999px;
+
+  /* Spacing rhythm -- one 4px-based scale so section, card, and grid gaps
+     line up instead of each being hand-picked. */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
 
   /* Type scale */
   --fs-xs: 0.75rem;
@@ -142,6 +164,24 @@ body {
   margin: 0;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: var(--fs-base);
+  line-height: 1.55;
+  /* Sharper glyphs on the dark-on-light surfaces this app is almost entirely
+     made of, and contextual alternates for cleaner Inter rendering. */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  text-rendering: optimizeLegibility;
+}
+
+/* Figures line up in columns instead of jittering as digits change -- applies
+   to every money/count surface in the app at once. */
+.stat-card strong,
+.table-row span,
+.listing-price,
+.roi-insight strong,
+.wallet-amount,
+.order-detail-field span {
+  font-variant-numeric: tabular-nums;
 }
 
 a {
@@ -153,62 +193,110 @@ button,
 .button {
   align-items: center;
   background: var(--color-primary);
-  border: 0;
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
   color: white;
   cursor: pointer;
   display: inline-flex;
   font: inherit;
+  font-size: var(--fs-sm);
   font-weight: var(--fw-semibold);
   gap: 0.45rem;
   justify-content: center;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
   min-height: 42px;
-  padding: 0.65rem 1rem;
+  padding: 0.65rem 1.1rem;
   transition: background-color var(--transition-fast), box-shadow var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
+  white-space: nowrap;
 }
 
 button:hover,
 .button:hover {
   background: var(--color-primary-hover);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
 }
 
 button:active,
 .button:active,
 .ghost:active {
-  transform: translateY(1px);
+  box-shadow: var(--shadow-xs);
+  transform: translateY(0);
 }
 
 button:disabled,
 .button[aria-disabled="true"] {
   box-shadow: none;
   cursor: not-allowed;
-  opacity: 0.62;
+  opacity: 0.55;
+  transform: none;
+}
+
+/* Disabled controls must not animate on hover -- a lifting button that does
+   nothing reads as broken. */
+button:disabled:hover,
+.button[aria-disabled="true"]:hover {
+  background: var(--color-primary);
+  box-shadow: none;
+  transform: none;
+}
+
+/* Chrome that happens to be a <button> but isn't shaped like one -- tabs,
+   conversation rows, star pickers, icon buttons, inline text actions. These
+   own their hover treatment, so they opt out of the lift and shadow above
+   rather than inheriting a raised-button look they were never meant to have. */
+.tab:hover,
+.thread-item:hover,
+.link-action:hover,
+.star-btn:hover,
+.seller-post-action:hover,
+.seller-post-comment-delete:hover,
+.modal-close:hover,
+.lightbox-close:hover,
+.lightbox-nav:hover,
+.listing-image-add:hover {
+  box-shadow: none;
   transform: none;
 }
 
 .ghost {
   align-items: center;
-  background: var(--color-teal-soft);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   color: var(--color-primary);
   display: inline-flex;
+  font-size: var(--fs-sm);
   font-weight: var(--fw-semibold);
   gap: 0.45rem;
   justify-content: center;
+  line-height: 1.2;
   min-height: 42px;
-  padding: 0.65rem 1rem;
-  transition: background-color var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
+  padding: 0.65rem 1.1rem;
+  transition: background-color var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
+  white-space: nowrap;
 }
 
 .ghost:hover {
-  background: #cdeeea;
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary);
   box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
+}
+
+.ghost:disabled,
+.ghost:disabled:hover {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+  box-shadow: none;
+  transform: none;
 }
 
 .ghost.danger,
 .button.danger {
   background: var(--color-danger-bg);
+  border-color: transparent;
   color: var(--color-danger);
 }
 
@@ -219,6 +307,7 @@ button:disabled,
 
 .ghost.danger:hover {
   background: #fecaca;
+  border-color: var(--color-danger);
 }
 
 .button.danger:hover {
@@ -246,12 +335,51 @@ textarea {
   color: var(--color-text);
   font: inherit;
   min-height: 42px;
-  padding: 0.65rem 0.8rem;
-  transition: border-color var(--transition-fast);
+  padding: 0.65rem 0.85rem;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background-color var(--transition-fast);
   width: 100%;
 }
 
+input:hover:not(:disabled),
+select:hover:not(:disabled),
+textarea:hover:not(:disabled) {
+  border-color: var(--color-gray-300);
+}
+
+/* A soft ring on focus reads as modern and, unlike the outline alone, shows
+   which field is live even against a busy card. */
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--color-primary);
+  box-shadow: var(--ring);
+  outline: none;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--color-gray-300);
+}
+
+input:disabled,
+select:disabled,
+textarea:disabled {
+  background: var(--color-gray-100);
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+/* Native select needs its own chevron once the default is styled away. */
+select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-position: right 0.7rem center;
+  background-repeat: no-repeat;
+  padding-right: 2.2rem;
+}
+
 textarea {
+  line-height: 1.6;
   min-height: 88px;
   resize: vertical;
 }
@@ -261,7 +389,7 @@ label {
   display: grid;
   font-size: var(--fs-sm);
   font-weight: var(--fw-semibold);
-  gap: 0.3rem;
+  gap: 0.35rem;
 }
 
 h1,
@@ -275,12 +403,14 @@ p {
 h1 {
   color: var(--color-primary-dark);
   font-size: clamp(2rem, 5vw, 4.6rem);
+  letter-spacing: -0.025em;
   line-height: 1.05;
 }
 
 h2 {
   color: var(--color-primary-dark);
   font-size: clamp(1.5rem, 3vw, 2.3rem);
+  letter-spacing: -0.02em;
   line-height: 1.2;
 }
 
@@ -288,6 +418,7 @@ h3 {
   color: var(--color-text);
   font-size: var(--fs-md);
   font-weight: var(--fw-semibold);
+  letter-spacing: -0.011em;
   line-height: 1.35;
   margin-bottom: 0.5rem;
 }
@@ -456,6 +587,14 @@ main {
   padding: clamp(1rem, 4vw, 3rem);
 }
 
+/* Inside a dashboard the surrounding .app-main already supplies the page
+   gutter, so sections were paying for it twice -- up to 3rem of padding on top
+   of it. Dropping it here and letting the .dashboard grid gap carry the
+   vertical rhythm is what makes every dashboard's spacing consistent. */
+.dashboard .section {
+  padding: 0;
+}
+
 .card,
 .stat-card,
 .filter-card,
@@ -465,7 +604,16 @@ main {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
-  padding: 1rem;
+  padding: var(--space-5);
+  transition: box-shadow var(--transition-fast), border-color var(--transition-fast);
+}
+
+/* Only cards that are themselves a target (a listing, a seller, a stat) lift
+   on hover -- see .listing/.seller/.stat-card. A plain content card should
+   stay put, so hovering a form doesn't make the page feel twitchy. */
+.card > :last-child,
+.stat-card > :last-child {
+  margin-bottom: 0;
 }
 
 .result-card {
@@ -496,15 +644,30 @@ main {
 
 .listing {
   display: grid;
-  gap: 0.6rem;
-  transition: box-shadow var(--transition-fast), transform var(--transition-fast);
+  gap: var(--space-2);
+  transition: box-shadow var(--transition-base), transform var(--transition-base), border-color var(--transition-base);
 }
 
 .listing:hover,
 .seller:hover,
 .seller-earnings-card:hover {
-  box-shadow: var(--shadow-md);
-  transform: translateY(-3px);
+  border-color: var(--color-gray-300);
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-4px);
+}
+
+/* A slow zoom on the photo makes a listing card feel alive without moving
+   anything the reader is trying to read. */
+.listing-media {
+  overflow: hidden;
+}
+
+.listing-media .listing-image {
+  transition: transform var(--transition-base);
+}
+
+.listing:hover .listing-media .listing-image {
+  transform: scale(1.04);
 }
 
 .seller-earnings-card {
@@ -514,7 +677,9 @@ main {
 }
 
 .listing-media {
-  margin: -1rem -1rem 0;
+  /* Bleeds the photo to the card's edges -- must stay in step with the card
+     padding token above. */
+  margin: calc(var(--space-5) * -1) calc(var(--space-5) * -1) 0;
   position: relative;
 }
 
@@ -834,7 +999,21 @@ footer {
 
 .auth-card h1 {
   font-size: clamp(1.6rem, 3vw, 2.1rem);
+  letter-spacing: -0.025em;
   margin-bottom: 0.1rem;
+}
+
+/* Login and Registration are the first screen anyone sees, so the primary
+   action is full-width and unmistakable rather than a button among buttons. */
+.auth-card .form > button[type="submit"],
+.auth-card .form > .button {
+  margin-top: var(--space-2);
+  min-height: 46px;
+  width: 100%;
+}
+
+.auth-card .form label {
+  margin-bottom: var(--space-1);
 }
 
 .auth-card > p:not(.eyebrow) {
@@ -1058,16 +1237,27 @@ footer {
 
 .app-main {
   min-width: 0;
-  padding: clamp(1rem, 3vw, 2rem);
+  padding: clamp(1rem, 3vw, 2.25rem);
 }
 
 .dashboard {
   display: grid;
-  gap: 1rem;
+  /* Wider than the old 1rem so stacked sections read as distinct blocks
+     rather than one continuous run of cards. */
+  gap: var(--space-8);
 }
 
+/* The page title block sits above the first section, so it needs its own
+   breathing room rather than borrowing the grid gap. */
+.dashboard-head {
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: var(--space-5);
+}
+
+/* Dashboard titles are page headings inside an app, not marketing headlines --
+   the old clamp took them to 3rem, which dwarfed the content beneath. */
 .dashboard h1 {
-  font-size: clamp(1.8rem, 4vw, 3rem);
+  font-size: clamp(1.5rem, 2.6vw, 2rem);
 }
 
 .tab-bar {
@@ -1111,10 +1301,19 @@ footer {
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
 }
 
+/* Section titles inside a dashboard are headings in a page, not page titles --
+   the old h2 clamp pushed them to 2.3rem and made every panel shout. */
 .section-head h2 {
+  font-size: var(--fs-lg);
+  letter-spacing: -0.015em;
+  margin: 0;
+}
+
+.section-head .helper-text {
   margin: 0;
 }
 
@@ -1153,10 +1352,25 @@ footer {
   gap: 0.75rem;
 }
 
+/* Stat cards carry a hairline accent along the top edge -- enough to make a
+   metric read as a metric at a glance, without adding another box. */
 .stat-card {
   display: grid;
-  gap: 0.25rem;
-  transition: box-shadow var(--transition-fast), transform var(--transition-fast);
+  gap: var(--space-1);
+  overflow: hidden;
+  position: relative;
+  transition: box-shadow var(--transition-fast), transform var(--transition-fast), border-color var(--transition-fast);
+}
+
+.stat-card::before {
+  background: linear-gradient(90deg, var(--color-primary), var(--color-teal));
+  content: "";
+  height: 3px;
+  left: 0;
+  opacity: 0.9;
+  position: absolute;
+  right: 0;
+  top: 0;
 }
 
 .stat-card:hover {
@@ -1165,15 +1379,20 @@ footer {
 }
 
 .stat-card strong {
-  color: var(--color-primary);
+  color: var(--color-primary-dark);
   font-size: var(--fs-2xl);
   font-weight: var(--fw-bold);
-  letter-spacing: -0.01em;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
 }
 
 .stat-card-highlight {
-  background: var(--color-teal-soft);
-  border-color: var(--color-teal);
+  background: linear-gradient(160deg, var(--color-teal-soft), var(--color-surface) 70%);
+  border-color: rgba(15, 155, 142, 0.4);
+}
+
+.stat-card-highlight::before {
+  background: var(--color-teal);
 }
 
 .stat-card-highlight strong {
@@ -1237,10 +1456,43 @@ footer {
   color: var(--color-text-muted);
 }
 
+/* The metric's label -- small, quiet, and set apart from the figure above it. */
+.stat-card span:not(.stars) {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  letter-spacing: 0.01em;
+  line-height: 1.4;
+}
+
+/* The workhorse list row -- orders, listings, sellers, reports, notices,
+   withdrawals all use it. Rows have either two children (summary + actions)
+   or three (thumbnail + summary + actions), so the actions are pushed right
+   with an auto margin rather than space-between, which would also have
+   stranded the thumbnail away from the text it belongs to. */
 .action {
   align-items: center;
   display: flex;
-  gap: 0.65rem;
+  gap: var(--space-4);
+}
+
+.action > div:not(.row-actions) {
+  min-width: 0;
+}
+
+.action > .row-actions {
+  margin-left: auto;
+}
+
+.action:hover {
+  border-color: var(--color-gray-300);
+  box-shadow: var(--shadow-md);
+}
+
+.row-actions {
+  align-items: center;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 /* An action card that has revealed an inline form (e.g. Rate Buyer on a
@@ -1292,12 +1544,13 @@ footer {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
   overflow-x: auto;
 }
 
 .table-row {
   align-items: center;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border-subtle);
   display: grid;
   font-size: var(--fs-sm);
   gap: 0.8rem;
@@ -1318,10 +1571,11 @@ footer {
 
 .table-row.first {
   background: var(--color-gray-100);
+  border-bottom-color: var(--color-border);
   color: var(--color-gray-700);
   font-size: var(--fs-xs);
   font-weight: var(--fw-semibold);
-  letter-spacing: 0.02em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
@@ -1697,9 +1951,13 @@ a.activity-log-item:hover {
   padding: clamp(1rem, 4vw, 3rem);
 }
 
+/* Seller Profile masthead -- a tinted band so the hatchery's identity reads
+   as the header of the page rather than the first of several plain cards. */
 .seller-profile-header {
+  background: linear-gradient(160deg, var(--color-primary-soft) 0%, var(--color-surface) 55%);
   display: grid;
-  gap: 0.75rem;
+  gap: var(--space-3);
+  padding: var(--space-6);
 }
 
 .seller-cover-photo {
@@ -2116,14 +2374,19 @@ a.activity-log-item:hover {
 
 .messages-layout {
   display: grid;
-  gap: 1rem;
-  grid-template-columns: 260px 1fr;
+  gap: var(--space-4);
+  grid-template-columns: 300px 1fr;
 }
 
 .thread-list {
   display: grid;
-  gap: 0.5rem;
+  gap: var(--space-1);
   height: fit-content;
+  /* A long conversation list scrolls inside its own column instead of
+     stretching the page past the message pane beside it. */
+  max-height: 640px;
+  overflow-y: auto;
+  padding: var(--space-3);
 }
 
 .thread-item {
@@ -2175,8 +2438,12 @@ a.activity-log-item:hover {
 }
 
 .thread-item.active {
-  background: var(--color-teal-soft);
-  border-color: var(--color-teal);
+  background: var(--color-primary-soft);
+  border-color: rgba(11, 90, 138, 0.35);
+}
+
+.thread-item.active strong {
+  color: var(--color-primary-dark);
 }
 
 .thread-item .pill {
@@ -2189,30 +2456,52 @@ a.activity-log-item:hover {
 }
 
 .message-log {
+  background: var(--color-surface-subtle);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
   display: grid;
-  gap: 0.6rem;
-  max-height: 360px;
+  gap: var(--space-2);
+  max-height: 440px;
   overflow-y: auto;
-  padding: 0.25rem 0.25rem 0.25rem 0;
+  padding: var(--space-4);
 }
 
 .message-log .message-bubble {
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-xs);
   font-size: var(--fs-base);
   line-height: 1.5;
-  max-width: 75%;
-  padding: 0.6rem 0.85rem;
+  max-width: 72%;
+  padding: 0.6rem 0.9rem;
 }
 
+/* Own messages are the brand colour and read light-on-dark; the other side
+   stays a plain light surface. Making the two sides differ in weight -- not
+   just tint -- is what lets a thread be scanned at a glance. */
 .message-log .mine {
-  background: var(--color-teal-soft);
+  background: var(--color-primary);
   border-bottom-right-radius: 4px;
+  color: white;
   justify-self: end;
 }
 
+.message-log .mine .message-timestamp,
+.message-log .mine .muted,
+.message-log .mine .link-action {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.message-log .mine .link-action:hover {
+  color: white;
+}
+
+.message-log .mine .deleted {
+  color: rgba(255, 255, 255, 0.7);
+}
+
 .message-log .theirs {
-  background: var(--color-gray-100);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-bottom-left-radius: 4px;
   justify-self: start;
 }
@@ -2233,8 +2522,26 @@ a.activity-log-item:hover {
 .message-meta {
   align-items: center;
   display: flex;
-  gap: 0.6rem;
+  flex-wrap: wrap;
+  gap: 0.5rem;
   margin-top: 0.3rem;
+}
+
+/* Date + time carried by every message bubble, both sides of a conversation. */
+.message-timestamp {
+  color: var(--color-text-muted);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+
+.message-meta .muted {
+  font-size: var(--fs-xs);
+}
+
+/* When the last message in a conversation arrived, in the thread list. */
+.thread-timestamp {
+  color: var(--color-text-muted);
+  font-size: var(--fs-xs);
 }
 
 .link-action {
@@ -2255,7 +2562,7 @@ a.activity-log-item:hover {
 
 .compose-bar {
   display: flex;
-  gap: 0.5rem;
+  gap: var(--space-2);
 }
 
 .compose-bar input {
@@ -2271,12 +2578,35 @@ a.activity-log-item:hover {
 .notification {
   align-items: center;
   display: flex;
-  gap: 1rem;
+  gap: var(--space-4);
   justify-content: space-between;
+  position: relative;
+  transition: box-shadow var(--transition-fast), border-color var(--transition-fast);
 }
 
+.notification:hover {
+  box-shadow: var(--shadow-md);
+}
+
+/* Unread carries a teal spine down the leading edge -- readable at a glance
+   down a stack, where a full border change is not. */
 .notification.unread {
-  border-color: var(--color-teal);
+  border-color: rgba(15, 155, 142, 0.4);
+  overflow: hidden;
+}
+
+.notification.unread::before {
+  background: var(--color-teal);
+  bottom: 0;
+  content: "";
+  left: 0;
+  position: absolute;
+  top: 0;
+  width: 4px;
+}
+
+.notification.unread > *:first-child {
+  padding-left: var(--space-2);
 }
 
 .notification-link {
@@ -2289,7 +2619,7 @@ a.activity-log-item:hover {
 
 .row-actions {
   display: flex;
-  gap: 0.5rem;
+  gap: var(--space-2);
 }
 
 .success-card {
@@ -2505,6 +2835,27 @@ a.activity-log-item:hover {
   margin: 0;
 }
 
+/* Wide desktop -- step 4-up grids down to 3 before dropping to 2, so a
+   dashboard's stat row never goes straight from four columns to two and
+   leaves a half-empty band. */
+@media (max-width: 1320px) {
+  .stats-grid,
+  .action-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1180px) {
+  .listing-grid,
+  .seller-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .messages-layout {
+    grid-template-columns: 250px 1fr;
+  }
+}
+
 @media (max-width: 1020px) {
   .site-header,
   .hero,
@@ -2519,6 +2870,25 @@ a.activity-log-item:hover {
     position: static;
   }
 
+  /* Horizontal nav once the sidebar is a banner -- a vertical list at full
+     width would push the dashboard below the fold on every load. */
+  .side-nav {
+    grid-auto-flow: column;
+    grid-auto-columns: max-content;
+    overflow-x: auto;
+    padding-bottom: var(--space-1);
+  }
+
+  .side-nav a {
+    border-left: 0;
+    border-bottom: 3px solid transparent;
+    white-space: nowrap;
+  }
+
+  .side-nav a.active {
+    border-bottom-color: var(--color-teal);
+  }
+
   .listing-grid,
   .seller-grid,
   .steps,
@@ -2528,11 +2898,19 @@ a.activity-log-item:hover {
   .farm-details-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .detail-art {
+    min-height: 280px;
+  }
 }
 
 @media (max-width: 900px) {
   .charts-grid {
     grid-template-columns: 1fr;
+  }
+
+  .dashboard {
+    gap: var(--space-6);
   }
 }
 
@@ -2563,12 +2941,44 @@ a.activity-log-item:hover {
     text-align: center;
   }
 
+  /* List rows stack on phones: the summary block on one line, the actions
+     under it at full width, instead of buttons squeezing the text to nothing. */
   .action {
-    flex-wrap: wrap;
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .action .row-actions {
-    margin-left: auto;
+    justify-content: flex-start;
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .action .row-actions > * {
+    flex: 1 1 auto;
+  }
+
+  .message-log .message-bubble {
+    max-width: 88%;
+  }
+
+  .thread-list {
+    max-height: 260px;
+  }
+
+  .stat-card strong {
+    font-size: var(--fs-xl);
+  }
+
+  .section-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  /* Full-bleed tables on phones so a wide row uses every available pixel
+     before it has to scroll. */
+  .table {
+    border-radius: var(--radius-sm);
   }
 }
 
@@ -2854,4 +3264,249 @@ a.activity-log-item:hover {
 
 .lightbox-next {
   right: 1.25rem;
+}
+
+/* Dialogs -- used where an edit happens in place instead of on its own page
+   (see the Modal component). Shares the lightbox's backdrop treatment so the
+   two overlays read as the same system. */
+.modal-overlay {
+  align-items: center;
+  animation: fade-in 0.2s ease both;
+  background: rgba(15, 23, 42, 0.6);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  overflow-y: auto;
+  padding: 1.5rem;
+  position: fixed;
+  z-index: 1000;
+}
+
+body.modal-open {
+  overflow: hidden;
+}
+
+.modal-panel {
+  animation: scale-in 0.2s ease both;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 3rem);
+  max-width: 640px;
+  width: 100%;
+}
+
+.modal-header {
+  align-items: flex-start;
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  padding: 1.15rem 1.35rem;
+}
+
+.modal-header h3 {
+  margin: 0;
+}
+
+.modal-header .helper-text {
+  margin: 0.2rem 0 0;
+}
+
+.modal-close {
+  align-items: center;
+  background: var(--color-gray-100);
+  border-radius: 50%;
+  color: var(--color-text-muted);
+  display: flex;
+  flex-shrink: 0;
+  height: 34px;
+  justify-content: center;
+  min-height: 0;
+  padding: 0;
+  width: 34px;
+}
+
+.modal-close:hover {
+  background: var(--color-gray-200);
+  color: var(--color-text);
+}
+
+.modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  overflow-y: auto;
+  padding: 1.35rem;
+}
+
+.modal-footer {
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  justify-content: flex-end;
+  padding: 1.15rem 1.35rem;
+}
+
+.modal-section {
+  border-top: 1px solid var(--color-border);
+  padding-top: 1rem;
+}
+
+.modal-section h4 {
+  margin: 0 0 0.35rem;
+}
+
+.modal-status-row {
+  gap: 0.6rem;
+}
+
+/* Order Date column on the Buyer Dashboard's Recent Orders -- date on top,
+   time underneath, so the column stays narrow. */
+.order-date-cell {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+}
+
+.order-date-cell small {
+  color: var(--color-text-muted);
+  font-size: var(--fs-xs);
+}
+
+/* Buyer Turnout / ROI -- the farmer's investment view. */
+.unit-breakdown {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  margin-top: 0.9rem;
+}
+
+.unit-breakdown-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.roi-assumptions {
+  border-left: 4px solid var(--color-teal);
+}
+
+.roi-assumptions .helper-text {
+  margin-top: 0;
+}
+
+/* Keeps "Reset to defaults" from butting up against the sentence before it. */
+.roi-applied-line {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.roi-insight-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-top: 0.9rem;
+}
+
+.roi-insight {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.roi-insight strong {
+  font-size: var(--fs-lg);
+}
+
+.roi-insight .helper-text {
+  margin: 0;
+}
+
+/* "Ordered <date>" line on the Seller and LGU order/earnings rows. */
+.order-date-line {
+  align-items: center;
+  display: flex;
+  gap: 0.35rem;
+  margin: 0.15rem 0;
+}
+
+/* Minimum Order note on a listing card. */
+.listing-minimum {
+  color: var(--color-text-muted);
+  font-size: var(--fs-xs);
+  margin: 0.15rem 0 0;
+}
+
+/* The description field spans the full width of the listing form grid. */
+.listing-description-field {
+  grid-column: 1 / -1;
+}
+
+/* User Reports and Notices to Explain -- the complaint/notice cards shown on
+   the LGU, Super Admin, and Seller dashboards. */
+.report-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.report-card .card-row {
+  gap: 0.6rem;
+}
+
+.report-reason {
+  margin: 0;
+}
+
+.report-description {
+  color: var(--color-text);
+  margin: 0;
+  white-space: pre-line;
+}
+
+.report-card .muted {
+  font-size: var(--fs-xs);
+}
+
+.notice-response {
+  background: var(--color-gray-50);
+  border-left: 3px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  padding: 0.7rem 0.9rem;
+}
+
+.notice-response p {
+  margin: 0.3rem 0 0;
+  white-space: pre-line;
+}
+
+/* Seller registration approval banner -- shown on the Seller dashboard until
+   both the LGU and Super Admin have approved (see SellerApprovalNotice). */
+.approval-notice {
+  border-left: 4px solid var(--color-warning);
+}
+
+.approval-notice-danger {
+  border-left-color: var(--color-danger);
+}
+
+.approval-notice .helper-text {
+  margin-bottom: 0;
+}
+
+@media (max-width: 640px) {
+  .modal-overlay {
+    padding: 0.75rem;
+  }
+
+  .modal-panel {
+    max-height: calc(100vh - 1.5rem);
+  }
 }

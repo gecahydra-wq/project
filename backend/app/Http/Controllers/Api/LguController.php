@@ -12,8 +12,10 @@ use App\Models\FingerlingListing;
 use App\Models\LguWithdrawalRequest;
 use App\Models\MockPayment;
 use App\Models\Order;
+use App\Models\SellerNotice;
 use App\Models\SellerProfile;
 use App\Models\Review;
+use App\Models\UserReport;
 use App\Models\Settlement;
 use App\Models\User;
 use App\Support\AccountModeration;
@@ -26,6 +28,8 @@ use App\Support\OrderTransactionPresenter;
 use App\Support\ReviewModeration;
 use App\Support\RevenueReport;
 use App\Support\SafeMailer;
+use App\Support\SellerApproval;
+use App\Support\UserReports;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -43,6 +47,16 @@ class LguController extends Controller
             'registered_sellers' => $sellerQuery->count(),
             'active_listings' => (clone $listingQuery)->where('approval_status', 'approved')->count(),
             'pending_approvals' => (clone $listingQuery)->where('approval_status', 'pending')->with(['sellerProfile', 'municipality'])->get(),
+            // Seller registrations awaiting review in this municipality
+            // (App\Support\SellerApproval).
+            'pending_seller_registrations' => (clone $sellerQuery)->where('approval_status', SellerApproval::PENDING)->count(),
+            // Open complaints and Notices to Explain for this municipality.
+            'open_user_reports' => UserReport::where('municipality_id', $municipalityId)
+                ->whereNotIn('status', UserReport::CLOSED_STATUSES)
+                ->count(),
+            'open_seller_notices' => SellerNotice::where('municipality_id', $municipalityId)
+                ->whereIn('status', SellerNotice::OPEN_STATUSES)
+                ->count(),
             'notifications' => AppNotification::where('user_id', $request->user()->id)->whereNull('read_at')->latest()->get(),
             // Municipality Revenue -- the LGU's own settled share only, never
             // the platform's cut or another municipality's. Includes
@@ -247,24 +261,147 @@ class LguController extends Controller
         return response()->json($listing);
     }
 
-    public function verifySeller(Request $request, SellerProfile $seller)
+    /**
+     * User Reports concerning this municipality -- complaints a Buyer filed
+     * about one of its Sellers, or one of its Sellers filed about a Buyer. The
+     * Super Admin sees the same reports unscoped (SuperAdminController).
+     */
+    public function userReports(Request $request)
     {
-        if ($seller->municipality_id !== $request->user()->municipality_id) {
-            return response()->json(['message' => 'LGU admins can only verify sellers in their municipality.'], 403);
+        return response()->json(UserReports::query($request->user()->municipality_id)->get());
+    }
+
+    public function updateUserReport(Request $request, UserReport $report)
+    {
+        if ($report->municipality_id !== $request->user()->municipality_id) {
+            return response()->json(['message' => 'LGU admins can only manage reports in their municipality.'], 403);
         }
 
-        $seller->update(['verified' => true, 'status' => 'verified']);
+        $data = $request->validate([
+            'status' => ['required', Rule::in(UserReport::STATUSES)],
+            'resolution_notes' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        return response()->json(UserReports::updateStatus($report, $request->user(), $data['status'], $data['resolution_notes'] ?? null));
+    }
+
+    /**
+     * Notices to Explain raised against sellers in this municipality -- today
+     * always from the automatic low-rating check (App\Support\SellerReputation).
+     * The LGU reads the seller's explanation here and decides what to do; the
+     * notice itself never suspends anyone.
+     */
+    public function sellerNotices(Request $request)
+    {
+        return response()->json(
+            SellerNotice::with(['sellerProfile.user', 'sellerProfile.municipality', 'reviewer'])
+                ->where('municipality_id', $request->user()->municipality_id)
+                ->latest()
+                ->get()
+        );
+    }
+
+    public function updateSellerNotice(Request $request, SellerNotice $notice)
+    {
+        if ($notice->municipality_id !== $request->user()->municipality_id) {
+            return response()->json(['message' => 'LGU admins can only manage notices in their municipality.'], 403);
+        }
+
+        $data = $request->validate([
+            'status' => ['required', Rule::in(SellerNotice::STATUSES)],
+            'lgu_notes' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        $notice->update([
+            'status' => $data['status'],
+            'lgu_notes' => $data['lgu_notes'] ?? $notice->lgu_notes,
+            'reviewed_by' => $request->user()->id,
+            'reviewed_at' => now(),
+        ]);
+
+        $notice->load('sellerProfile');
+
+        if ($notice->sellerProfile?->user_id) {
+            AppNotification::create([
+                'user_id' => $notice->sellerProfile->user_id,
+                'type' => 'seller_notice_updated',
+                'title' => 'Notice to Explain Updated',
+                'body' => sprintf(
+                    'Your LGU marked your Notice to Explain as %s.%s',
+                    str_replace('_', ' ', $data['status']),
+                    ! empty($data['lgu_notes']) ? " Notes: {$data['lgu_notes']}" : ''
+                ),
+            ]);
+        }
 
         ActivityLog::record([
             'actor_id' => $request->user()->id,
             'actor_role' => 'lgu_admin',
-            'action' => 'seller_verified',
-            'target_user_id' => $seller->user_id,
-            'municipality_id' => $seller->municipality_id,
-            'description' => "Verified seller {$seller->hatchery_name}.",
+            'action' => 'seller_notice_updated',
+            'target_user_id' => $notice->sellerProfile?->user_id,
+            'municipality_id' => $notice->municipality_id,
+            'description' => sprintf(
+                'Notice to Explain for %s marked %s.',
+                $notice->sellerProfile?->hatchery_name ?? 'seller',
+                str_replace('_', ' ', $data['status'])
+            ),
         ]);
 
-        return response()->json($seller);
+        return response()->json($notice->fresh(['sellerProfile.user', 'reviewer']));
+    }
+
+    /**
+     * Seller registrations awaiting review in this LGU's municipality -- the
+     * LGU Admin is the usual reviewer for their own sellers. Rejected
+     * registrations stay listed here so the decision can be reconsidered.
+     */
+    public function sellerRegistrations(Request $request)
+    {
+        return response()->json(
+            SellerProfile::with(['user', 'municipality'])
+                ->where('municipality_id', $request->user()->municipality_id)
+                ->whereIn('approval_status', [SellerApproval::PENDING, SellerApproval::REJECTED])
+                ->latest()
+                ->get()
+                ->each->makeVisible(SellerProfile::REVIEW_FIELDS)
+        );
+    }
+
+    /**
+     * Approve a seller registration in this LGU's municipality. One approval
+     * is all it takes -- the seller becomes verified and can list immediately
+     * (see App\Support\SellerApproval). The Super Admin has the same power
+     * platform-wide as a fallback, but this is the normal path.
+     */
+    public function approveSellerRegistration(Request $request, SellerProfile $seller)
+    {
+        if ($seller->municipality_id !== $request->user()->municipality_id) {
+            return response()->json(['message' => 'LGU admins can only review sellers in their municipality.'], 403);
+        }
+
+        return response()->json(SellerApproval::approve($seller, $request->user(), 'lgu_admin'));
+    }
+
+    public function rejectSellerRegistration(Request $request, SellerProfile $seller)
+    {
+        if ($seller->municipality_id !== $request->user()->municipality_id) {
+            return response()->json(['message' => 'LGU admins can only review sellers in their municipality.'], 403);
+        }
+
+        $data = $request->validate([
+            'reason' => ['required', 'string', 'max:1000'],
+        ]);
+
+        return response()->json(SellerApproval::reject($seller, $request->user(), 'lgu_admin', $data['reason']));
+    }
+
+    /**
+     * Backwards-compatible alias for the old one-click "Verify" action, which
+     * is now the registration approval.
+     */
+    public function verifySeller(Request $request, SellerProfile $seller)
+    {
+        return $this->approveSellerRegistration($request, $seller);
     }
 
     public function sellers(Request $request)

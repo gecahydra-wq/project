@@ -28,13 +28,48 @@ class SellerProfile extends Model
         'rating',
         'verified',
         'status',
+        // Two-stage registration approval -- see App\Support\SellerApproval.
+        // 'status'/'verified' above stay the account-standing columns.
+        'approval_status',
+        'lgu_reviewed_at',
+        'lgu_reviewed_by',
+        'super_admin_reviewed_at',
+        'super_admin_reviewed_by',
+        'registration_rejection_reason',
+        'rejected_by_role',
     ];
 
     protected $casts = [
         'verified' => 'boolean',
         'rating' => 'decimal:2',
         'gallery' => 'array',
+        'lgu_reviewed_at' => 'datetime',
+        'super_admin_reviewed_at' => 'datetime',
     ];
+
+    /**
+     * Registration review notes are internal: the public seller profile
+     * (SellerProfileController::show) serializes this whole model, and a
+     * reviewer's rejection reason must never appear on a public page. The
+     * seller's own dashboard and the two admin review queues re-expose them
+     * with makeVisible(self::REVIEW_FIELDS).
+     */
+    protected $hidden = ['registration_rejection_reason', 'rejected_by_role'];
+
+    public const REVIEW_FIELDS = ['registration_rejection_reason', 'rejected_by_role'];
+
+    /**
+     * Human label for the registration approval stage ("Pending LGU",
+     * "Pending Super Admin", "Approved", "Rejected"), appended to every JSON
+     * response so the LGU/Super Admin/Seller dashboards all render the same
+     * wording without each duplicating the mapping.
+     */
+    protected $appends = ['approval_status_label'];
+
+    public function getApprovalStatusLabelAttribute(): string
+    {
+        return \App\Support\SellerApproval::label($this->approval_status);
+    }
 
     public function user()
     {
@@ -44,6 +79,16 @@ class SellerProfile extends Model
     public function municipality()
     {
         return $this->belongsTo(Municipality::class);
+    }
+
+    public function lguReviewer()
+    {
+        return $this->belongsTo(User::class, 'lgu_reviewed_by');
+    }
+
+    public function superAdminReviewer()
+    {
+        return $this->belongsTo(User::class, 'super_admin_reviewed_by');
     }
 
     public function listings()

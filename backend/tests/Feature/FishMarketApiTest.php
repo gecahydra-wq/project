@@ -26,11 +26,14 @@ use App\Models\MockPayment;
 use App\Models\Municipality;
 use App\Models\Order;
 use App\Models\Review;
+use App\Models\SellerNotice;
 use App\Models\SellerProfile;
 use App\Models\Settlement;
 use App\Models\User;
 use App\Models\WithdrawalRequest;
 use App\Support\CommissionCalculator;
+use App\Support\SellerApproval;
+use App\Support\SellerReputation;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -99,6 +102,11 @@ class FishMarketApiTest extends TestCase
             'description' => 'Test hatchery for automated tests.',
             'verified' => true,
             'status' => 'verified',
+            // Test sellers default to an approved registration so existing
+            // listing/order tests are unaffected by the approval workflow.
+            // Tests that exercise the workflow itself override
+            // approval_status explicitly (see makePendingSeller).
+            'approval_status' => SellerApproval::APPROVED,
         ], $profileOverrides));
     }
 
@@ -5285,7 +5293,7 @@ class FishMarketApiTest extends TestCase
         Sanctum::actingAs($lguAdmin);
 
         $categories = $this->getJson('/api/lgu/activity-log/categories')->assertOk()->json();
-        $this->assertSame(['accounts', 'listings_sellers', 'moderation', 'payments', 'reviews'], collect($categories)->pluck('value')->all());
+        $this->assertSame(['accounts', 'listings_sellers', 'moderation', 'payments', 'reviews', 'reports'], collect($categories)->pluck('value')->all());
     }
 
     public function test_user_registration_is_logged_via_observer_and_lgu_admin_creation_is_not_double_logged(): void
@@ -6361,5 +6369,690 @@ class FishMarketApiTest extends TestCase
         $payload = $this->getJson("/api/sellers/{$seller->id}")->assertOk()->json('posts.0');
         $this->assertSame(0, $payload['likes_count']);
         $this->assertFalse($payload['liked_by_me']);
+    }
+
+    // ---------------------------------------------------------------------
+    // Seller Registration Approval -- App\Support\SellerApproval. One
+    // approval is enough: the LGU Admin normally reviews their own
+    // municipality's sellers, and the Super Admin is the fallback reviewer.
+    // ---------------------------------------------------------------------
+
+    /** A seller pending review, in the given LGU admin's municipality. */
+    private function makePendingSeller(?User $lguAdmin = null): SellerProfile
+    {
+        $municipalityId = $lguAdmin?->municipality_id ?? Municipality::first()->id;
+
+        return $this->makeSeller(
+            ['municipality_id' => $municipalityId],
+            ['municipality_id' => $municipalityId, 'verified' => false, 'status' => 'pending', 'approval_status' => SellerApproval::PENDING]
+        );
+    }
+
+    public function test_a_newly_registered_seller_starts_pending_approval(): void
+    {
+        $municipality = Municipality::first();
+
+        $this->postJson('/api/auth/register', [
+            'name' => 'Brand New Hatchery',
+            'email' => 'brand-new-hatchery@example.test',
+            'password' => 'Password123!',
+            'role' => 'seller',
+            'municipality_id' => $municipality->id,
+        ])->assertCreated();
+
+        $seller = SellerProfile::whereHas('user', fn ($q) => $q->where('email', 'brand-new-hatchery@example.test'))->firstOrFail();
+
+        $this->assertSame(SellerApproval::PENDING, $seller->approval_status);
+        $this->assertFalse($seller->verified);
+    }
+
+    public function test_a_seller_cannot_list_until_their_registration_is_approved(): void
+    {
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $seller = $this->makePendingSeller($lguAdmin);
+        $payload = ['species' => 'Bangus', 'title' => 'Bangus Fingerlings', 'quantity' => 100, 'price_per_piece' => 5];
+
+        // Still awaiting review -- listing is refused.
+        Sanctum::actingAs($seller->user);
+        $this->postJson('/api/listings', $payload)->assertStatus(403);
+
+        // The LGU Admin approves. That single approval verifies the seller.
+        Sanctum::actingAs($lguAdmin);
+        $this->patchJson("/api/lgu/sellers/{$seller->id}/approve-registration")
+            ->assertOk()
+            ->assertJsonPath('approval_status', SellerApproval::APPROVED)
+            ->assertJsonPath('approval_status_label', 'Approved')
+            ->assertJsonPath('verified', true)
+            ->assertJsonPath('status', 'verified');
+        $this->assertDatabaseHas('notifications', [
+            'user_id' => $seller->user_id,
+            'type' => 'seller_registration_approved',
+        ]);
+
+        Sanctum::actingAs($seller->user->fresh());
+        $this->postJson('/api/listings', $payload)->assertCreated();
+    }
+
+    public function test_the_super_admin_can_approve_a_registration_on_their_own_as_the_fallback_reviewer(): void
+    {
+        $superAdmin = User::where('role', 'super_admin')->firstOrFail();
+        $seller = $this->makePendingSeller();
+
+        // No LGU involvement at all -- the Super Admin covers for an LGU Admin
+        // who is away, and one approval is all it takes.
+        Sanctum::actingAs($superAdmin);
+        $this->patchJson("/api/super-admin/sellers/{$seller->id}/approve-registration")
+            ->assertOk()
+            ->assertJsonPath('approval_status', SellerApproval::APPROVED)
+            ->assertJsonPath('verified', true);
+
+        $seller->refresh();
+        $this->assertNotNull($seller->super_admin_reviewed_at);
+        $this->assertNull($seller->lgu_reviewed_at);
+
+        Sanctum::actingAs($seller->user->fresh());
+        $this->postJson('/api/listings', ['species' => 'Tilapia', 'title' => 'Tilapia Fingerlings', 'quantity' => 50, 'price_per_piece' => 3])
+            ->assertCreated();
+    }
+
+    public function test_an_already_approved_registration_cannot_be_approved_again(): void
+    {
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $seller = $this->makeSeller(
+            ['municipality_id' => $lguAdmin->municipality_id],
+            ['municipality_id' => $lguAdmin->municipality_id]
+        );
+
+        Sanctum::actingAs($lguAdmin);
+        $this->patchJson("/api/lgu/sellers/{$seller->id}/approve-registration")->assertStatus(422);
+    }
+
+    public function test_either_reviewer_can_reject_a_registration_with_a_reason_and_the_seller_is_notified(): void
+    {
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $seller = $this->makePendingSeller($lguAdmin);
+
+        Sanctum::actingAs($lguAdmin);
+        $this->patchJson("/api/lgu/sellers/{$seller->id}/reject-registration")->assertStatus(422);
+        $this->patchJson("/api/lgu/sellers/{$seller->id}/reject-registration", ['reason' => 'Business permit is missing.'])
+            ->assertOk()
+            ->assertJsonPath('approval_status', SellerApproval::REJECTED)
+            ->assertJsonPath('approval_status_label', 'Rejected')
+            ->assertJsonPath('verified', false);
+
+        $notification = AppNotification::where('user_id', $seller->user_id)->where('type', 'seller_registration_rejected')->firstOrFail();
+        $this->assertStringContainsString('Business permit is missing.', $notification->body);
+
+        // A rejection is reversible -- and by either reviewer, not only the
+        // one who rejected it.
+        Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
+        $this->patchJson("/api/super-admin/sellers/{$seller->id}/approve-registration")
+            ->assertOk()
+            ->assertJsonPath('approval_status', SellerApproval::APPROVED)
+            ->assertJsonPath('verified', true);
+    }
+
+    public function test_a_rejection_reason_is_private_to_the_seller_and_their_reviewers(): void
+    {
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $seller = $this->makePendingSeller($lguAdmin);
+
+        Sanctum::actingAs($lguAdmin);
+        $this->patchJson("/api/lgu/sellers/{$seller->id}/reject-registration", ['reason' => 'Permit number does not match DA records.'])->assertOk();
+
+        // Never on the public hatchery page.
+        $this->getJson("/api/sellers/{$seller->id}")
+            ->assertOk()
+            ->assertJsonMissing(['registration_rejection_reason' => 'Permit number does not match DA records.']);
+
+        // The reviewer's own queue does see it...
+        Sanctum::actingAs($lguAdmin);
+        $this->getJson('/api/lgu/seller-registrations')
+            ->assertOk()
+            ->assertJsonFragment(['registration_rejection_reason' => 'Permit number does not match DA records.']);
+
+        // ...and so does the seller, so the dashboard banner can explain it.
+        Sanctum::actingAs($seller->user->fresh());
+        $this->getJson('/api/seller/dashboard')
+            ->assertOk()
+            ->assertJsonPath('seller.registration_rejection_reason', 'Permit number does not match DA records.');
+    }
+
+    public function test_an_lgu_admin_reviews_only_their_own_municipality_while_the_super_admin_sees_everything(): void
+    {
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $otherMunicipality = Municipality::where('id', '!=', $lguAdmin->municipality_id)->firstOrFail();
+        $ownSeller = $this->makePendingSeller($lguAdmin);
+        $outsideSeller = $this->makeSeller(
+            ['municipality_id' => $otherMunicipality->id],
+            ['municipality_id' => $otherMunicipality->id, 'verified' => false, 'status' => 'pending', 'approval_status' => SellerApproval::PENDING]
+        );
+
+        // The LGU queue is its own municipality only, and so is its authority.
+        Sanctum::actingAs($lguAdmin);
+        $lguQueue = collect($this->getJson('/api/lgu/seller-registrations')->assertOk()->json())->pluck('id');
+        $this->assertTrue($lguQueue->contains($ownSeller->id));
+        $this->assertFalse($lguQueue->contains($outsideSeller->id));
+
+        $this->patchJson("/api/lgu/sellers/{$outsideSeller->id}/approve-registration")->assertStatus(403);
+
+        // The Super Admin's queue is platform-wide -- that is what makes them
+        // a usable fallback for any municipality.
+        Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
+        $superQueue = collect($this->getJson('/api/super-admin/seller-registrations')->assertOk()->json())->pluck('id');
+        $this->assertTrue($superQueue->contains($ownSeller->id));
+        $this->assertTrue($superQueue->contains($outsideSeller->id));
+
+        $this->patchJson("/api/super-admin/sellers/{$outsideSeller->id}/approve-registration")->assertOk();
+    }
+
+    // ---------------------------------------------------------------------
+    // User Reports (App\Support\UserReports) and the automatic low-rating
+    // Notice to Explain (App\Support\SellerReputation).
+    // ---------------------------------------------------------------------
+
+    public function test_a_buyer_can_report_a_seller_and_it_reaches_the_right_reviewers(): void
+    {
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $seller = $this->makeSeller(
+            ['municipality_id' => $lguAdmin->municipality_id],
+            ['municipality_id' => $lguAdmin->municipality_id, 'hatchery_name' => 'Dodgy Hatchery']
+        );
+        $buyer = $this->makeBuyer();
+
+        Sanctum::actingAs($buyer);
+        $this->getJson('/api/reports/reasons')->assertOk()->assertJsonPath('reasons.0', 'Item not as described');
+
+        $this->postJson('/api/reports', [
+            'reported_user_id' => $seller->user_id,
+            'reason' => 'Order never delivered',
+            'description' => 'Paid two weeks ago and the fingerlings never arrived.',
+        ])
+            ->assertCreated()
+            ->assertJsonPath('status', 'pending')
+            ->assertJsonPath('reporter_role', 'buyer')
+            ->assertJsonPath('reported_role', 'seller')
+            // Scoped to the seller's municipality, which is what an LGU sees.
+            ->assertJsonPath('municipality_id', $lguAdmin->municipality_id);
+
+        // Both the municipality's LGU Admin and the Super Admin are told.
+        $this->assertDatabaseHas('notifications', ['user_id' => $lguAdmin->id, 'type' => 'user_report_filed']);
+        $this->assertDatabaseHas('notifications', [
+            'user_id' => User::where('role', 'super_admin')->value('id'),
+            'type' => 'user_report_filed',
+        ]);
+
+        // A second open report against the same seller is refused.
+        $this->postJson('/api/reports', [
+            'reported_user_id' => $seller->user_id,
+            'reason' => 'Seller unresponsive',
+            'description' => 'Still no reply from this hatchery at all.',
+        ])->assertStatus(422);
+
+        Sanctum::actingAs($buyer);
+        $this->getJson('/api/reports/mine')->assertOk()->assertJsonCount(1);
+    }
+
+    public function test_a_seller_can_report_a_buyer_and_the_directions_are_enforced(): void
+    {
+        $seller = $this->makeSeller();
+        $buyer = $this->makeBuyer();
+        $otherBuyer = $this->makeBuyer();
+
+        Sanctum::actingAs($seller->user);
+        $this->getJson('/api/reports/reasons')->assertOk()->assertJsonPath('reasons.0', 'Payment issue');
+
+        $this->postJson('/api/reports', [
+            'reported_user_id' => $buyer->id,
+            'reason' => 'Payment issue',
+            'description' => 'Buyer disputed a payment that was already delivered and accepted.',
+        ])
+            ->assertCreated()
+            ->assertJsonPath('reporter_role', 'seller')
+            ->assertJsonPath('reported_role', 'buyer');
+
+        // A seller cannot report another seller, and nobody reports themselves.
+        $otherSeller = $this->makeSeller();
+        $this->postJson('/api/reports', [
+            'reported_user_id' => $otherSeller->user_id,
+            'reason' => 'Payment issue',
+            'description' => 'Trying to report a fellow seller, which is not allowed.',
+        ])->assertStatus(422);
+
+        $this->postJson('/api/reports', [
+            'reported_user_id' => $seller->user_id,
+            'reason' => 'Payment issue',
+            'description' => 'Trying to report my own account, which is not allowed.',
+        ])->assertStatus(422);
+
+        // A buyer likewise cannot report another buyer.
+        Sanctum::actingAs($buyer);
+        $this->postJson('/api/reports', [
+            'reported_user_id' => $otherBuyer->id,
+            'reason' => 'Suspected fraud',
+            'description' => 'Trying to report a fellow buyer, which is not allowed.',
+        ])->assertStatus(422);
+    }
+
+    public function test_an_lgu_manages_only_its_own_municipalitys_reports_while_super_admin_manages_all(): void
+    {
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $otherMunicipality = Municipality::where('id', '!=', $lguAdmin->municipality_id)->firstOrFail();
+
+        $ownSeller = $this->makeSeller(
+            ['municipality_id' => $lguAdmin->municipality_id],
+            ['municipality_id' => $lguAdmin->municipality_id]
+        );
+        $outsideSeller = $this->makeSeller(
+            ['municipality_id' => $otherMunicipality->id],
+            ['municipality_id' => $otherMunicipality->id]
+        );
+        $buyer = $this->makeBuyer();
+
+        Sanctum::actingAs($buyer);
+        $ownReportId = $this->postJson('/api/reports', [
+            'reported_user_id' => $ownSeller->user_id,
+            'reason' => 'Poor fingerling quality or health',
+            'description' => 'Most of the fingerlings arrived in very poor condition.',
+        ])->assertCreated()->json('id');
+        $outsideReportId = $this->postJson('/api/reports', [
+            'reported_user_id' => $outsideSeller->user_id,
+            'reason' => 'Seller unresponsive',
+            'description' => 'No response to any of my messages about this order.',
+        ])->assertCreated()->json('id');
+
+        // The LGU sees and can act on its own municipality's report only.
+        Sanctum::actingAs($lguAdmin);
+        $lguList = collect($this->getJson('/api/lgu/user-reports')->assertOk()->json())->pluck('id');
+        $this->assertTrue($lguList->contains($ownReportId));
+        $this->assertFalse($lguList->contains($outsideReportId));
+
+        $this->patchJson("/api/lgu/user-reports/{$outsideReportId}", ['status' => 'dismissed'])->assertStatus(403);
+
+        $this->patchJson("/api/lgu/user-reports/{$ownReportId}", [
+            'status' => 'resolved',
+            'resolution_notes' => 'Spoke with the hatchery; replacement stock was sent.',
+        ])->assertOk()->assertJsonPath('status', 'resolved');
+
+        // Closing it tells the reporter the outcome.
+        $this->assertDatabaseHas('notifications', ['user_id' => $buyer->id, 'type' => 'user_report_resolved']);
+
+        // The Super Admin's list is platform-wide and they can act anywhere.
+        Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
+        $superList = collect($this->getJson('/api/super-admin/user-reports')->assertOk()->json())->pluck('id');
+        $this->assertTrue($superList->contains($ownReportId));
+        $this->assertTrue($superList->contains($outsideReportId));
+
+        $this->patchJson("/api/super-admin/user-reports/{$outsideReportId}", ['status' => 'under_review'])
+            ->assertOk()
+            ->assertJsonPath('status', 'under_review');
+    }
+
+    public function test_a_low_average_rating_raises_a_notice_to_explain_without_suspending_the_seller(): void
+    {
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $seller = $this->makeSeller(
+            ['municipality_id' => $lguAdmin->municipality_id],
+            ['municipality_id' => $lguAdmin->municipality_id, 'hatchery_name' => 'Struggling Hatchery']
+        );
+        $listing = $this->makeListing($seller, ['approval_status' => 'approved']);
+
+        // Two 2-star reviews take the average to 2.00, below the threshold.
+        foreach ([2, 2] as $stars) {
+            $buyer = $this->makeBuyer();
+            $order = $this->makeOrder($buyer, $listing, ['status' => 'completed']);
+            Sanctum::actingAs($buyer);
+            $this->postJson("/api/orders/{$order->id}/review", ['rating' => $stars, 'comment' => 'Not good.'])->assertCreated();
+        }
+
+        $seller->refresh();
+        $this->assertEquals(2.00, (float) $seller->rating);
+
+        // The notice exists, snapshotted at the moment it fired -- which is
+        // the FIRST 2-star review, since one review already puts the average
+        // at 2.00. The seller's live average keeps moving; the snapshot does
+        // not, which is what the LGU needs to see.
+        $notice = SellerNotice::where('seller_profile_id', $seller->id)->firstOrFail();
+        $this->assertSame('low_rating', $notice->type);
+        $this->assertSame('open', $notice->status);
+        $this->assertEquals(2.00, (float) $notice->average_rating);
+        $this->assertSame(1, $notice->ratings_count);
+
+        // Critically: the seller is NOT suspended and can still trade.
+        $this->assertSame('verified', $seller->status);
+        $this->assertTrue((bool) $seller->verified);
+
+        // Seller and LGU are both notified.
+        $this->assertDatabaseHas('notifications', ['user_id' => $seller->user_id, 'type' => 'seller_notice_to_explain']);
+        $this->assertDatabaseHas('notifications', ['user_id' => $lguAdmin->id, 'type' => 'seller_low_rating']);
+
+        // Only ONE open notice, however many more bad reviews arrive.
+        $buyer = $this->makeBuyer();
+        $order = $this->makeOrder($buyer, $listing, ['status' => 'completed']);
+        Sanctum::actingAs($buyer);
+        $this->postJson("/api/orders/{$order->id}/review", ['rating' => 1, 'comment' => 'Worse.'])->assertCreated();
+        $this->assertSame(1, SellerNotice::where('seller_profile_id', $seller->id)->count());
+    }
+
+    public function test_a_good_rating_never_raises_a_notice(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['approval_status' => 'approved']);
+        $buyer = $this->makeBuyer();
+        $order = $this->makeOrder($buyer, $listing, ['status' => 'completed']);
+
+        Sanctum::actingAs($buyer);
+        $this->postJson("/api/orders/{$order->id}/review", ['rating' => 5, 'comment' => 'Excellent stock.'])->assertCreated();
+
+        $this->assertSame(0, SellerNotice::where('seller_profile_id', $seller->id)->count());
+    }
+
+    public function test_the_seller_answers_a_notice_and_only_their_lgu_can_close_it(): void
+    {
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $otherMunicipality = Municipality::where('id', '!=', $lguAdmin->municipality_id)->firstOrFail();
+        $seller = $this->makeSeller(
+            ['municipality_id' => $lguAdmin->municipality_id],
+            ['municipality_id' => $lguAdmin->municipality_id]
+        );
+        $notice = SellerReputation::raiseLowRatingNotice($seller, 2.5, 4);
+        $this->assertNotNull($notice);
+
+        // The seller explains. Answering moves it to under_review but does not
+        // close it -- that is the LGU's call.
+        Sanctum::actingAs($seller->user);
+        $this->getJson('/api/seller/notices')->assertOk()->assertJsonCount(1);
+        $this->postJson("/api/seller/notices/{$notice->id}/respond", [
+            'response' => 'A delivery partner failed us for two weeks; we have changed couriers.',
+        ])->assertOk()->assertJsonPath('status', 'under_review');
+
+        $this->assertDatabaseHas('notifications', ['user_id' => $lguAdmin->id, 'type' => 'seller_notice_answered']);
+
+        // An LGU Admin from another municipality cannot touch it.
+        $outsideAdmin = $this->makeLguAdmin(['municipality_id' => $otherMunicipality->id]);
+        Sanctum::actingAs($outsideAdmin);
+        $this->getJson('/api/lgu/seller-notices')->assertOk()->assertJsonCount(0);
+        $this->patchJson("/api/lgu/seller-notices/{$notice->id}", ['status' => 'resolved'])->assertStatus(403);
+
+        // The seller's own LGU closes it, and the seller is told.
+        Sanctum::actingAs($lguAdmin);
+        $this->getJson('/api/lgu/seller-notices')->assertOk()->assertJsonCount(1);
+        $this->patchJson("/api/lgu/seller-notices/{$notice->id}", [
+            'status' => 'resolved',
+            'lgu_notes' => 'Explanation accepted; will monitor for one month.',
+        ])->assertOk()->assertJsonPath('status', 'resolved');
+
+        $this->assertDatabaseHas('notifications', ['user_id' => $seller->user_id, 'type' => 'seller_notice_updated']);
+
+        // Closed notices can no longer be answered.
+        Sanctum::actingAs($seller->user);
+        $this->postJson("/api/seller/notices/{$notice->id}/respond", ['response' => 'One more thing to add here.'])
+            ->assertStatus(422);
+    }
+
+    // ---------------------------------------------------------------------
+    // Unit of Measurement + Minimum Order (FingerlingListing::UNIT_TYPES /
+    // ::quantityIssue).
+    // ---------------------------------------------------------------------
+
+    public function test_a_seller_chooses_a_unit_of_measurement_and_a_minimum_order(): void
+    {
+        $seller = $this->makeSeller();
+        Sanctum::actingAs($seller->user);
+
+        $listing = $this->postJson('/api/listings', [
+            'species' => 'Bangus',
+            'title' => 'Bangus Fingerlings',
+            'quantity' => 400,
+            'price_per_piece' => 120.00,
+            'unit_type' => 'kilogram',
+            'minimum_order' => 25,
+            'unit_description' => 'Roughly 80-100 pcs per kg.',
+        ])->assertCreated()->json();
+
+        $this->assertSame('kilogram', $listing['unit_type']);
+        $this->assertSame(25, $listing['minimum_order']);
+        // The labels the UI renders come from the API, not from the frontend.
+        $this->assertSame('kg', $listing['unit_label']);
+        $this->assertSame('Per Kilogram', $listing['unit_type_label']);
+
+        // Switching a listing to bulk works the same way.
+        $this->patchJson("/api/listings/{$listing['id']}", ['unit_type' => 'bulk', 'minimum_order' => 2])
+            ->assertOk()
+            ->assertJsonPath('unit_type', 'bulk')
+            ->assertJsonPath('unit_label', 'bulk')
+            ->assertJsonPath('minimum_order', 2);
+
+        // An unknown unit is rejected rather than silently stored.
+        $this->patchJson("/api/listings/{$listing['id']}", ['unit_type' => 'truckload'])->assertStatus(422);
+    }
+
+    public function test_listings_default_to_per_piece_with_no_minimum(): void
+    {
+        $seller = $this->makeSeller();
+        // makeListing sends no unit fields at all, exactly like a listing
+        // created before this feature existed.
+        $listing = $this->makeListing($seller, ['approval_status' => 'approved']);
+
+        $this->assertSame('piece', $listing->fresh()->unit_type);
+        $this->assertSame(1, $listing->fresh()->minimumOrder());
+
+        $buyer = $this->makeBuyer();
+        Sanctum::actingAs($buyer);
+        $this->postJson('/api/orders', ['fingerling_listing_id' => $listing->id, 'quantity' => 1])->assertCreated();
+    }
+
+    public function test_a_buyer_cannot_order_below_the_sellers_minimum(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, [
+            'approval_status' => 'approved',
+            'quantity' => 1000,
+            'unit_type' => 'piece',
+            'minimum_order' => 50,
+        ]);
+        $buyer = $this->makeBuyer();
+
+        Sanctum::actingAs($buyer);
+
+        // Below the minimum -- refused, and the message names the minimum.
+        $response = $this->postJson('/api/orders', ['fingerling_listing_id' => $listing->id, 'quantity' => 49])
+            ->assertStatus(422);
+        $this->assertStringContainsString('minimum order of 50 pcs', $response->json('message'));
+
+        // Above available stock -- still refused.
+        $this->postJson('/api/orders', ['fingerling_listing_id' => $listing->id, 'quantity' => 1001])->assertStatus(422);
+
+        // Exactly the minimum is accepted.
+        $this->postJson('/api/orders', ['fingerling_listing_id' => $listing->id, 'quantity' => 50])->assertCreated();
+    }
+
+    public function test_the_cart_enforces_the_same_minimum_as_ordering(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, [
+            'approval_status' => 'approved',
+            'quantity' => 500,
+            'unit_type' => 'bulk',
+            'minimum_order' => 5,
+        ]);
+        $buyer = $this->makeBuyer();
+
+        Sanctum::actingAs($buyer);
+        $this->postJson('/api/cart', ['fingerling_listing_id' => $listing->id, 'quantity' => 4])->assertStatus(422);
+
+        $item = $this->postJson('/api/cart', ['fingerling_listing_id' => $listing->id, 'quantity' => 5])
+            ->assertCreated()
+            ->json();
+        $this->assertSame(5, $item['listing']['minimum_order']);
+        $this->assertSame('bulk', $item['listing']['unit_label_plural']);
+
+        // Editing a saved line back below the minimum is refused too.
+        $this->patchJson("/api/cart/{$item['id']}", ['quantity' => 2])->assertStatus(422);
+
+        // A seller raising their minimum after the fact flags the saved line
+        // rather than letting it check out.
+        $listing->update(['minimum_order' => 20]);
+        $cart = $this->getJson('/api/cart')->assertOk()->json();
+        $this->assertFalse($cart['items'][0]['available']);
+        $this->assertStringContainsString('minimum order of 20 bulk', $cart['items'][0]['issue']);
+    }
+
+    // ---------------------------------------------------------------------
+    // Buyer Turnout / ROI analytics -- App\Support\BuyerInvestmentReport.
+    // ---------------------------------------------------------------------
+
+    public function test_buyer_analytics_reports_investment_turnout_and_a_harvest_projection(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['approval_status' => 'approved', 'price_per_piece' => 5, 'quantity' => 10000]);
+        $buyer = $this->makeBuyer();
+
+        // 1,000 fingerlings at P5 = P5,000 invested across two completed
+        // orders, plus one still in progress and one cancelled.
+        $this->makeOrder($buyer, $listing, ['status' => 'completed', 'quantity' => 600, 'unit_price' => 5, 'total_amount' => 3000]);
+        $this->makeOrder($buyer, $listing, ['status' => 'completed', 'quantity' => 400, 'unit_price' => 5, 'total_amount' => 2000]);
+        $this->makeOrder($buyer, $listing, ['status' => 'paid', 'quantity' => 100, 'unit_price' => 5, 'total_amount' => 500]);
+        $this->makeOrder($buyer, $listing, ['status' => 'cancelled', 'quantity' => 50, 'unit_price' => 5, 'total_amount' => 250]);
+
+        Sanctum::actingAs($buyer);
+        $report = $this->getJson('/api/buyer/analytics?period=yearly')->assertOk()->json('investment');
+
+        // Recorded fact -- money in.
+        $this->assertEquals(5000, $report['investment']['total_invested']);
+        $this->assertEquals(500, $report['investment']['committed_investment']);
+        $this->assertEquals(5500, $report['investment']['total_exposure']);
+        $this->assertEquals(2500, $report['investment']['average_order_value']);
+
+        // Recorded fact -- turnout.
+        $this->assertSame(4, $report['turnout']['total_orders']);
+        $this->assertSame(2, $report['turnout']['completed_orders']);
+        $this->assertSame(1, $report['turnout']['active_orders']);
+        $this->assertSame(1, $report['turnout']['cancelled_orders']);
+        $this->assertEquals(50.0, $report['turnout']['completion_rate']);
+        $this->assertSame(1, $report['turnout']['sellers_engaged']);
+
+        // Estimate -- 1,000 pcs at the default 80% survival and P25/fish.
+        $this->assertSame(1000, $report['projection']['pieces_purchased']);
+        $this->assertSame(800, $report['projection']['projected_survivors']);
+        $this->assertSame(200, $report['projection']['projected_losses']);
+        $this->assertEquals(20000, $report['projection']['projected_revenue']);
+        $this->assertEquals(15000, $report['projection']['projected_return']);
+        $this->assertEquals(300.0, $report['projection']['projected_roi_percent']);
+        $this->assertEquals(5, $report['projection']['cost_per_piece']);
+        $this->assertEquals(6.25, $report['projection']['break_even_value_per_piece']);
+
+        $this->assertCount(2, $report['purchase_history']);
+    }
+
+    public function test_a_farmer_can_drive_the_projection_with_their_own_assumptions(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['approval_status' => 'approved', 'price_per_piece' => 5, 'quantity' => 10000]);
+        $buyer = $this->makeBuyer();
+        $this->makeOrder($buyer, $listing, ['status' => 'completed', 'quantity' => 1000, 'unit_price' => 5, 'total_amount' => 5000]);
+
+        Sanctum::actingAs($buyer);
+        $report = $this->getJson('/api/buyer/analytics?period=yearly&survival_rate=0.5&harvest_value_per_piece=40')
+            ->assertOk()
+            ->json('investment');
+
+        $this->assertEquals(0.5, $report['assumptions']['survival_rate']);
+        $this->assertEquals(40, $report['assumptions']['harvest_value_per_piece']);
+        $this->assertSame(500, $report['projection']['projected_survivors']);
+        $this->assertEquals(20000, $report['projection']['projected_revenue']);
+        $this->assertEquals(15000, $report['projection']['projected_return']);
+        // Defaults are still reported so the UI can offer a reset.
+        $this->assertEquals(0.8, $report['assumptions']['defaults']['survival_rate']);
+
+        // Nonsense assumptions are clamped rather than producing absurd maths.
+        $clamped = $this->getJson('/api/buyer/analytics?period=yearly&survival_rate=9&harvest_value_per_piece=-100')
+            ->assertOk()
+            ->json('investment.assumptions');
+        $this->assertEquals(1.0, $clamped['survival_rate']);
+        $this->assertEquals(0.0, $clamped['harvest_value_per_piece']);
+    }
+
+    public function test_the_projection_excludes_kilogram_and_bulk_purchases(): void
+    {
+        $seller = $this->makeSeller();
+        $pieces = $this->makeListing($seller, ['approval_status' => 'approved', 'price_per_piece' => 5, 'quantity' => 10000]);
+        $byKilo = $this->makeListing($seller, ['approval_status' => 'approved', 'price_per_piece' => 200, 'quantity' => 500, 'unit_type' => 'kilogram']);
+        $buyer = $this->makeBuyer();
+
+        $this->makeOrder($buyer, $pieces, ['status' => 'completed', 'quantity' => 1000, 'unit_price' => 5, 'total_amount' => 5000]);
+        $this->makeOrder($buyer, $byKilo, ['status' => 'completed', 'quantity' => 10, 'unit_price' => 200, 'total_amount' => 2000]);
+
+        Sanctum::actingAs($buyer);
+        $report = $this->getJson('/api/buyer/analytics?period=yearly')->assertOk()->json('investment');
+
+        // Both purchases count as investment...
+        $this->assertEquals(7000, $report['investment']['total_invested']);
+        $this->assertCount(2, $report['units']);
+
+        // ...but only the piece-priced one feeds the per-fish projection, and
+        // the excluded order is reported rather than silently dropped.
+        $this->assertSame(1000, $report['projection']['pieces_purchased']);
+        $this->assertEquals(5000, $report['projection']['invested_in_pieces']);
+        $this->assertSame(1, $report['projection']['excluded_orders']);
+    }
+
+    public function test_every_message_carries_a_timestamp_for_sender_and_receiver(): void
+    {
+        $seller = $this->makeSeller();
+        $buyer = $this->makeBuyer();
+
+        Sanctum::actingAs($buyer);
+        $this->postJson('/api/messages', ['receiver_id' => $seller->user_id, 'body' => 'Do you have Bangus in stock?'])->assertCreated();
+
+        Sanctum::actingAs($seller->user);
+        $this->postJson('/api/messages', ['receiver_id' => $buyer->id, 'body' => 'Yes, 5,000 pcs ready.'])->assertCreated();
+
+        // The receiver sees a timestamp on every message in the thread...
+        Sanctum::actingAs($buyer);
+        $thread = $this->getJson("/api/messages/thread/{$seller->user_id}")->assertOk()->json();
+        $this->assertCount(2, $thread['messages']);
+        foreach ($thread['messages'] as $message) {
+            $this->assertNotEmpty($message['created_at']);
+        }
+
+        // ...and so does the sender, reading the same conversation.
+        Sanctum::actingAs($seller->user);
+        $sellerView = $this->getJson("/api/messages/thread/{$buyer->id}")->assertOk()->json();
+        $this->assertSame(
+            collect($thread['messages'])->pluck('created_at')->all(),
+            collect($sellerView['messages'])->pluck('created_at')->all()
+        );
+
+        // The thread list carries the last message's timestamp too.
+        $this->getJson('/api/messages/threads')->assertOk()->assertJsonStructure([['user', 'last_message' => ['created_at'], 'unread_count']]);
+    }
+
+    public function test_a_seller_counterpart_carries_their_hatchery_profile_id_for_view_profile(): void
+    {
+        $seller = $this->makeSeller();
+        $buyer = $this->makeBuyer();
+
+        Sanctum::actingAs($buyer);
+        $this->postJson('/api/messages', ['receiver_id' => $seller->user_id, 'body' => 'Are these Bangus ready?'])->assertCreated();
+
+        // The buyer's view of a seller carries seller_profile_id, which is what
+        // the "View Profile" link needs -- the hatchery page is addressed by
+        // seller_profiles.id, not users.id.
+        $this->getJson("/api/messages/thread/{$seller->user_id}")
+            ->assertOk()
+            ->assertJsonPath('user.role', 'seller')
+            ->assertJsonPath('user.seller_profile_id', $seller->id);
+
+        $this->getJson('/api/messages/threads')
+            ->assertOk()
+            ->assertJsonPath('0.user.seller_profile_id', $seller->id);
+
+        // The seller's view of a buyer has no such id -- a buyer's profile page
+        // is keyed by users.id and needs nothing extra.
+        Sanctum::actingAs($seller->user);
+        $sellerView = $this->getJson("/api/messages/thread/{$buyer->id}")->assertOk()->json('user');
+        $this->assertSame('buyer', $sellerView['role']);
+        $this->assertArrayNotHasKey('seller_profile_id', $sellerView);
     }
 }

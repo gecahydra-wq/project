@@ -44,7 +44,11 @@ class ActivityLog
         ],
         'listings_sellers' => [
             'label' => 'Listings & Sellers',
-            'actions' => ['listing_approved', 'listing_rejected', 'listing_archived', 'seller_verified'],
+            'actions' => [
+                'listing_approved', 'listing_rejected', 'listing_archived', 'seller_verified',
+                // Seller Registration Approval -- see App\Support\SellerApproval.
+                'seller_registration_approved', 'seller_registration_rejected',
+            ],
         ],
         'moderation' => [
             'label' => 'Moderation',
@@ -69,6 +73,16 @@ class ActivityLog
         'reviews' => [
             'label' => 'Reviews & Ratings',
             'actions' => ['review_submitted', 'buyer_rating_submitted', 'review_removed', 'buyer_rating_removed'],
+        ],
+        // User Reports (buyer <-> seller complaints) and the automatic
+        // low-rating Notices to Explain -- see App\Support\UserReports and
+        // App\Support\SellerReputation.
+        'reports' => [
+            'label' => 'Reports & Notices',
+            'actions' => [
+                'user_report_filed', 'user_report_reviewed', 'user_report_resolved', 'user_report_dismissed',
+                'seller_notice_issued', 'seller_notice_updated',
+            ],
         ],
     ];
 

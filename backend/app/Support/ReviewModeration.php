@@ -5,7 +5,6 @@ namespace App\Support;
 use App\Models\BuyerProfile;
 use App\Models\BuyerRating;
 use App\Models\Review;
-use App\Models\SellerProfile;
 use App\Models\User;
 
 /**
@@ -29,9 +28,10 @@ class ReviewModeration
         $review->delete();
 
         // Recompute the seller's average from the reviews that remain (0 when
-        // none are left), exactly like ReviewController does on create.
-        $avg = Review::where('seller_profile_id', $sellerProfileId)->avg('rating');
-        SellerProfile::where('id', $sellerProfileId)->update(['rating' => $avg !== null ? round((float) $avg, 2) : 0]);
+        // none are left), through the same path ReviewController uses on
+        // create -- which also re-runs the low-rating check, since removing an
+        // unfair review can move a seller back above or below the threshold.
+        SellerReputation::refreshAverage($sellerProfileId, $actor);
 
         ActivityLog::record([
             'actor_id' => $actor->id,

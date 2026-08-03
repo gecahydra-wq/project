@@ -19,6 +19,7 @@ use App\Models\SellerProfile;
 use App\Models\Municipality;
 use App\Models\Review;
 use App\Models\User;
+use App\Models\UserReport;
 use App\Models\WithdrawalRequest;
 use App\Support\AccountModeration;
 use App\Support\ActivityLog;
@@ -29,6 +30,8 @@ use App\Support\OrderTransactionPresenter;
 use App\Support\ReviewModeration;
 use App\Support\RevenueReport;
 use App\Support\SafeMailer;
+use App\Support\SellerApproval;
+use App\Support\UserReports;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Validation\Rule;
@@ -67,16 +70,21 @@ class SuperAdminController extends Controller
             // dashboard cards can never disagree with the Reports charts.
             'executive' => RevenueReport::executiveSnapshot(),
             // Approval queues awaiting action. Pending Seller Approvals are
-            // seller accounts not yet verified by their LGU; Pending LGU
-            // Approvals are settled-but-held payments awaiting LGU earnings
-            // verification (the "LGU verifies transaction" step), platform-wide.
-            'pending_seller_approvals' => SellerProfile::where('verified', false)->where('status', '!=', 'suspended')->count(),
+            // registrations awaiting review platform-wide -- normally an LGU
+            // Admin's job for their own municipality, but the Super Admin can
+            // clear any of them. Pending LGU Approvals are settled-but-held
+            // payments awaiting LGU earnings verification (the "LGU verifies
+            // transaction" step), platform-wide.
+            'pending_seller_approvals' => SellerProfile::where('approval_status', SellerApproval::PENDING)->count(),
             'pending_lgu_approvals' => MockPayment::where('status', 'paid_held')
                 ->whereHas('order', fn ($q) => $q
                     ->where('status', 'completed')
                     ->where(fn ($q2) => $q2->whereNull('lgu_review_status')->orWhere('lgu_review_status', '!=', 'rejected')))
                 ->count(),
             'pending_listing_approvals' => FingerlingListing::where('approval_status', 'pending')->count(),
+            // Complaints filed by buyers about sellers, or sellers about
+            // buyers, that no admin has closed yet (App\Support\UserReports).
+            'open_user_reports' => UserReport::whereNotIn('status', UserReport::CLOSED_STATUSES)->count(),
             // Recent Activity -- the platform-wide audit trail's most recent
             // entries, reusing the exact same read path as the Activity Log tab
             // (App\Support\ActivityLog::query) so both stay consistent.
@@ -514,6 +522,61 @@ class SuperAdminController extends Controller
         $user = AccountModeration::reinstateBuyer($user, $request->user(), $data['reason'], $data['notes'] ?? null);
 
         return response()->json($user);
+    }
+
+    /**
+     * Every User Report, platform-wide and in every municipality -- the
+     * unscoped counterpart of LguController::userReports.
+     */
+    public function userReports()
+    {
+        return response()->json(UserReports::query()->get());
+    }
+
+    public function updateUserReport(Request $request, UserReport $report)
+    {
+        $data = $request->validate([
+            'status' => ['required', Rule::in(UserReport::STATUSES)],
+            'resolution_notes' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        return response()->json(UserReports::updateStatus($report, $request->user(), $data['status'], $data['resolution_notes'] ?? null));
+    }
+
+    /**
+     * Every seller registration awaiting review, platform-wide, in any
+     * municipality. The Super Admin is the fallback reviewer: an LGU Admin
+     * normally handles their own municipality's sellers, but when one is away
+     * the Super Admin can approve or reject anything in this list themselves.
+     * Rejected registrations stay listed so they can be reconsidered.
+     */
+    public function sellerRegistrations()
+    {
+        return response()->json(
+            SellerProfile::with(['user', 'municipality'])
+                ->whereIn('approval_status', [SellerApproval::PENDING, SellerApproval::REJECTED])
+                ->latest()
+                ->get()
+                ->each->makeVisible(SellerProfile::REVIEW_FIELDS)
+        );
+    }
+
+    /**
+     * Approve any seller registration, in any municipality. One approval is
+     * all it takes -- see App\Support\SellerApproval.
+     */
+    public function approveSellerRegistration(Request $request, SellerProfile $seller)
+    {
+        return response()->json(SellerApproval::approve($seller, $request->user(), 'super_admin'));
+    }
+
+    public function rejectSellerRegistration(Request $request, SellerProfile $seller)
+    {
+        $data = $request->validate([
+            'reason' => ['required', 'string', 'max:1000'],
+        ]);
+
+        return response()->json(SellerApproval::reject($seller, $request->user(), 'super_admin', $data['reason']));
     }
 
     /**

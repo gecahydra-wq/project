@@ -33,6 +33,8 @@ import {
   MessageCircle,
   PlayCircle,
   Search,
+  CalendarDays,
+  Flag,
   ShieldAlert,
   ShieldCheck,
   ShoppingBag,
@@ -124,6 +126,43 @@ function resolveListingImage(item) {
   return match ? match[1] : DEFAULT_PLACEHOLDER_IMAGE
 }
 
+/**
+ * Unit of Measurement. The backend is the source of truth (see
+ * FingerlingListing::UNIT_TYPES) and sends unit_label/unit_label_plural on
+ * every listing; these are the fallbacks for anything that predates the
+ * feature or comes from a payload without them, and the option list the
+ * seller's form renders.
+ */
+const UNIT_TYPES = [
+  { value: 'piece', label: 'Per Piece', short: 'pc', plural: 'pcs' },
+  { value: 'kilogram', label: 'Per Kilogram', short: 'kg', plural: 'kg' },
+  { value: 'bulk', label: 'Per Bulk', short: 'bulk', plural: 'bulk' },
+]
+
+function unitMeta(unitType) {
+  return UNIT_TYPES.find((unit) => unit.value === unitType) || UNIT_TYPES[0]
+}
+
+/** "pc" / "kg" / "bulk" -- the per-unit price suffix. */
+function unitLabel(item) {
+  return item?.unit_label || unitMeta(item?.unit_type).short
+}
+
+/** "pcs" / "kg" / "bulk" -- labels a quantity. */
+function unitLabelPlural(item) {
+  return item?.unit_label_plural || unitMeta(item?.unit_type).plural
+}
+
+/** A listing's minimum order, never below 1. */
+function minimumOrder(item) {
+  return Math.max(1, Number(item?.minimum_order) || 1)
+}
+
+/** e.g. "500 pcs", "12 kg". */
+function formatQuantity(quantity, item) {
+  return `${Number(quantity || 0).toLocaleString()} ${unitLabelPlural(item)}`
+}
+
 function mapListing(item) {
   return {
     ...item,
@@ -144,6 +183,20 @@ function renderStars(rating) {
 
 function currency(value) {
   return new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(value)
+}
+
+/**
+ * When an order was placed, formatted the same way for every role -- Buyer,
+ * Seller, LGU Admin, and Super Admin all read the same string for the same
+ * order. `withTime` is off for tight table cells that render the time
+ * separately.
+ */
+function formatOrderDate(value, { withTime = true } = {}) {
+  if (!value) return '--'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '--'
+  const day = date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+  return withTime ? `${day}, ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : day
 }
 
 function withdrawalMethodLabel(method) {
@@ -325,6 +378,7 @@ function App() {
           <Route path="/buyer/listings/:id" element={<Protected allowed={['buyer']}><BuyerListingDetailPage /></Protected>} />
           <Route path="/buyer/sellers/:id" element={<Protected allowed={['buyer']}><SellerProfilePage /></Protected>} />
           <Route path="/seller/dashboard" element={<Protected allowed={['seller']}><SellerDashboard /></Protected>} />
+          <Route path="/seller/listings/:id" element={<Protected allowed={['seller']}><SellerListingDetailPage /></Protected>} />
           <Route path="/seller/sellers/:id" element={<Protected allowed={['seller']}><SellerProfilePage /></Protected>} />
           <Route path="/seller/buyers/:id" element={<Protected allowed={['seller']}><BuyerProfileForSellerPage /></Protected>} />
           <Route path="/lgu/dashboard" element={<Protected allowed={['lgu_admin']}><LguDashboard /></Protected>} />
@@ -380,9 +434,9 @@ function AppShell({ user, children }) {
   const homeRoute = roleRoutes[user.role] || '/'
   const menu = {
     buyer: [['Dashboard', '/buyer/dashboard?tab=overview', LayoutDashboard], ['Browse', '/buyer/dashboard?tab=browse', Search], ['Cart', '/buyer/dashboard?tab=cart', ShoppingBag], ['Orders', '/buyer/dashboard?tab=orders', ShoppingCart], ['Messages', '/buyer/dashboard?tab=messages', MessageCircle], ['Notifications', '/buyer/dashboard?tab=notifications', Bell], ['Analytics', '/buyer/dashboard?tab=analytics', BarChart3], ['AI Assistant', '/buyer/dashboard?tab=ai', Bot], ['Profile', '/buyer/dashboard?tab=settings', ShieldCheck]],
-    seller: [['Dashboard', '/seller/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/seller/dashboard?tab=marketplace', Search], ['Listings', '/seller/dashboard?tab=listings', Store], ['Orders', '/seller/dashboard?tab=orders', ShoppingCart], ['Messages', '/seller/dashboard?tab=messages', MessageCircle], ['Wallet', '/seller/dashboard?tab=wallet', Wallet], ['Notifications', '/seller/dashboard?tab=notifications', Bell], ['Analytics', '/seller/dashboard?tab=analytics', BarChart3], ['Profile', '/seller/dashboard?tab=profile', ShieldCheck]],
-    lgu_admin: [['Dashboard', '/lgu/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/lgu/dashboard?tab=marketplace', Search], ['Listing Management', '/lgu/dashboard?tab=listings', Store], ['Approvals', '/lgu/dashboard?tab=approvals', CheckCircle], ['Sellers', '/lgu/dashboard?tab=sellers', ShieldCheck], ['Seller Earnings', '/lgu/dashboard?tab=earnings', Wallet], ['LGU Wallet', '/lgu/dashboard?tab=wallet', Wallet], ['Messages', '/lgu/dashboard?tab=messages', MessageCircle], ['Notifications', '/lgu/dashboard?tab=notifications', Bell], ['Reports', '/lgu/dashboard?tab=reports', BarChart3], ['Activity Log', '/lgu/dashboard?tab=activity-log', History], ['Reviews & Ratings', '/lgu/dashboard?tab=reviews', Star], ['Users', '/lgu/dashboard?tab=users', UsersIcon], ['Profile', '/lgu/dashboard?tab=profile', CircleUserRound]],
-    super_admin: [['Dashboard', '/admin/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/admin/dashboard?tab=marketplace', Search], ['Listing Management', '/admin/dashboard?tab=listings', Store], ['LGU Admins', '/admin/dashboard?tab=lgu-admins', ShieldCheck], ['Sellers', '/admin/dashboard?tab=sellers', Store], ['Users', '/admin/dashboard?tab=users', UsersIcon], ['Reviews & Ratings', '/admin/dashboard?tab=reviews', Star], ['Transactions', '/admin/dashboard?tab=transactions', Wallet], ['Payout Management', '/admin/dashboard?tab=payouts', Wallet], ['Municipalities', '/admin/dashboard?tab=municipalities', MapPin], ['Announcements', '/admin/dashboard?tab=announcements', Megaphone], ['Messages', '/admin/dashboard?tab=messages', MessageCircle], ['Notifications', '/admin/dashboard?tab=notifications', Bell], ['Moderation Log', '/admin/dashboard?tab=moderation', ShieldAlert], ['Activity Log', '/admin/dashboard?tab=activity-log', History], ['Reports', '/admin/dashboard?tab=reports', BarChart3], ['Profile', '/admin/dashboard?tab=profile', CircleUserRound]],
+    seller: [['Dashboard', '/seller/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/seller/dashboard?tab=marketplace', Search], ['Listings', '/seller/dashboard?tab=listings', Store], ['Orders', '/seller/dashboard?tab=orders', ShoppingCart], ['Messages', '/seller/dashboard?tab=messages', MessageCircle], ['Wallet', '/seller/dashboard?tab=wallet', Wallet], ['Notifications', '/seller/dashboard?tab=notifications', Bell], ['Notices', '/seller/dashboard?tab=notices', ShieldAlert], ['Analytics', '/seller/dashboard?tab=analytics', BarChart3], ['Profile', '/seller/dashboard?tab=profile', ShieldCheck]],
+    lgu_admin: [['Dashboard', '/lgu/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/lgu/dashboard?tab=marketplace', Search], ['Listing Management', '/lgu/dashboard?tab=listings', Store], ['Approvals', '/lgu/dashboard?tab=approvals', CheckCircle], ['Sellers', '/lgu/dashboard?tab=sellers', ShieldCheck], ['User Reports', '/lgu/dashboard?tab=user-reports', Flag], ['Notices to Explain', '/lgu/dashboard?tab=notices', ShieldAlert], ['Seller Earnings', '/lgu/dashboard?tab=earnings', Wallet], ['LGU Wallet', '/lgu/dashboard?tab=wallet', Wallet], ['Messages', '/lgu/dashboard?tab=messages', MessageCircle], ['Notifications', '/lgu/dashboard?tab=notifications', Bell], ['Reports', '/lgu/dashboard?tab=reports', BarChart3], ['Activity Log', '/lgu/dashboard?tab=activity-log', History], ['Reviews & Ratings', '/lgu/dashboard?tab=reviews', Star], ['Users', '/lgu/dashboard?tab=users', UsersIcon], ['Profile', '/lgu/dashboard?tab=profile', CircleUserRound]],
+    super_admin: [['Dashboard', '/admin/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/admin/dashboard?tab=marketplace', Search], ['Listing Management', '/admin/dashboard?tab=listings', Store], ['LGU Admins', '/admin/dashboard?tab=lgu-admins', ShieldCheck], ['Sellers', '/admin/dashboard?tab=sellers', Store], ['Users', '/admin/dashboard?tab=users', UsersIcon], ['User Reports', '/admin/dashboard?tab=user-reports', Flag], ['Reviews & Ratings', '/admin/dashboard?tab=reviews', Star], ['Transactions', '/admin/dashboard?tab=transactions', Wallet], ['Payout Management', '/admin/dashboard?tab=payouts', Wallet], ['Municipalities', '/admin/dashboard?tab=municipalities', MapPin], ['Announcements', '/admin/dashboard?tab=announcements', Megaphone], ['Messages', '/admin/dashboard?tab=messages', MessageCircle], ['Notifications', '/admin/dashboard?tab=notifications', Bell], ['Moderation Log', '/admin/dashboard?tab=moderation', ShieldAlert], ['Activity Log', '/admin/dashboard?tab=activity-log', History], ['Reports', '/admin/dashboard?tab=reports', BarChart3], ['Profile', '/admin/dashboard?tab=profile', CircleUserRound]],
   }[user.role]
 
   async function logout() {
@@ -559,13 +613,16 @@ function ListingCard({ item, mode = 'public', onSelect, detailPath }) {
         </p>
       )}
       <div className="listing-price-row">
-        <span className="listing-price">{currency(item.price)}<small>/pc</small></span>
+        <span className="listing-price">{currency(item.price)}<small>/{unitLabel(item)}</small></span>
         {Number(item.quantity) <= 0 ? (
           <Badge tone="danger">Out of Stock</Badge>
         ) : (
-          <span className="listing-stock">{Number(item.quantity).toLocaleString()} pcs</span>
+          <span className="listing-stock">{formatQuantity(item.quantity, item)}</span>
         )}
       </div>
+      {minimumOrder(item) > 1 && (
+        <p className="listing-minimum">Minimum order: {formatQuantity(minimumOrder(item), item)}</p>
+      )}
       {mode === 'buyer' ? (
         <button className="button full" type="button" onClick={() => onSelect?.(item)}>View Details</button>
       ) : (
@@ -579,7 +636,29 @@ function ListingDetailPanel({ item, isBuyer = false, checkout, qty, setQty, onPa
   const navigate = useNavigate()
   const session = getSession()
   const outOfStock = Number(item.quantity) <= 0
-  const safeQty = Math.min(Math.max(Number(qty) || 1, 1), Number(item.quantity) || 1)
+  // Unit of Measurement + Minimum Order. The seller's minimum is the floor for
+  // a valid order and available stock is the ceiling; when stock has fallen
+  // below the minimum the listing simply can't be ordered right now. The
+  // backend enforces the same rule (FingerlingListing::quantityIssue).
+  const minimum = minimumOrder(item)
+  const available = Number(item.quantity) || 0
+  const belowMinimumStock = !outOfStock && available < minimum
+  const enteredQty = Number(qty) || 0
+  const safeQty = Math.min(Math.max(enteredQty, minimum), available || minimum)
+  const quantityError = outOfStock || belowMinimumStock ? null
+    : enteredQty < minimum ? `Minimum order for this listing is ${formatQuantity(minimum, item)}.`
+      : enteredQty > available ? `Only ${formatQuantity(available, item)} available.`
+        : null
+  const canOrder = !outOfStock && !belowMinimumStock && !quantityError
+  // Start the buyer at the seller's minimum rather than at 1, so the form
+  // opens on a valid order. Keyed to the listing so it seeds once and never
+  // fights the buyer while they type a different amount.
+  const seededForListing = useRef(null)
+  useEffect(() => {
+    if (!isBuyer || !setQty || seededForListing.current === item.id) return
+    seededForListing.current = item.id
+    setQty(String(minimum))
+  }, [isBuyer, setQty, item.id, minimum])
   const sellerUserId = item.sellerProfile?.user_id
   const canChat = sellerUserId && (!session || ['buyer', 'lgu_admin', 'super_admin'].includes(session.role))
   const chatSeller = () => {
@@ -603,13 +682,16 @@ function ListingDetailPanel({ item, isBuyer = false, checkout, qty, setQty, onPa
         <p className="helper-text">No description provided by the seller.</p>
       )}
       <div className="stats-inline">
-        <Stat value={currency(item.price)} label="Per piece" highlight />
-        <Stat value={item.quantity.toLocaleString()} label="Available" />
+        <Stat value={currency(item.price)} label={`Per ${unitLabel(item)}`} highlight />
+        <Stat value={formatQuantity(item.quantity, item)} label="Available" />
+        <Stat value={formatQuantity(minimum, item)} label="Minimum order" />
         <Stat value={`${item.rating}/5`} label="Seller rating" />
       </div>
       <div className="detail-meta">
         <span className="listing-seller-row"><strong>Hatchery/Farm:</strong> <Avatar src={item.sellerProfile?.profile_picture} alt={item.seller} className="listing-seller-avatar" /> {item.sellerProfile?.id ? <Link to={sellerProfilePath(item.sellerProfile.id)}>{item.seller}</Link> : item.seller}</span>
         {item.sellerContactName && item.sellerContactName !== item.seller && <span><strong>Seller:</strong> {item.sellerContactName}</span>}
+        <span><strong>Sold:</strong> {item.unit_type_label || unitMeta(item.unit_type).label}</span>
+        {item.unit_description && <span><strong>What one {unitLabel(item)} contains:</strong> {item.unit_description}</span>}
         <span><strong>Municipality:</strong> {item.municipality}</span>
       </div>
       <MediaGallery media={item.media} />
@@ -617,17 +699,29 @@ function ListingDetailPanel({ item, isBuyer = false, checkout, qty, setQty, onPa
         <>
           {outOfStock ? (
             <p className="helper-text">This item is currently unavailable.</p>
+          ) : belowMinimumStock ? (
+            <p className="helper-text">
+              Only {formatQuantity(available, item)} left, which is below this seller&apos;s minimum order of {formatQuantity(minimum, item)}.
+              This listing can&apos;t be ordered until they restock.
+            </p>
           ) : (
-            <label>Quantity<input type="number" min="1" max={item.quantity} value={qty} onChange={(e) => setQty(e.target.value)} /></label>
+            <label>
+              Quantity ({unitLabelPlural(item)})
+              <input type="number" min={minimum} max={available} value={qty} onChange={(e) => setQty(e.target.value)} />
+              <span className="helper-text">
+                Minimum {formatQuantity(minimum, item)} · {formatQuantity(available, item)} available · {currency(item.price)} per {unitLabel(item)}
+              </span>
+            </label>
           )}
+          {quantityError && <p className="error">{quantityError}</p>}
           <div className="checkout-bar">
-            <strong>Total: {currency(outOfStock ? 0 : safeQty * item.price)}</strong>
+            <strong>Total: {currency(canOrder ? safeQty * item.price : 0)}</strong>
             {addToCart && (
-              <button className="ghost" type="button" disabled={outOfStock || addToCart.isPending} onClick={() => addToCart.mutate(safeQty)}>
+              <button className="ghost" type="button" disabled={!canOrder || addToCart.isPending} onClick={() => addToCart.mutate(safeQty)}>
                 <ShoppingBag size={16} /> {addToCart.isPending ? 'Adding...' : 'Add to Cart'}
               </button>
             )}
-            <button onClick={onPay} type="button" disabled={outOfStock}>{outOfStock ? 'Out of Stock' : 'Pay with PayMongo'}</button>
+            <button onClick={onPay} type="button" disabled={!canOrder}>{outOfStock ? 'Out of Stock' : 'Pay with PayMongo'}</button>
           </div>
           {addToCart?.isSuccess && (
             <p className="helper-text">
@@ -710,6 +804,218 @@ function MediaGallery({ media, title = 'Seller Care Photos & Videos' }) {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * Shared dialog, used where an edit should happen in place instead of
+ * navigating away to a separate page. Dismisses on Escape or a backdrop
+ * click; the panel swallows clicks so working inside the form never closes it.
+ */
+function Modal({ title, subtitle, onClose, children, footer }) {
+  useEffect(() => {
+    const handleKey = (e) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handleKey)
+    document.body.classList.add('modal-open')
+    return () => {
+      window.removeEventListener('keydown', handleKey)
+      document.body.classList.remove('modal-open')
+    }
+  }, [onClose])
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-panel" role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}>
+        <header className="modal-header">
+          <div>
+            <h3>{title}</h3>
+            {subtitle && <p className="helper-text">{subtitle}</p>}
+          </div>
+          <button type="button" className="modal-close" onClick={onClose} aria-label="Close"><X size={20} /></button>
+        </header>
+        <div className="modal-body">{children}</div>
+        {footer && <footer className="modal-footer">{footer}</footer>}
+      </div>
+    </div>
+  )
+}
+
+/** A blank listing form, shared by the create form and the edit popup. */
+const EMPTY_LISTING_FORM = {
+  species: '',
+  quantity: '',
+  price: '',
+  description: '',
+  unit_type: 'piece',
+  minimum_order: '1',
+  unit_description: '',
+}
+
+/** Turn an existing listing into the form shape above. */
+function listingToForm(listing) {
+  return {
+    species: listing.species || '',
+    quantity: String(listing.quantity ?? ''),
+    price: String(listing.price_per_piece ?? ''),
+    description: listing.description || '',
+    unit_type: listing.unit_type || 'piece',
+    minimum_order: String(listing.minimum_order ?? 1),
+    unit_description: listing.unit_description || '',
+  }
+}
+
+/** The request body both the create and the update call send. */
+function listingPayload(form) {
+  return {
+    species: form.species,
+    title: `${form.species} Fingerlings`,
+    description: form.description,
+    quantity: Number(form.quantity),
+    price_per_piece: Number(form.price),
+    unit_type: form.unit_type,
+    minimum_order: Math.max(1, Number(form.minimum_order) || 1),
+    unit_description: form.unit_description?.trim() || null,
+  }
+}
+
+/**
+ * The listing detail fields, shared by Create Listing and the edit popup so
+ * the two can never drift apart. The Unit of Measurement dropdown drives the
+ * wording of the price, stock, and minimum-order fields -- a seller pricing
+ * per kilogram sees "Price per kg", not "Price per piece".
+ */
+function ListingDetailsFields({ form, setForm }) {
+  const unit = unitMeta(form.unit_type)
+  const set = (patch) => setForm({ ...form, ...patch })
+
+  return (
+    <div className="form grid-form">
+      <label className="filter-label">
+        Species
+        <input value={form.species} onChange={(e) => set({ species: e.target.value })} placeholder="e.g. Bangus" />
+      </label>
+      <label className="filter-label">
+        Unit of Measurement
+        <select value={form.unit_type} onChange={(e) => set({ unit_type: e.target.value })}>
+          {UNIT_TYPES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+      </label>
+      <label className="filter-label">
+        Price per {unit.short}
+        <input type="number" min="0.01" step="0.01" value={form.price} onChange={(e) => set({ price: e.target.value })} placeholder={`Price for one ${unit.short}`} />
+      </label>
+      <label className="filter-label">
+        Stock available ({unit.plural})
+        <input type="number" min="0" value={form.quantity} onChange={(e) => set({ quantity: e.target.value })} placeholder={`Total ${unit.plural} you have`} />
+      </label>
+      <label className="filter-label">
+        Minimum order ({unit.plural})
+        <input type="number" min="1" value={form.minimum_order} onChange={(e) => set({ minimum_order: e.target.value })} placeholder="1" />
+        <span className="helper-text">Buyers cannot order less than this. Leave at 1 for no minimum.</span>
+      </label>
+      <label className="filter-label">
+        What one {unit.short} contains {form.unit_type === 'bulk' ? '' : '(optional)'}
+        <input
+          value={form.unit_description}
+          onChange={(e) => set({ unit_description: e.target.value })}
+          placeholder={form.unit_type === 'bulk' ? 'e.g. 1 bulk = 1 sack of 1,000 pcs' : form.unit_type === 'kilogram' ? 'e.g. roughly 80-100 pcs per kg' : 'e.g. average size 2-3 cm'}
+        />
+      </label>
+      <label className="filter-label listing-description-field">
+        Description
+        <textarea value={form.description} onChange={(e) => set({ description: e.target.value })} placeholder="Describe the fingerlings: health, feeding, size consistency, etc." />
+      </label>
+    </div>
+  )
+}
+
+/**
+ * Edit an existing listing without leaving the Listings tab. Carries the exact
+ * same capabilities the old inline edit view had -- the detail fields plus the
+ * photo/video manager -- so nothing was lost in the move to a popup.
+ */
+function ListingEditModal({ listing, onClose }) {
+  const [form, setForm] = useState(() => listingToForm(listing))
+
+  const updateListing = useMutation({
+    mutationFn: async () => (await api.patch(`/listings/${listing.id}`, listingPayload(form))).data,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['seller-dashboard'] })
+      onClose()
+    },
+  })
+
+  return (
+    <Modal
+      title="Edit Listing"
+      subtitle={listing.title}
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" onClick={() => updateListing.mutate()} disabled={updateListing.isPending}>
+            {updateListing.isPending ? 'Saving...' : 'Update Listing'}
+          </button>
+          <button type="button" className="ghost" onClick={onClose} disabled={updateListing.isPending}>Cancel</button>
+        </>
+      }
+    >
+      <div className="card-row modal-status-row">
+        <Badge status={listing.approval_status} />
+        <span className="muted">Edits are re-checked by your LGU before they appear in the marketplace.</span>
+      </div>
+      {listing.approval_status === 'rejected' && listing.rejection_reason && (
+        <p className="error">Reason for rejection: {listing.rejection_reason}</p>
+      )}
+      <ListingDetailsFields form={form} setForm={setForm} />
+      {updateListing.error && <p className="error">{updateListing.error.response?.data?.message || 'Could not save listing.'}</p>}
+      <div className="modal-section">
+        <h4>Listing Photos &amp; Videos</h4>
+        <p className="helper-text">Upload up to 5 photos or videos (JPG, PNG, WEBP up to 5MB; MP4, MOV, WEBM up to 100MB). The first item is used as the primary image in the marketplace.</p>
+        <ListingImageManager
+          listingId={listing.id}
+          media={listing.media || []}
+          onChange={() => queryClient.invalidateQueries({ queryKey: ['seller-dashboard'] })}
+        />
+      </div>
+    </Modal>
+  )
+}
+
+/**
+ * Registration approval banner for sellers whose registration has not been
+ * approved yet (see backend App\Support\SellerApproval). Until it is, listing
+ * creation is refused server-side, so the dashboard says so up front rather
+ * than letting them fill in a form that will 403.
+ */
+function SellerApprovalNotice({ seller }) {
+  const status = seller?.approval_status
+  if (!status || status === 'approved') return null
+
+  const copy = {
+    pending: {
+      tone: 'warning',
+      title: 'Registration pending approval',
+      body: 'Your hatchery registration is waiting to be reviewed by your LGU Admin. You can start creating listings as soon as it is approved.',
+    },
+    rejected: {
+      tone: 'danger',
+      title: 'Registration rejected',
+      body: seller.registration_rejection_reason
+        ? `Reason: ${seller.registration_rejection_reason} Update your hatchery profile and contact your LGU to have it reviewed again.`
+        : 'Update your hatchery profile and contact your LGU to have it reviewed again.',
+    },
+  }[status]
+
+  if (!copy) return null
+
+  return (
+    <div className={`card approval-notice approval-notice-${copy.tone}`}>
+      <div className="card-row">
+        <strong>{copy.title}</strong>
+        <Badge tone={copy.tone === 'danger' ? 'danger' : 'warning'}>{seller.approval_status_label || 'Pending'}</Badge>
+      </div>
+      <p className="helper-text">{copy.body}</p>
     </div>
   )
 }
@@ -866,7 +1172,7 @@ function ListingDetailPage() {
   const checkout = useMutation({
     mutationFn: async () => {
       if (!isBuyer) throw new Error('Buyer login required to pay with PayMongo.')
-      const safeQty = Math.min(Math.max(Number(qty) || 1, 1), Number(item.quantity) || 1)
+      const safeQty = Math.min(Math.max(Number(qty) || 0, minimumOrder(item)), Number(item.quantity) || minimumOrder(item))
       const order = await api.post('/orders', { fingerling_listing_id: item.id, quantity: safeQty })
       return (await api.post(`/orders/${order.data.id}/checkout`)).data
     },
@@ -896,7 +1202,7 @@ function BuyerListingDetailPage() {
   })
   const buyListing = useMutation({
     mutationFn: async () => {
-      const safeQty = Math.min(Math.max(Number(qty) || 1, 1), Number(item.quantity) || 1)
+      const safeQty = Math.min(Math.max(Number(qty) || 0, minimumOrder(item)), Number(item.quantity) || minimumOrder(item))
       const order = await api.post('/orders', { fingerling_listing_id: item.id, quantity: safeQty })
       return (await api.post(`/orders/${order.data.id}/checkout`)).data
     },
@@ -916,6 +1222,37 @@ function BuyerListingDetailPage() {
       <div className="detail-stack">
         <ListingDetailPanel item={item} isBuyer checkout={buyListing} qty={qty} setQty={setQty} onPay={() => buyListing.mutate()} addToCart={addToCart} />
         <Link className="ghost" to={`/buyer/dashboard?tab=${sourceTab}`}>{sourceTab === 'cart' ? 'Back to Cart' : 'Back to Browse'}</Link>
+      </div>
+    </main>
+  )
+}
+
+/**
+ * Read-only listing detail for logged-in sellers. Sellers browsing the
+ * marketplace (or another hatchery's profile) used to land on the public
+ * /listing/:id page, which renders inside PublicLayout and therefore looks
+ * like a logged-out session. This keeps them inside the seller AppShell.
+ * Purchasing stays buyer-only, so no checkout/cart actions are wired here.
+ */
+function SellerListingDetailPage() {
+  const { id } = useParams()
+  const [searchParams] = useSearchParams()
+  const sourceTab = searchParams.get('source') || 'marketplace'
+  const { data: item, isLoading, isError } = useQuery({
+    queryKey: ['seller-listing', id],
+    queryFn: async () => mapListing((await api.get(`/listings/${id}`)).data),
+    retry: false,
+  })
+
+  if (isLoading) return <main className="detail-page"><LoadingState label="Loading listing..." /></main>
+  if (isError || !item) return <main className="auth-page"><section className="result-card"><h1>Listing not found</h1><p>This listing may have been removed or is no longer available.</p><Link className="button" to={`/seller/dashboard?tab=${sourceTab}`}>Back to Marketplace</Link></section></main>
+
+  return (
+    <main className="detail-page">
+      <img className="detail-art" src={resolveListingImage(item)} alt={item.title || item.species} />
+      <div className="detail-stack">
+        <ListingDetailPanel item={item} />
+        <Link className="ghost" to={`/seller/dashboard?tab=${sourceTab}`}>{sourceTab === 'listings' ? 'Back to My Listings' : 'Back to Marketplace'}</Link>
       </div>
     </main>
   )
@@ -1238,8 +1575,12 @@ function CartItemRow({ item, onUpdateQuantity, onRemove, onBuy, busy }) {
   }
   const listing = item.listing
 
+  // Never send below the seller's Minimum Order -- the backend refuses it and
+  // the buyer would just see an error for something we can round up for them.
+  const minimum = minimumOrder(listing)
   const commitQuantity = () => {
-    const next = Math.max(1, Number(qty) || 1)
+    const next = Math.max(minimum, Number(qty) || minimum)
+    if (next !== Number(qty)) setQty(next)
     if (next === item.quantity) return
     onUpdateQuantity(next)
   }
@@ -1255,17 +1596,18 @@ function CartItemRow({ item, onUpdateQuantity, onRemove, onBuy, busy }) {
           </div>
           <p className="muted">
             {listing?.sellerProfile?.hatchery_name || 'Unknown seller'}
-            {listing?.municipality?.name ? ` · ${listing.municipality.name}` : ''} · {currency(item.unit_price)}/pc
+            {listing?.municipality?.name ? ` · ${listing.municipality.name}` : ''} · {currency(item.unit_price)}/{unitLabel(listing)}
+            {minimum > 1 ? ` · min ${formatQuantity(minimum, listing)}` : ''}
           </p>
           {item.issue && <p className="error">{item.issue}</p>}
         </div>
       </div>
       <div className="row-actions cart-item-actions">
         <label className="cart-qty">
-          Qty
+          Qty ({unitLabelPlural(listing)})
           <input
             type="number"
-            min="1"
+            min={minimum}
             max={listing?.quantity || undefined}
             value={qty}
             onChange={(e) => setQty(e.target.value)}
@@ -1435,11 +1777,35 @@ function BuyerDashboard() {
   })
 
   const [analyticsPeriod, setAnalyticsPeriod] = useState('monthly')
+  // Farm assumptions behind the ROI projection. Blank means "use the backend's
+  // documented default" (see App\Support\BuyerInvestmentReport), so the farmer
+  // only has to type the figures they actually want to change.
+  const [assumptions, setAssumptions] = useState({ survival_rate: '', harvest_value_per_piece: '' })
+  // The inputs update on every keystroke, but the QUERY only follows once
+  // typing settles. Without this, each character was a new query key and so a
+  // new request.
+  const [appliedAssumptions, setAppliedAssumptions] = useState(assumptions)
+  useEffect(() => {
+    const timer = setTimeout(() => setAppliedAssumptions(assumptions), 400)
+    return () => clearTimeout(timer)
+  }, [assumptions])
+
   const analytics = useQuery({
-    queryKey: ['buyer-analytics', analyticsPeriod],
-    queryFn: async () => (await api.get('/buyer/analytics', { params: { period: analyticsPeriod } })).data,
+    queryKey: ['buyer-analytics', analyticsPeriod, appliedAssumptions.survival_rate, appliedAssumptions.harvest_value_per_piece],
+    queryFn: async () => (await api.get('/buyer/analytics', {
+      params: {
+        period: analyticsPeriod,
+        // Entered as a percentage, sent as the 0-1 rate the API expects.
+        survival_rate: appliedAssumptions.survival_rate === '' ? undefined : Number(appliedAssumptions.survival_rate) / 100,
+        harvest_value_per_piece: appliedAssumptions.harvest_value_per_piece === '' ? undefined : Number(appliedAssumptions.harvest_value_per_piece),
+      },
+    })).data,
     retry: false,
-    placeholderData: { summary: {}, purchases_over_time: [], orders_by_status: [], top_species: [] },
+    // Hold on to the last result while the next one loads. Returning the
+    // previous data (rather than a fixed skeleton with no `investment` key)
+    // is what keeps the ROI panel mounted between keystrokes -- otherwise it
+    // unmounted, the input lost focus, and the page jumped to the top.
+    placeholderData: (previous) => previous ?? { summary: {}, purchases_over_time: [], orders_by_status: [], top_species: [] },
   })
 
   return (
@@ -1451,7 +1817,7 @@ function BuyerDashboard() {
         <>
           <AnnouncementBanner />
           <StatsRow items={[['Active Orders', data?.active_orders ?? 0], ['Completed Orders', data?.completed_orders ?? 0], ['Unread Messages', data?.unread_messages ?? 0]]} />
-          <Section title="Recent Orders"><OrderTable rows={orders} onReview={handleReview} showPaymentStatus={false} /></Section>
+          <Section title="Recent Orders"><OrderTable rows={orders} onReview={handleReview} showPaymentStatus={false} showOrderDate /></Section>
           <Section title="Notifications"><NotificationStack notifications={notifications.slice(0, 3)} onMarkRead={handleMarkRead} /></Section>
         </>
       )}
@@ -1469,6 +1835,7 @@ function BuyerDashboard() {
             detailsEndpoint={(orderNumber) => `/orders/${orderNumber}`}
             initialExpandedOrderNumber={searchParams.get('order')}
             showPaymentStatus={false}
+            showOrderDate
           />
         </Section>
       )}
@@ -1497,6 +1864,14 @@ function BuyerDashboard() {
             <CategoryBarChart title="Most Purchased Fish Species" data={analytics.data?.top_species} dataKey="quantity" nameKey="species" colorFor={(entry) => speciesChartColor(entry.species)} />
           </div>
         </Section>
+      )}
+      {tab === 'analytics' && (
+        <BuyerInvestmentPanel
+          data={analytics.data}
+          assumptions={assumptions}
+          setAssumptions={setAssumptions}
+          updating={analytics.isFetching}
+        />
       )}
       {tab === 'ai' && (
         <Section title="AI Assistant">
@@ -1725,7 +2100,7 @@ function AdminProfilePanel({ endpointBase }) {
 function SellerDashboard() {
   const [searchParams] = useSearchParams()
   const tab = searchParams.get('tab') || 'overview'
-  const [form, setForm] = useState({ species: '', quantity: '', price: '', description: '' })
+  const [form, setForm] = useState(EMPTY_LISTING_FORM)
   const [editingListingId, setEditingListingId] = useState(null)
   const [stagedImages, setStagedImages] = useState([])
   const [visibleNotificationIds, setVisibleNotificationIds] = useState([])
@@ -1735,7 +2110,7 @@ function SellerDashboard() {
     queryFn: async () => (await api.get('/seller/dashboard')).data,
     retry: false,
     placeholderData: {
-      seller: { id: 1, hatchery_name: "Juan's Hatchery" },
+      seller: { id: 1, hatchery_name: "Juan's Hatchery", approval_status: 'approved' },
       active_listings: 12,
       pending_orders: 4,
       total_sales: 28500,
@@ -1816,20 +2191,12 @@ function SellerDashboard() {
       return []
     })
   }
+  // Creating a listing. Editing an existing one is handled entirely by
+  // ListingEditModal, which owns its own form and PATCH.
   const saveListing = useMutation({
     mutationFn: async () => {
-      const payload = {
-        species: form.species,
-        title: `${form.species} Fingerlings`,
-        description: form.description,
-        quantity: Number(form.quantity),
-        price_per_piece: Number(form.price),
-      }
-      if (editingListingId) {
-        return (await api.patch(`/listings/${editingListingId}`, payload)).data
-      }
       const created = (await api.post('/listings', {
-        ...payload,
+        ...listingPayload(form),
         scientific_name: '',
         average_size: '',
         availability_status: 'in_stock',
@@ -1840,8 +2207,9 @@ function SellerDashboard() {
           stagedImages.forEach((staged) => formData.append('photos[]', staged.file))
           await api.post(`/listings/${created.id}/media`, formData)
         } catch (uploadError) {
-          // The listing itself was created successfully; let the seller retry
-          // attaching photos from the edit view instead of losing the listing.
+          // The listing itself was created successfully; open it in the edit
+          // popup so the seller can retry attaching photos instead of losing
+          // the listing.
           setEditingListingId(created.id)
           clearStagedImages()
           queryClient.invalidateQueries({ queryKey: ['seller-dashboard'] })
@@ -1852,13 +2220,10 @@ function SellerDashboard() {
     },
     onSuccess: (listing) => {
       clearStagedImages()
-      if (!editingListingId) {
-        // Newly created listing: stay in edit mode so the seller can attach more photos right away.
-        setEditingListingId(listing.id)
-      } else {
-        setForm({ species: '', quantity: '', price: '', description: '' })
-        setEditingListingId(null)
-      }
+      setForm(EMPTY_LISTING_FORM)
+      // Open the new listing in the edit popup so more photos can be attached
+      // right away -- the same convenience the old inline edit view gave.
+      setEditingListingId(listing.id)
       queryClient.invalidateQueries({ queryKey: ['seller-dashboard'] })
     },
   })
@@ -1870,15 +2235,13 @@ function SellerDashboard() {
     mutationFn: async ({ orderId, status }) => (await api.patch(`/orders/${orderId}/status`, { status })).data,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['seller-dashboard'] }),
   })
-  const startEdit = (listing) => {
-    setEditingListingId(listing.id)
-    setForm({ species: listing.species || '', quantity: String(listing.quantity ?? ''), price: String(listing.price_per_piece ?? ''), description: listing.description || '' })
-  }
-  const cancelEdit = () => {
-    setEditingListingId(null)
-    setForm({ species: '', quantity: '', price: '', description: '' })
-    clearStagedImages()
-  }
+  // The listing currently open in the edit popup, resolved from the dashboard
+  // data so photo changes made inside the popup re-render it immediately.
+  const editingListing = (dashboard.data?.listings || []).find((listing) => listing.id === editingListingId) || null
+  // Listing creation/editing is only unlocked once the registration has been
+  // approved -- the backend enforces this too (see
+  // ListingController::guardRegistrationApproved).
+  const canManageListings = (dashboard.data?.seller?.approval_status ?? 'approved') === 'approved'
   const updateProfile = useMutation({
     mutationFn: async (form) => (await api.patch('/seller/profile', {
       name: form.name,
@@ -1908,43 +2271,39 @@ function SellerDashboard() {
       {tab === 'overview' && (
         <>
           <AnnouncementBanner />
+          <SellerApprovalNotice seller={dashboard.data?.seller} />
+          {(dashboard.data?.open_notices || []).length > 0 && (
+            <div className="card approval-notice approval-notice-danger">
+              <div className="card-row">
+                <strong>You have a Notice to Explain</strong>
+                <Badge tone="danger">Action needed</Badge>
+              </div>
+              <p className="helper-text">
+                Your average buyer rating has fallen to 3 stars or below and your LGU has asked you to explain. Your account has not been
+                suspended. <Link to="/seller/dashboard?tab=notices">Open Notices</Link> to respond.
+              </p>
+            </div>
+          )}
           <StatsRow items={[['Active Listings', dashboard.data?.active_listings ?? 0], ['Pending Orders', dashboard.data?.pending_orders ?? 0], ['Total Sales', currency(dashboard.data?.total_sales ?? 0)], ['Unread Messages', dashboard.data?.unread_messages ?? 0]]} />
         </>
       )}
       {tab === 'marketplace' && (
         <Section title="Marketplace">
           <p className="helper-text">Browse the marketplace to see what other hatcheries are offering. This view is read-only -- purchasing is reserved for buyer accounts.</p>
-          <MarketplaceBrowser />
+          <MarketplaceBrowser detailPath={(item) => `/seller/listings/${item.id}?source=marketplace`} />
         </Section>
       )}
       {tab === 'listings' && (
         <>
-          <Section title={editingListingId ? 'Edit Listing' : 'Create Listing'}>
-            <div className="form grid-form">
-              <input value={form.species} onChange={(e) => setForm({ ...form, species: e.target.value })} placeholder="Species" />
-              <input value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} placeholder="Quantity" />
-              <input value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} placeholder="Price" />
-              <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Describe the fingerlings: health, feeding, size consistency, etc." />
-            </div>
-            {!editingListingId && (
-              <>
-                <p className="helper-text">Add up to 5 photos or videos (JPG, PNG, WEBP up to 5MB; MP4, MOV, WEBM up to 100MB). They&apos;ll be uploaded when you save the listing.</p>
-                <StagedImagePicker files={stagedImages} onAdd={addStagedImages} onRemove={removeStagedImage} />
-              </>
-            )}
-            <p className="helper-text">Listings are posted automatically under your registered municipality, {dashboard.data?.seller?.municipality?.name || 'your account municipality'}.</p>
-            <button onClick={() => saveListing.mutate()} type="button">{editingListingId ? 'Update Listing' : 'Save Listing'}</button>
-            {editingListingId && <button className="ghost" onClick={cancelEdit} type="button">Cancel</button>}
-            {saveListing.error && <p className="error">{saveListing.error.response?.data?.message || 'Could not save listing.'}</p>}
-          </Section>
-          {editingListingId && (
-            <Section title="Listing Photos & Videos">
-              <p className="helper-text">Upload up to 5 photos or videos (JPG, PNG, WEBP up to 5MB; MP4, MOV, WEBM up to 100MB). The first item is used as the primary image in the marketplace.</p>
-              <ListingImageManager
-                listingId={editingListingId}
-                media={dashboard.data?.listings?.find((listing) => listing.id === editingListingId)?.media || []}
-                onChange={() => queryClient.invalidateQueries({ queryKey: ['seller-dashboard'] })}
-              />
+          <SellerApprovalNotice seller={dashboard.data?.seller} />
+          {canManageListings && (
+            <Section title="Create Listing">
+              <ListingDetailsFields form={form} setForm={setForm} />
+              <p className="helper-text">Add up to 5 photos or videos (JPG, PNG, WEBP up to 5MB; MP4, MOV, WEBM up to 100MB). They&apos;ll be uploaded when you save the listing.</p>
+              <StagedImagePicker files={stagedImages} onAdd={addStagedImages} onRemove={removeStagedImage} />
+              <p className="helper-text">Listings are posted automatically under your registered municipality, {dashboard.data?.seller?.municipality?.name || 'your account municipality'}.</p>
+              <button onClick={() => saveListing.mutate()} type="button" disabled={saveListing.isPending}>{saveListing.isPending ? 'Saving...' : 'Save Listing'}</button>
+              {saveListing.error && <p className="error">{saveListing.error.response?.data?.message || 'Could not save listing.'}</p>}
             </Section>
           )}
           <Section title="My Listings">
@@ -1954,13 +2313,16 @@ function SellerDashboard() {
                   <img className="listing-thumb" src={resolveListingImage(listing)} alt={listing.title} />
                   <div>
                     <div className="card-row"><strong>{listing.title}</strong><Badge status={listing.approval_status} /></div>
-                    <p>{listing.species} · {Number(listing.quantity).toLocaleString()} pcs · {currency(listing.price_per_piece)}/pc</p>
+                    <p>
+                      {listing.species} · {formatQuantity(listing.quantity, listing)} · {currency(listing.price_per_piece)}/{unitLabel(listing)}
+                      {minimumOrder(listing) > 1 ? ` · min ${formatQuantity(minimumOrder(listing), listing)}` : ''}
+                    </p>
                     {listing.approval_status === 'rejected' && listing.rejection_reason && (
                       <p className="error">Reason: {listing.rejection_reason}</p>
                     )}
                   </div>
                   <div className="row-actions">
-                    <button type="button" className="ghost" onClick={() => startEdit(listing)}>Edit</button>
+                    <button type="button" className="ghost" onClick={() => setEditingListingId(listing.id)} disabled={!canManageListings}>Edit</button>
                     <button type="button" className="ghost danger" onClick={() => deleteListing.mutate(listing.id)}>Delete</button>
                   </div>
                 </div>
@@ -1969,6 +2331,9 @@ function SellerDashboard() {
             </div>
             {deleteListing.error && <p className="error">{deleteListing.error.response?.data?.message || 'Could not delete listing.'}</p>}
           </Section>
+          {editingListing && (
+            <ListingEditModal listing={editingListing} onClose={() => setEditingListingId(null)} />
+          )}
         </>
       )}
       {tab === 'orders' && (
@@ -1982,6 +2347,7 @@ function SellerDashboard() {
           </Section>
         </>
       )}
+      {tab === 'notices' && <SellerNoticesSection />}
       {tab === 'messages' && <Section title="Messages"><MessagesPanel initialUserId={searchParams.get('with') ? Number(searchParams.get('with')) : null} /></Section>}
       {tab === 'wallet' && (
         <>
@@ -2309,8 +2675,9 @@ function SellerOrderRow({ order, onUpdateStatus }) {
         <p>
           {order.listing?.title || order.listing?.species || 'Listing'} ·{' '}
           {order.buyer?.id ? <Link to={`/seller/buyers/${order.buyer.id}`}>{order.buyer.name}</Link> : (order.buyer?.name || 'Buyer')} ·{' '}
-          {Number(order.quantity).toLocaleString()} pcs · {currency(order.total_amount)}
+          {formatQuantity(order.quantity, order.listing)} · {currency(order.total_amount)}
         </p>
+        <p className="muted order-date-line"><CalendarDays size={14} /> Ordered {formatOrderDate(order.created_at)}</p>
         <Badge status={order.status}>{statusChartLabel(order.status)}</Badge>
         {order.buyerRating && (
           <p className="review-given">You rated this buyer: {renderStars(order.buyerRating.rating)} ({order.buyerRating.rating}/5)</p>
@@ -2385,6 +2752,7 @@ function LguEarningsRow({ payment, onApprove, approvingId, onClearHold, onReject
         <p>
           Order #{orderNumber} · {payment.order?.listing?.title || payment.order?.listing?.species || 'Listing'} · Buyer: {payment.order?.buyer?.name || 'Unknown buyer'}
         </p>
+        <p className="muted order-date-line"><CalendarDays size={14} /> Ordered {formatOrderDate(payment.order?.created_at)}</p>
         <p className="muted">{currency(payment.amount)} awaiting approval</p>
         {expanded && (
           <>
@@ -2452,6 +2820,7 @@ function LguRejectedEarningsRow({ payment, onReopen, reopeningId }) {
         <p>
           Order #{orderNumber} · {order?.listing?.title || order?.listing?.species || 'Listing'} · Buyer: {order?.buyer?.name || 'Unknown buyer'}
         </p>
+        <p className="muted order-date-line"><CalendarDays size={14} /> Ordered {formatOrderDate(order?.created_at)}</p>
         <p className="muted">{currency(payment.amount)} still held · Rejected {order?.lgu_reviewed_at ? new Date(order.lgu_reviewed_at).toLocaleDateString() : ''}{order?.reviewedBy?.name ? ` by ${order.reviewedBy.name}` : ''}</p>
         {order?.lgu_review_reason && <p className="error">Reason: {order.lgu_review_reason}</p>}
         {expanded && (
@@ -2657,6 +3026,8 @@ const ACTIVITY_ACTION_META = {
   listing_rejected: { label: 'Listing Rejected', icon: XCircle, tone: 'danger', category: 'listings_sellers' },
   listing_archived: { label: 'Listing Archived', icon: Archive, tone: 'neutral', category: 'listings_sellers' },
   seller_verified: { label: 'Seller Verified', icon: ShieldCheck, tone: 'success', category: 'listings_sellers' },
+  seller_registration_approved: { label: 'Seller Registration Approved', icon: ShieldCheck, tone: 'success', category: 'listings_sellers' },
+  seller_registration_rejected: { label: 'Seller Registration Rejected', icon: XCircle, tone: 'danger', category: 'listings_sellers' },
   buyer_suspended: { label: 'Buyer Suspended', icon: ShieldAlert, tone: 'danger', category: 'moderation' },
   buyer_reinstated: { label: 'Buyer Reinstated', icon: ShieldCheck, tone: 'success', category: 'moderation' },
   seller_suspended: { label: 'Seller Suspended', icon: ShieldAlert, tone: 'danger', category: 'moderation' },
@@ -2674,6 +3045,12 @@ const ACTIVITY_ACTION_META = {
   buyer_rating_submitted: { label: 'Buyer Rated', icon: Star, tone: 'info', category: 'reviews' },
   review_removed: { label: 'Review Removed', icon: Trash2, tone: 'danger', category: 'reviews' },
   buyer_rating_removed: { label: 'Buyer Rating Removed', icon: Trash2, tone: 'danger', category: 'reviews' },
+  user_report_filed: { label: 'User Report Filed', icon: Flag, tone: 'warning', category: 'reports' },
+  user_report_reviewed: { label: 'User Report Under Review', icon: Flag, tone: 'info', category: 'reports' },
+  user_report_resolved: { label: 'User Report Resolved', icon: CheckCircle, tone: 'success', category: 'reports' },
+  user_report_dismissed: { label: 'User Report Dismissed', icon: XCircle, tone: 'neutral', category: 'reports' },
+  seller_notice_issued: { label: 'Notice to Explain Issued', icon: ShieldAlert, tone: 'danger', category: 'reports' },
+  seller_notice_updated: { label: 'Notice to Explain Updated', icon: ShieldCheck, tone: 'info', category: 'reports' },
 }
 
 // Matches App\Support\ActivityLog::CATEGORIES on the backend -- this is the
@@ -2746,7 +3123,10 @@ function ActivityLogEntryCard({ scope, entry }) {
           {entry.municipality ? ` · ${entry.municipality}` : ''}
         </p>
         {entry.description && <p className="muted">{entry.description}</p>}
-        <p className="muted">{entry.timestamp ? new Date(entry.timestamp).toLocaleString() : ''}</p>
+        {/* Every audit entry is dated -- for order-linked actions this is when
+            the action happened; the order's own date is on the record the
+            entry links through to. */}
+        <p className="muted">{entry.timestamp ? formatOrderDate(entry.timestamp) : ''}</p>
       </div>
       {link && <ChevronRight size={18} className="activity-log-chevron" />}
     </>
@@ -3015,10 +3395,6 @@ function LguDashboard() {
     retry: false,
     placeholderData: { buyers: [], sellers: [] },
   })
-  const verifySeller = useMutation({
-    mutationFn: async (id) => (await api.patch(`/lgu/sellers/${id}/verify`)).data,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['lgu-sellers'] }),
-  })
   const suspendSeller = useMutation({
     mutationFn: async ({ id, reason, notes }) => (await api.patch(`/lgu/sellers/${id}/suspend`, { reason, notes })).data,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['lgu-sellers'] }),
@@ -3124,7 +3500,13 @@ function LguDashboard() {
       {tab === 'overview' && (
         <>
           <AnnouncementBanner />
-          <StatsRow items={[['Registered Sellers', reports.data?.registered_sellers ?? 0], ['Listings', reports.data?.listings ?? 0], ['Pending Approvals', reports.data?.pending_approvals ?? 0]]} />
+          <StatsRow items={[
+            ['Registered Sellers', reports.data?.registered_sellers ?? 0],
+            ['Listings', reports.data?.listings ?? 0],
+            ['Pending Approvals', reports.data?.pending_approvals ?? 0],
+            ['Open User Reports', lgu.data?.open_user_reports ?? 0],
+            ['Open Notices to Explain', lgu.data?.open_seller_notices ?? 0],
+          ]} />
           <Section title="Municipality Revenue" actions={<Link className="ghost" to="/lgu/dashboard?tab=wallet">Go to LGU Wallet</Link>}>
             <p className="helper-text">Your municipality&apos;s share of settled orders. Request a withdrawal of your Available Balance any time from the LGU Wallet page.</p>
             <StatsRow items={[
@@ -3159,7 +3541,7 @@ function LguDashboard() {
       )}
       {tab === 'listings' && (
         <Section title="Listing Management">
-          <p className="helper-text">All listings from sellers in your municipality, including already-approved ones. Open a listing to approve, reject, archive, or delete it.</p>
+          <p className="helper-text">All listings from sellers in your municipality, including already-approved ones. Open a listing to review it and approve, reject, or delete it.</p>
           {(listingManagement.data || []).length ? (
             <div className="item-list">
               {listingManagement.data.map((item) => (
@@ -3200,7 +3582,16 @@ function LguDashboard() {
         </Section>
       )}
       {tab === 'sellers' && (
-        <Section title="Manage Sellers">
+        <>
+          <SellerRegistrationQueue
+            endpointBase="/lgu"
+            queryKey="lgu-seller-registrations"
+            stageLabel="New seller registrations in your municipality, waiting on your review. Approving verifies the seller right away and lets them start creating listings."
+            approveLabel="Approve Registration"
+            emptyMessage="No seller registrations awaiting your review."
+            extraInvalidateKeys={['lgu-sellers', 'lgu-dashboard']}
+          />
+          <Section title="Manage Sellers">
           {sellersDirectory.data?.length ? (
             <div className="item-list">
               {sellersDirectory.data.map((seller) => (
@@ -3209,12 +3600,12 @@ function LguDashboard() {
                     <div className="card-row">
                       <strong>{seller.hatchery_name}</strong>
                       <Badge status={seller.status} />
+                      <Badge status={seller.approval_status}>{seller.approval_status_label}</Badge>
                     </div>
                     <p>{seller.user?.email}</p>
                   </div>
                   <div className="row-actions">
                     {seller.user_id && <Link className="ghost" to={`/lgu/dashboard?tab=messages&with=${seller.user_id}`}><MessageCircle size={16} /> Message</Link>}
-                    {!seller.verified && <button type="button" onClick={() => verifySeller.mutate(seller.id)}>Verify</button>}
                     <ModerationAction
                       suspended={seller.status === 'suspended'}
                       onSuspend={(reason, notes) => suspendSeller.mutate({ id: seller.id, reason, notes })}
@@ -3225,8 +3616,17 @@ function LguDashboard() {
               ))}
             </div>
           ) : <EmptyState message="No sellers registered in your municipality yet." />}
-        </Section>
+          </Section>
+        </>
       )}
+      {tab === 'user-reports' && (
+        <UserReportsPanel
+          endpointBase="/lgu"
+          queryKey="lgu-user-reports"
+          scopeLabel="Complaints filed by buyers about sellers in your municipality, and by your sellers about buyers. Reviewing a report never changes an account's standing on its own -- suspend from the Sellers or Users tab if that is what the case calls for."
+        />
+      )}
+      {tab === 'notices' && <SellerNoticesPanel />}
       {tab === 'earnings' && (
         <Section title="Seller Earnings Awaiting Approval">
           <p className="helper-text">Only completed (delivered) orders from sellers in your municipality appear here. Approving moves the earnings from the seller&apos;s Pending Balance into their Available Balance.</p>
@@ -3406,8 +3806,6 @@ function LguListingReviewPage() {
   const queryClient = useQueryClient()
   const [showReject, setShowReject] = useState(false)
   const [reason, setReason] = useState('')
-  const [showArchive, setShowArchive] = useState(false)
-  const [archiveReason, setArchiveReason] = useState('')
   const [showDelete, setShowDelete] = useState(false)
   const [deleteReason, setDeleteReason] = useState('')
 
@@ -3443,10 +3841,6 @@ function LguListingReviewPage() {
     mutationFn: async () => (await api.patch(`/lgu/listings/${id}/reject`, reason.trim() ? { reason: reason.trim() } : {})).data,
     onSuccess: goToApprovals,
   })
-  const archive = useMutation({
-    mutationFn: async () => (await api.patch(`/lgu/listings/${id}/archive`, archiveReason.trim() ? { reason: archiveReason.trim() } : {})).data,
-    onSuccess: goToListingManagement,
-  })
   const destroyListing = useMutation({
     mutationFn: async () => (await api.delete(`/lgu/listings/${id}`, { data: { reason: deleteReason.trim() } })).data,
     onSuccess: goToListingManagement,
@@ -3471,7 +3865,7 @@ function LguListingReviewPage() {
   }
 
   const seller = sellerQuery.data?.seller
-  const busy = approve.isPending || reject.isPending || archive.isPending || destroyListing.isPending
+  const busy = approve.isPending || reject.isPending || destroyListing.isPending
   const canModerate = listing.municipality_id === getSession()?.municipality_id
 
   return (
@@ -3529,25 +3923,18 @@ function LguListingReviewPage() {
 
           <Section title="Remove Listing">
             <div className="card">
-              <p className="helper-text">Archiving hides the listing from the marketplace but keeps its records. Deleting permanently removes it (only possible if it has no orders). The seller is notified either way.</p>
+              <p className="helper-text">Deleting permanently removes the listing from the marketplace (only possible if it has no orders). The seller is notified.</p>
               <div className="row-actions">
-                <button type="button" className="ghost" onClick={() => setShowArchive(!showArchive)} disabled={busy}>Archive Listing</button>
                 <button type="button" className="ghost danger" onClick={() => setShowDelete(!showDelete)} disabled={busy}>Delete Listing</button>
               </div>
-              {showArchive && (
-                <div className="form grid-form withdrawal-reject-form">
-                  <input value={archiveReason} onChange={(e) => setArchiveReason(e.target.value)} placeholder="Reason for archiving (optional)" />
-                  <button type="button" className="danger" onClick={() => archive.mutate()} disabled={busy}>Confirm Archive</button>
-                </div>
-              )}
               {showDelete && (
                 <div className="form grid-form withdrawal-reject-form">
                   <input value={deleteReason} onChange={(e) => setDeleteReason(e.target.value)} placeholder="Reason for deletion (required)" required />
                   <button type="button" className="danger" onClick={confirmDelete} disabled={busy || !deleteReason.trim()}>Confirm Delete</button>
                 </div>
               )}
-              {(archive.error || destroyListing.error) && (
-                <p className="error">{archive.error?.response?.data?.message || destroyListing.error?.response?.data?.message || 'Could not update listing.'}</p>
+              {destroyListing.error && (
+                <p className="error">{destroyListing.error?.response?.data?.message || 'Could not update listing.'}</p>
               )}
             </div>
           </Section>
@@ -3567,12 +3954,8 @@ function SuperAdminListingReviewPage() {
   const queryClient = useQueryClient()
   const [showReject, setShowReject] = useState(false)
   const [reason, setReason] = useState('')
-  const [showArchive, setShowArchive] = useState(false)
-  const [archiveReason, setArchiveReason] = useState('')
   const [showDelete, setShowDelete] = useState(false)
   const [deleteReason, setDeleteReason] = useState('')
-  const [editing, setEditing] = useState(false)
-  const [form, setForm] = useState({ species: '', title: '', quantity: '', price_per_piece: '', description: '' })
 
   const listingQuery = useQuery({
     queryKey: ['super-admin-listing', id],
@@ -3601,41 +3984,14 @@ function SuperAdminListingReviewPage() {
     mutationFn: async () => (await api.patch(`/super-admin/listings/${id}/reject`, reason.trim() ? { reason: reason.trim() } : {})).data,
     onSuccess: goToListingManagement,
   })
-  const archive = useMutation({
-    mutationFn: async () => (await api.patch(`/super-admin/listings/${id}/archive`, archiveReason.trim() ? { reason: archiveReason.trim() } : {})).data,
-    onSuccess: goToListingManagement,
-  })
   const destroyListing = useMutation({
     mutationFn: async () => (await api.delete(`/super-admin/listings/${id}`, { data: { reason: deleteReason.trim() } })).data,
     onSuccess: goToListingManagement,
-  })
-  const updateListing = useMutation({
-    mutationFn: async () => (await api.patch(`/super-admin/listings/${id}`, {
-      species: form.species,
-      title: form.title,
-      quantity: Number(form.quantity),
-      price_per_piece: Number(form.price_per_piece),
-      description: form.description,
-    })).data,
-    onSuccess: () => {
-      setEditing(false)
-      queryClient.invalidateQueries({ queryKey: ['super-admin-listing', id] })
-    },
   })
   const confirmDelete = () => {
     if (!deleteReason.trim()) return
     if (!window.confirm(`Delete "${listing.title}"? This cannot be undone.`)) return
     destroyListing.mutate()
-  }
-  const startEdit = () => {
-    setForm({
-      species: listing.species || '',
-      title: listing.title || '',
-      quantity: String(listing.quantity ?? ''),
-      price_per_piece: String(listing.price_per_piece ?? ''),
-      description: listing.description || '',
-    })
-    setEditing(true)
   }
 
   if (listingQuery.isLoading) return <main className="detail-page"><LoadingState label="Loading listing..." /></main>
@@ -3652,7 +4008,7 @@ function SuperAdminListingReviewPage() {
   }
 
   const seller = sellerQuery.data?.seller
-  const busy = approve.isPending || reject.isPending || archive.isPending || destroyListing.isPending || updateListing.isPending
+  const busy = approve.isPending || reject.isPending || destroyListing.isPending
 
   return (
     <main>
@@ -3685,27 +4041,6 @@ function SuperAdminListingReviewPage() {
         </section>
       </Section>
 
-      <Section title="Edit Listing">
-        <div className="card">
-          {editing ? (
-            <div className="form grid-form">
-              <input value={form.species} onChange={(e) => setForm({ ...form, species: e.target.value })} placeholder="Species" />
-              <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Title" />
-              <input type="number" min="0" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} placeholder="Quantity" />
-              <input type="number" min="0.01" step="0.01" value={form.price_per_piece} onChange={(e) => setForm({ ...form, price_per_piece: e.target.value })} placeholder="Price per piece" />
-              <input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Description" />
-              <div className="row-actions">
-                <button type="button" onClick={() => updateListing.mutate()} disabled={busy}>Save Changes</button>
-                <button type="button" className="ghost" onClick={() => setEditing(false)} disabled={busy}>Cancel</button>
-              </div>
-              {updateListing.error && <p className="error">{updateListing.error.response?.data?.message || 'Could not update listing.'}</p>}
-            </div>
-          ) : (
-            <button type="button" className="ghost" onClick={startEdit} disabled={busy}>Edit Listing Details</button>
-          )}
-        </div>
-      </Section>
-
       {listing.approval_status === 'pending' && (
         <Section title="Moderation Decision">
           <div className="card">
@@ -3728,25 +4063,18 @@ function SuperAdminListingReviewPage() {
 
       <Section title="Remove Listing">
         <div className="card">
-          <p className="helper-text">Archiving hides the listing from the marketplace but keeps its records. Deleting permanently removes it (only possible if it has no orders). The seller is notified either way.</p>
+          <p className="helper-text">Deleting permanently removes the listing from the marketplace (only possible if it has no orders). The seller is notified.</p>
           <div className="row-actions">
-            <button type="button" className="ghost" onClick={() => setShowArchive(!showArchive)} disabled={busy}>Archive Listing</button>
             <button type="button" className="ghost danger" onClick={() => setShowDelete(!showDelete)} disabled={busy}>Delete Listing</button>
           </div>
-          {showArchive && (
-            <div className="form grid-form withdrawal-reject-form">
-              <input value={archiveReason} onChange={(e) => setArchiveReason(e.target.value)} placeholder="Reason for archiving (optional)" />
-              <button type="button" className="danger" onClick={() => archive.mutate()} disabled={busy}>Confirm Archive</button>
-            </div>
-          )}
           {showDelete && (
             <div className="form grid-form withdrawal-reject-form">
               <input value={deleteReason} onChange={(e) => setDeleteReason(e.target.value)} placeholder="Reason for deletion (required)" required />
               <button type="button" className="danger" onClick={confirmDelete} disabled={busy || !deleteReason.trim()}>Confirm Delete</button>
             </div>
           )}
-          {(archive.error || destroyListing.error) && (
-            <p className="error">{archive.error?.response?.data?.message || destroyListing.error?.response?.data?.message || 'Could not update listing.'}</p>
+          {destroyListing.error && (
+            <p className="error">{destroyListing.error?.response?.data?.message || 'Could not update listing.'}</p>
           )}
         </div>
       </Section>
@@ -4163,6 +4491,7 @@ function SuperAdminDashboard() {
               ['Pending Seller Approvals', dashboard.data?.pending_seller_approvals ?? 0],
               ['Pending LGU Approvals', dashboard.data?.pending_lgu_approvals ?? 0],
               ['Pending Listing Approvals', dashboard.data?.pending_listing_approvals ?? 0],
+              ['Open User Reports', dashboard.data?.open_user_reports ?? 0],
               ['Pending Seller Withdrawals', dashboard.data?.pending_seller_withdrawals ?? 0],
               ['Pending LGU Withdrawals', dashboard.data?.pending_lgu_withdrawals ?? 0],
             ]} />
@@ -4224,7 +4553,7 @@ function SuperAdminDashboard() {
       )}
       {tab === 'listings' && (
         <Section title="Listing Management">
-          <p className="helper-text">All listings platform-wide, across every municipality. Open a listing to view, edit, approve, reject, archive, or delete it.</p>
+          <p className="helper-text">All listings platform-wide, across every municipality. Open a listing to review it and approve, reject, or delete it.</p>
           {(listingManagement.data || []).length ? (
             <div className="item-list">
               {listingManagement.data.map((item) => (
@@ -4358,14 +4687,27 @@ function SuperAdminDashboard() {
         </>
       )}
       {tab === 'sellers' && (
-        <Section title="All Sellers (Platform-Wide)">
+        <>
+          <SellerRegistrationQueue
+            endpointBase="/super-admin"
+            queryKey="super-admin-seller-registrations"
+            stageLabel="Seller registrations awaiting review across every municipality. These are normally handled by each municipality's own LGU Admin -- approve one here when that LGU Admin is unavailable. Approving verifies the seller and lets them start creating listings."
+            approveLabel="Approve Registration"
+            emptyMessage="No seller registrations awaiting review."
+            extraInvalidateKeys={['super-admin-sellers', 'super-admin-dashboard']}
+          />
+          <Section title="All Sellers (Platform-Wide)">
           <p className="helper-text">Super Admin may suspend any seller regardless of municipality. Suspended sellers cannot create, edit, or publish listings, receive new orders, or request withdrawals. Existing completed orders are unaffected. Removing deletes the account and its listings permanently and is only possible for sellers with no order history; suspend anyone who has already traded.</p>
           {(sellersQuery.data || []).length ? (
             <div className="item-list">
               {sellersQuery.data.map((seller) => (
                 <div className="card action" key={seller.id}>
                   <div>
-                    <div className="card-row"><strong>{seller.hatchery_name}</strong><Badge status={seller.status} /></div>
+                    <div className="card-row">
+                      <strong>{seller.hatchery_name}</strong>
+                      <Badge status={seller.status} />
+                      <Badge status={seller.approval_status}>{seller.approval_status_label}</Badge>
+                    </div>
                     <p>{seller.municipality?.name || 'Unknown'} · {seller.verified ? 'Verified' : 'Not verified'} · {seller.listings?.length ?? 0} listings · {Number(seller.rating || 0).toFixed(1)}/5</p>
                   </div>
                   <div className="row-actions">
@@ -4387,13 +4729,21 @@ function SuperAdminDashboard() {
               ))}
             </div>
           ) : <EmptyState message="No sellers on the platform yet." />}
-        </Section>
+          </Section>
+        </>
+      )}
+      {tab === 'user-reports' && (
+        <UserReportsPanel
+          endpointBase="/super-admin"
+          queryKey="super-admin-user-reports"
+          scopeLabel="Every complaint filed across the platform, in every municipality. LGU Admins handle the reports for their own municipality; you can act on any of them. Reviewing a report never changes an account's standing on its own -- suspend from the Sellers or Users tab if that is what the case calls for."
+        />
       )}
       {tab === 'transactions' && (
         <>
           <SuperAdminOrderLookup />
           <Section title="All Transactions">
-            <OrderTable rows={dashboard.data?.transactions || []} detailsEndpoint={(orderNumber) => `/super-admin/orders/${orderNumber}`} />
+            <OrderTable rows={dashboard.data?.transactions || []} detailsEndpoint={(orderNumber) => `/super-admin/orders/${orderNumber}`} showOrderDate />
           </Section>
         </>
       )}
@@ -4538,6 +4888,476 @@ const BUYER_SUSPENSION_REASONS = [
  * free-text reason, regardless of role -- same accountability expectation
  * as suspending: every status change needs a stated reason on the record.
  */
+/**
+ * Seller Registration Approval queue, shared by the LGU Admin and the Super
+ * Admin. One approval is enough and both reviewers take the same two
+ * decisions, so they share one component -- only the endpoints and the scope
+ * of the queue differ (own municipality vs. platform-wide fallback). See
+ * backend App\Support\SellerApproval.
+ */
+/** How a report/notice status reads on screen, and its badge colour. */
+const REPORT_STATUS_META = {
+  pending: { label: 'Pending', tone: 'warning' },
+  open: { label: 'Open', tone: 'warning' },
+  under_review: { label: 'Under Review', tone: 'info' },
+  resolved: { label: 'Resolved', tone: 'success' },
+  dismissed: { label: 'Dismissed', tone: 'neutral' },
+}
+
+function ReportStatusBadge({ status }) {
+  const meta = REPORT_STATUS_META[status] || { label: status, tone: 'neutral' }
+  return <Badge tone={meta.tone}>{meta.label}</Badge>
+}
+
+/**
+ * "Report this user" button + popup. One component for both directions -- a
+ * Buyer reporting a Seller and a Seller reporting a Buyer post to the same
+ * endpoint, which derives the direction from the caller's role (see backend
+ * UserReportController).
+ */
+function ReportUserAction({ userId, userName, label = 'Report User' }) {
+  const [open, setOpen] = useState(false)
+  const [form, setForm] = useState({ reason: '', description: '' })
+
+  const reasons = useQuery({
+    queryKey: ['report-reasons'],
+    queryFn: async () => (await api.get('/reports/reasons')).data.reasons,
+    enabled: open,
+    retry: false,
+    placeholderData: [],
+  })
+
+  const submit = useMutation({
+    mutationFn: async () => (await api.post('/reports', {
+      reported_user_id: userId,
+      reason: form.reason || reasons.data?.[0],
+      description: form.description,
+    })).data,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['my-reports'] })
+      setForm({ reason: '', description: '' })
+      setOpen(false)
+    },
+  })
+
+  const reason = form.reason || reasons.data?.[0] || ''
+  const canSubmit = Boolean(reason) && form.description.trim().length >= 10
+
+  return (
+    <>
+      <button type="button" className="ghost danger" onClick={() => setOpen(true)}>
+        <ShieldAlert size={16} /> {label}
+      </button>
+      {open && (
+        <Modal
+          title={label}
+          subtitle={userName}
+          onClose={() => setOpen(false)}
+          footer={
+            <>
+              <button type="button" className="danger" disabled={!canSubmit || submit.isPending} onClick={() => submit.mutate()}>
+                {submit.isPending ? 'Submitting...' : 'Submit Report'}
+              </button>
+              <button type="button" className="ghost" disabled={submit.isPending} onClick={() => setOpen(false)}>Cancel</button>
+            </>
+          }
+        >
+          <p className="helper-text">
+            Reports go to the LGU Admin for this municipality and to the Super Admin. Describe what happened as clearly as you can --
+            they will review it and decide what action to take. Filing a report does not suspend anyone by itself.
+          </p>
+          <label className="filter-label">
+            Reason
+            <select value={reason} onChange={(e) => setForm({ ...form, reason: e.target.value })}>
+              {(reasons.data || []).map((option) => <option key={option} value={option}>{option}</option>)}
+            </select>
+          </label>
+          <label className="filter-label">
+            What happened?
+            <textarea
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              placeholder="Give the details: dates, order numbers, and what went wrong (at least 10 characters)."
+              rows={5}
+            />
+          </label>
+          {submit.error && <p className="error">{submit.error.response?.data?.message || 'Could not submit this report.'}</p>}
+        </Modal>
+      )}
+    </>
+  )
+}
+
+/**
+ * Reports Dashboard, shared by the LGU Admin (own municipality) and the Super
+ * Admin (platform-wide). Shows every column the two roles need to act --
+ * Reporter, Reported User, Reason, Description, Date, Status -- and lets them
+ * move a report through under review / resolved / dismissed with notes.
+ */
+function UserReportsPanel({ endpointBase, queryKey, scopeLabel }) {
+  const [statusFilter, setStatusFilter] = useState('open')
+  const [actingId, setActingId] = useState(null)
+  const [decision, setDecision] = useState({ status: 'under_review', notes: '' })
+
+  const reports = useQuery({
+    queryKey: [queryKey],
+    queryFn: async () => (await api.get(`${endpointBase}/user-reports`)).data,
+    retry: false,
+    placeholderData: [],
+  })
+
+  const updateReport = useMutation({
+    mutationFn: async ({ id, status, notes }) => (await api.patch(`${endpointBase}/user-reports/${id}`, {
+      status,
+      resolution_notes: notes || undefined,
+    })).data,
+    onSuccess: () => {
+      setActingId(null)
+      setDecision({ status: 'under_review', notes: '' })
+      queryClient.invalidateQueries({ queryKey: [queryKey] })
+    },
+  })
+
+  const rows = (reports.data || []).filter((report) => {
+    if (statusFilter === 'all') return true
+    if (statusFilter === 'open') return !['resolved', 'dismissed'].includes(report.status)
+    return report.status === statusFilter
+  })
+
+  return (
+    <Section title="User Reports">
+      <p className="helper-text">{scopeLabel}</p>
+      <div className="filters">
+        <label className="filter-label">
+          Status
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <option value="open">Open (pending &amp; under review)</option>
+            <option value="pending">Pending</option>
+            <option value="under_review">Under Review</option>
+            <option value="resolved">Resolved</option>
+            <option value="dismissed">Dismissed</option>
+            <option value="all">All</option>
+          </select>
+        </label>
+      </div>
+      {rows.length ? (
+        <div className="item-list">
+          {rows.map((report) => (
+            <div className="card report-card" key={report.id}>
+              <div className="card-row">
+                <strong>
+                  {report.reporter?.name || 'Unknown'} <span className="muted">({report.reporter_role})</span>
+                  {' → '}
+                  {report.reportedUser?.name || 'Unknown'} <span className="muted">({report.reported_role})</span>
+                </strong>
+                <ReportStatusBadge status={report.status} />
+              </div>
+              <p className="report-reason"><strong>Reason:</strong> {report.reason}</p>
+              <p className="report-description">{report.description}</p>
+              <p className="muted">
+                Filed {new Date(report.created_at).toLocaleString()}
+                {report.municipality?.name ? ` · ${report.municipality.name}` : ''}
+                {report.order?.order_number ? ` · Order ${report.order.order_number}` : ''}
+              </p>
+              {report.resolution_notes && (
+                <p className="helper-text"><strong>Notes:</strong> {report.resolution_notes}{report.reviewer?.name ? ` — ${report.reviewer.name}` : ''}</p>
+              )}
+              {actingId === report.id ? (
+                <div className="form grid-form">
+                  <select value={decision.status} onChange={(e) => setDecision({ ...decision, status: e.target.value })}>
+                    <option value="under_review">Mark Under Review</option>
+                    <option value="resolved">Resolve</option>
+                    <option value="dismissed">Dismiss</option>
+                  </select>
+                  <textarea
+                    value={decision.notes}
+                    onChange={(e) => setDecision({ ...decision, notes: e.target.value })}
+                    placeholder="Notes on your decision (optional, shared with the reporter)"
+                    rows={2}
+                  />
+                  <div className="row-actions">
+                    <button type="button" disabled={updateReport.isPending} onClick={() => updateReport.mutate({ id: report.id, status: decision.status, notes: decision.notes.trim() })}>
+                      Save Decision
+                    </button>
+                    <button type="button" className="ghost" disabled={updateReport.isPending} onClick={() => setActingId(null)}>Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="row-actions">
+                  <button type="button" className="ghost" onClick={() => { setActingId(report.id); setDecision({ status: 'under_review', notes: '' }) }}>Take Action</button>
+                  {report.reported_user_id && (
+                    <Link className="ghost" to={`${endpointBase === '/lgu' ? '/lgu' : '/admin'}/dashboard?tab=messages&with=${report.reported_user_id}`}>
+                      <MessageCircle size={16} /> Message Reported User
+                    </Link>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : <EmptyState message="No reports match this filter." />}
+      {updateReport.error && <p className="error">{updateReport.error.response?.data?.message || 'Could not update this report.'}</p>}
+    </Section>
+  )
+}
+
+/**
+ * Notices to Explain -- the LGU's dedicated dashboard for sellers
+ * automatically flagged for a low average rating (backend
+ * App\Support\SellerReputation). Raising a notice never suspends anyone; this
+ * is where the LGU reads the seller's explanation and decides what to do,
+ * including suspending them from the Sellers tab if that is warranted.
+ */
+function SellerNoticesPanel() {
+  const [actingId, setActingId] = useState(null)
+  const [decision, setDecision] = useState({ status: 'under_review', notes: '' })
+
+  const notices = useQuery({
+    queryKey: ['lgu-seller-notices'],
+    queryFn: async () => (await api.get('/lgu/seller-notices')).data,
+    retry: false,
+    placeholderData: [],
+  })
+
+  const updateNotice = useMutation({
+    mutationFn: async ({ id, status, notes }) => (await api.patch(`/lgu/seller-notices/${id}`, {
+      status,
+      lgu_notes: notes || undefined,
+    })).data,
+    onSuccess: () => {
+      setActingId(null)
+      setDecision({ status: 'under_review', notes: '' })
+      queryClient.invalidateQueries({ queryKey: ['lgu-seller-notices'] })
+      queryClient.invalidateQueries({ queryKey: ['lgu-dashboard'] })
+    },
+  })
+
+  return (
+    <Section title="Notices to Explain">
+      <p className="helper-text">
+        Sellers in your municipality whose average buyer rating has fallen to 3 stars or below are flagged here automatically, and are asked to
+        explain. A notice is not a penalty -- nobody is suspended by it. Read the seller&apos;s response and decide what action, if any, to take;
+        suspension is still done from the Sellers tab.
+      </p>
+      {(notices.data || []).length ? (
+        <div className="item-list">
+          {notices.data.map((notice) => (
+            <div className="card report-card" key={notice.id}>
+              <div className="card-row">
+                <strong>{notice.sellerProfile?.hatchery_name || 'Seller'}</strong>
+                <Badge tone="danger">{Number(notice.average_rating || 0).toFixed(2)}/5</Badge>
+                <ReportStatusBadge status={notice.status} />
+              </div>
+              <p className="report-description">{notice.details}</p>
+              <p className="muted">
+                Issued {new Date(notice.created_at).toLocaleString()} · {notice.ratings_count} review{notice.ratings_count === 1 ? '' : 's'} at the time
+              </p>
+              {notice.seller_response ? (
+                <div className="notice-response">
+                  <strong>Seller&apos;s explanation</strong>
+                  <p>{notice.seller_response}</p>
+                  <p className="muted">Responded {notice.responded_at ? new Date(notice.responded_at).toLocaleString() : ''}</p>
+                </div>
+              ) : (
+                <p className="helper-text">The seller has not responded yet.</p>
+              )}
+              {notice.lgu_notes && <p className="helper-text"><strong>Your notes:</strong> {notice.lgu_notes}</p>}
+              {actingId === notice.id ? (
+                <div className="form grid-form">
+                  <select value={decision.status} onChange={(e) => setDecision({ ...decision, status: e.target.value })}>
+                    <option value="under_review">Mark Under Review</option>
+                    <option value="resolved">Resolve</option>
+                    <option value="dismissed">Dismiss</option>
+                  </select>
+                  <textarea
+                    value={decision.notes}
+                    onChange={(e) => setDecision({ ...decision, notes: e.target.value })}
+                    placeholder="Notes on your decision (optional, shared with the seller)"
+                    rows={2}
+                  />
+                  <div className="row-actions">
+                    <button type="button" disabled={updateNotice.isPending} onClick={() => updateNotice.mutate({ id: notice.id, status: decision.status, notes: decision.notes.trim() })}>
+                      Save Decision
+                    </button>
+                    <button type="button" className="ghost" disabled={updateNotice.isPending} onClick={() => setActingId(null)}>Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="row-actions">
+                  <button type="button" className="ghost" onClick={() => { setActingId(notice.id); setDecision({ status: 'under_review', notes: '' }) }}>Take Action</button>
+                  {notice.sellerProfile?.user_id && (
+                    <Link className="ghost" to={`/lgu/dashboard?tab=messages&with=${notice.sellerProfile.user_id}`}><MessageCircle size={16} /> Message Seller</Link>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : <EmptyState message="No sellers in your municipality are currently flagged for a low rating." />}
+      {updateNotice.error && <p className="error">{updateNotice.error.response?.data?.message || 'Could not update this notice.'}</p>}
+    </Section>
+  )
+}
+
+/**
+ * The seller's own Notices to Explain. Raised automatically when their average
+ * rating falls to 3 stars or below -- the seller answers here, and their LGU
+ * reads the answer and decides. Responding never closes a notice.
+ */
+function SellerNoticesSection() {
+  const [drafts, setDrafts] = useState({})
+
+  const notices = useQuery({
+    queryKey: ['seller-notices'],
+    queryFn: async () => (await api.get('/seller/notices')).data,
+    retry: false,
+    placeholderData: [],
+  })
+
+  const respond = useMutation({
+    mutationFn: async ({ id, response }) => (await api.post(`/seller/notices/${id}/respond`, { response })).data,
+    onSuccess: (_data, variables) => {
+      setDrafts((current) => ({ ...current, [variables.id]: '' }))
+      queryClient.invalidateQueries({ queryKey: ['seller-notices'] })
+      queryClient.invalidateQueries({ queryKey: ['seller-dashboard'] })
+    },
+  })
+
+  return (
+    <Section title="Notices to Explain">
+      <p className="helper-text">
+        If your average buyer rating falls to 3 stars or below, your LGU is notified automatically and asks you to explain. This is not a
+        suspension -- your account and listings are unaffected. Respond here, and your LGU will review your explanation and decide what happens next.
+      </p>
+      {(notices.data || []).length ? (
+        <div className="item-list">
+          {notices.data.map((notice) => {
+            const open = ['open', 'under_review'].includes(notice.status)
+            const draft = drafts[notice.id] ?? ''
+            return (
+              <div className="card report-card" key={notice.id}>
+                <div className="card-row">
+                  <strong>Low Rating Notice</strong>
+                  <Badge tone="danger">{Number(notice.average_rating || 0).toFixed(2)}/5</Badge>
+                  <ReportStatusBadge status={notice.status} />
+                </div>
+                <p className="report-description">{notice.details}</p>
+                <p className="muted">Issued {new Date(notice.created_at).toLocaleString()}</p>
+                {notice.seller_response && (
+                  <div className="notice-response">
+                    <strong>Your explanation</strong>
+                    <p>{notice.seller_response}</p>
+                  </div>
+                )}
+                {notice.lgu_notes && <p className="helper-text"><strong>LGU notes:</strong> {notice.lgu_notes}</p>}
+                {open ? (
+                  <div className="form grid-form">
+                    <textarea
+                      value={draft}
+                      onChange={(e) => setDrafts((current) => ({ ...current, [notice.id]: e.target.value }))}
+                      placeholder={notice.seller_response ? 'Add to your explanation (at least 10 characters)' : 'Explain what happened and what you are doing about it (at least 10 characters)'}
+                      rows={4}
+                    />
+                    <button
+                      type="button"
+                      disabled={draft.trim().length < 10 || respond.isPending}
+                      onClick={() => respond.mutate({ id: notice.id, response: draft.trim() })}
+                    >
+                      {respond.isPending ? 'Sending...' : 'Send Explanation'}
+                    </button>
+                  </div>
+                ) : (
+                  <p className="helper-text">This notice has been closed by your LGU.</p>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      ) : <EmptyState message="You have no notices. Keep your ratings above 3 stars and none will be raised." />}
+      {respond.error && <p className="error">{respond.error.response?.data?.message || 'Could not send your explanation.'}</p>}
+    </Section>
+  )
+}
+
+function SellerRegistrationQueue({ endpointBase, queryKey, stageLabel, approveLabel, emptyMessage, extraInvalidateKeys = [] }) {
+  const [rejectingId, setRejectingId] = useState(null)
+  const [reason, setReason] = useState('')
+
+  const registrations = useQuery({
+    queryKey: [queryKey],
+    queryFn: async () => (await api.get(`${endpointBase}/seller-registrations`)).data,
+    retry: false,
+    placeholderData: [],
+  })
+
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: [queryKey] })
+    extraInvalidateKeys.forEach((key) => queryClient.invalidateQueries({ queryKey: [key] }))
+  }
+
+  const approve = useMutation({
+    mutationFn: async (id) => (await api.patch(`${endpointBase}/sellers/${id}/approve-registration`)).data,
+    onSuccess: refresh,
+  })
+  const reject = useMutation({
+    mutationFn: async ({ id, reason: why }) => (await api.patch(`${endpointBase}/sellers/${id}/reject-registration`, { reason: why })).data,
+    onSuccess: () => {
+      setRejectingId(null)
+      setReason('')
+      refresh()
+    },
+  })
+
+  const busy = approve.isPending || reject.isPending
+
+  return (
+    <Section title="Seller Registration Approvals">
+      <p className="helper-text">{stageLabel}</p>
+      {registrations.data?.length ? (
+        <div className="item-list">
+          {registrations.data.map((seller) => (
+            <div className="card action" key={seller.id}>
+              <div>
+                <div className="card-row">
+                  <strong>{seller.hatchery_name}</strong>
+                  <Badge status={seller.approval_status}>{seller.approval_status_label}</Badge>
+                </div>
+                <p>{seller.user?.name} · {seller.user?.email}{seller.user?.phone ? ` · ${seller.user.phone}` : ''}</p>
+                <p className="muted">
+                  {seller.municipality?.name || 'Unknown municipality'} · Registered {new Date(seller.created_at).toLocaleDateString()}
+                </p>
+                {seller.approval_status === 'rejected' && seller.registration_rejection_reason && (
+                  <p className="error">Rejected: {seller.registration_rejection_reason}</p>
+                )}
+              </div>
+              <div className="row-actions">
+                {seller.user_id && <Link className="ghost" to={`${endpointBase === '/lgu' ? '/lgu' : '/admin'}/dashboard?tab=messages&with=${seller.user_id}`}><MessageCircle size={16} /> Message</Link>}
+                {rejectingId === seller.id ? (
+                  <div className="moderation-form">
+                    <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason for rejection (required)" />
+                    <div className="row-actions">
+                      <button type="button" className="danger" disabled={busy || !reason.trim()} onClick={() => reject.mutate({ id: seller.id, reason: reason.trim() })}>Confirm Reject</button>
+                      <button type="button" className="ghost" disabled={busy} onClick={() => { setRejectingId(null); setReason('') }}>Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <button type="button" disabled={busy} onClick={() => approve.mutate(seller.id)}>{approveLabel}</button>
+                    <button type="button" className="ghost danger" disabled={busy} onClick={() => { setRejectingId(seller.id); setReason('') }}>Reject</button>
+                  </>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : <EmptyState message={emptyMessage} />}
+      {(approve.error || reject.error) && (
+        <p className="error">{approve.error?.response?.data?.message || reject.error?.response?.data?.message || 'Could not update this registration.'}</p>
+      )}
+    </Section>
+  )
+}
+
 function ModerationAction({ suspended, reasons, onSuspend, onReinstate }) {
   const [mode, setMode] = useState(null) // null | 'suspend' | 'reinstate'
   const [reason, setReason] = useState('')
@@ -4875,8 +5695,13 @@ function OrderTableDetailRow({ orderNumber, detailsEndpoint }) {
  * paid would otherwise sit at "Paid Held" until their LGU settles the order,
  * which reads like something is still owed. Their Order Status column already
  * says where the order actually is.
+ *
+ * showOrderDate adds an Order Date column to the row itself. It is on for the
+ * Buyer Dashboard's Recent Orders, where the date should be readable at a
+ * glance without expanding anything; the expandable View Details panel and
+ * every other caller are unchanged.
  */
-function OrderTable({ rows, onReview, detailsEndpoint, initialExpandedOrderNumber, showPaymentStatus = true }) {
+function OrderTable({ rows, onReview, detailsEndpoint, initialExpandedOrderNumber, showPaymentStatus = true, showOrderDate = false }) {
   const [expandedOrderNumber, setExpandedOrderNumber] = useState(initialExpandedOrderNumber || null)
 
   const normalized = (rows || []).map((row) => {
@@ -4892,6 +5717,7 @@ function OrderTable({ rows, onReview, detailsEndpoint, initialExpandedOrderNumbe
       seller_contact_name: sellerPersonName && sellerPersonName !== hatcheryName ? sellerPersonName : null,
       seller_avatar: sellerProfile?.profile_picture || null,
       quantity: row.quantity,
+      quantity_label: formatQuantity(row.quantity, row.listing),
       status: row.status,
       payment_status: row.payment?.status || row.payment_status || 'pending',
       total_amount: row.total_amount || row.amount || 0,
@@ -4911,6 +5737,7 @@ function OrderTable({ rows, onReview, detailsEndpoint, initialExpandedOrderNumbe
         <span>Order #</span>
         <span>Seller</span>
         <span>Qty</span>
+        {showOrderDate && <span>Order Date</span>}
         <span>Status</span>
         {showPaymentStatus && <span>Payment</span>}
         {onReview && <span>Review</span>}
@@ -4925,7 +5752,13 @@ function OrderTable({ rows, onReview, detailsEndpoint, initialExpandedOrderNumbe
               <Avatar src={row.seller_avatar} alt={row.seller_name} className="order-seller-avatar" />
               {row.seller_name}{row.seller_contact_name ? ` (${row.seller_contact_name})` : ''}
             </span>
-            <span>{Number(row.quantity).toLocaleString()}</span>
+            <span>{row.quantity_label}</span>
+            {showOrderDate && (
+              <span className="order-date-cell">
+                {formatOrderDate(row.created_at, { withTime: false })}
+                {row.created_at && <small>{new Date(row.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small>}
+              </span>
+            )}
             <span><Badge status={row.status}>{statusChartLabel(row.status)}</Badge></span>
             {showPaymentStatus && <span><Badge status={row.payment_status}>{statusChartLabel(row.payment_status)}</Badge></span>}
             {onReview && <ReviewCell row={row} onReview={onReview} />}
@@ -5015,11 +5848,12 @@ function OrderDetailPanel({ detail }) {
     <div className="order-detail-panel">
       <div className="order-detail-grid">
         <div className="order-detail-field"><span className="order-detail-field-label">Order Number</span><span>{detail.order_number}</span></div>
+        <div className="order-detail-field"><span className="order-detail-field-label">Order Date</span><span>{formatOrderDate(detail.created_at)}</span></div>
         <div className="order-detail-field"><span className="order-detail-field-label">Listing</span><span>{detail.listing?.title || detail.listing?.species || 'N/A'}</span></div>
         <div className="order-detail-field"><span className="order-detail-field-label">Seller</span><span>{detail.seller?.hatchery_name || 'N/A'}</span></div>
         <div className="order-detail-field"><span className="order-detail-field-label">Buyer</span><span>{detail.buyer?.name || 'N/A'}</span></div>
         {detail.municipality && <div className="order-detail-field"><span className="order-detail-field-label">Municipality</span><span>{detail.municipality.name}</span></div>}
-        <div className="order-detail-field"><span className="order-detail-field-label">Quantity</span><span>{Number(detail.quantity).toLocaleString()} pcs</span></div>
+        <div className="order-detail-field"><span className="order-detail-field-label">Quantity</span><span>{formatQuantity(detail.quantity, detail.listing)}</span></div>
         <div className="order-detail-field"><span className="order-detail-field-label">Total Amount</span><span>{currency(detail.total_amount)}</span></div>
         <div className="order-detail-field"><span className="order-detail-field-label">Payment Status</span><span><Badge status={detail.payment_status || 'pending'}>{statusChartLabel(detail.payment_status || 'pending')}</Badge></span></div>
         <div className="order-detail-field"><span className="order-detail-field-label">Order Status</span><span><Badge status={detail.order_status}>{statusChartLabel(detail.order_status)}</Badge></span></div>
@@ -5229,6 +6063,183 @@ function CategoryBarChart({ title, data, dataKey, nameKey, colorFor, valueFormat
   )
 }
 
+/**
+ * Buyer Turnout / ROI -- the investment view for farmers.
+ *
+ * Split deliberately into two halves that must never be confused: everything
+ * above the "Earnings Calculator" is recorded fact from their own order
+ * history, and everything under it is an estimate driven by the two
+ * assumptions the farmer sets there. AbaiMarket only sees what they BUY -- it
+ * has no idea what they later sold their grown fish for -- so the calculator's
+ * outputs stay labelled "Estimated" / "Projected" individually, and its
+ * disclaimer says plainly that these are not realised earnings.
+ */
+function BuyerInvestmentPanel({ data, assumptions, setAssumptions, updating = false }) {
+  const investment = data?.investment
+  if (!investment) return null
+
+  const { investment: money, turnout, units = [], projection, assumptions: applied, purchase_history: history = [] } = investment
+  const survivalPercent = Math.round((applied?.survival_rate ?? 0.8) * 100)
+  const harvestValue = applied?.harvest_value_per_piece ?? 0
+  const returnPositive = (projection?.projected_return ?? 0) >= 0
+
+  return (
+    <>
+      <Section title="Investment Overview">
+        <p className="helper-text">
+          What you have actually put into fingerlings, taken straight from your completed orders.
+        </p>
+        <StatsRow items={[
+          ['Total Invested', currency(money.total_invested), true],
+          ['Committed (Orders in Progress)', currency(money.committed_investment)],
+          ['Total Exposure', currency(money.total_exposure)],
+          ['Lifetime Invested', currency(money.lifetime_invested)],
+          ['Average Order Value', currency(money.average_order_value)],
+        ]} />
+      </Section>
+
+      <Section title="Buyer Turnout">
+        <p className="helper-text">How actively you are buying, and how much of what you start actually completes.</p>
+        <StatsRow items={[
+          ['Total Orders', turnout.total_orders],
+          ['Completed', turnout.completed_orders],
+          ['In Progress', turnout.active_orders],
+          ['Completion Rate', `${turnout.completion_rate}%`],
+          ['Hatcheries Bought From', turnout.sellers_engaged],
+        ]} />
+        <p className="helper-text">
+          {turnout.first_purchase
+            ? `First purchase ${formatOrderDate(turnout.first_purchase, { withTime: false })} · Most recent ${formatOrderDate(turnout.last_purchase, { withTime: false })}`
+            : 'No completed purchases in this period yet.'}
+        </p>
+        {units.length > 0 && (
+          <div className="unit-breakdown">
+            {units.map((unit) => (
+              <div className="card unit-breakdown-card" key={unit.unit_type}>
+                <strong>{Number(unit.quantity).toLocaleString()} {unit.unit_label}</strong>
+                <span className="muted">{unit.orders} order{unit.orders === 1 ? '' : 's'} · {currency(unit.amount)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </Section>
+
+      <Section title="Earnings Calculator">
+        <div className="card roi-assumptions">
+          <p className="helper-text">
+            <strong>These are estimates, not earnings.</strong> AbaiMarket only records what you buy -- it cannot know what you sell your
+            grown fish for. Enter your own survival rate and farm-gate price below and the projection recalculates. Piece-priced purchases
+            only; stock bought by kilogram or bulk is excluded from this maths.
+          </p>
+          <div className="form grid-form">
+            <label className="filter-label">
+              Expected survival rate (%)
+              <input
+                type="number"
+                min="0"
+                max="100"
+                value={assumptions.survival_rate}
+                onChange={(e) => setAssumptions({ ...assumptions, survival_rate: e.target.value })}
+                placeholder={String(Math.round((applied?.defaults?.survival_rate ?? 0.8) * 100))}
+              />
+              <span className="helper-text">Share of fingerlings you expect to reach harvest.</span>
+            </label>
+            <label className="filter-label">
+              Farm-gate value per harvested fish (₱)
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={assumptions.harvest_value_per_piece}
+                onChange={(e) => setAssumptions({ ...assumptions, harvest_value_per_piece: e.target.value })}
+                placeholder={String(applied?.defaults?.harvest_value_per_piece ?? 25)}
+              />
+              <span className="helper-text">What one grown fish sells for in your area.</span>
+            </label>
+          </div>
+          <p className="helper-text roi-applied-line">
+            <span>
+              Currently projecting at <strong>{survivalPercent}% survival</strong> and <strong>{currency(harvestValue)} per fish</strong>.
+            </span>
+            {updating && <span className="muted">Updating…</span>}
+            {(assumptions.survival_rate || assumptions.harvest_value_per_piece) && (
+              <button type="button" className="link-action" onClick={() => setAssumptions({ survival_rate: '', harvest_value_per_piece: '' })}>
+                Reset to defaults
+              </button>
+            )}
+          </p>
+        </div>
+
+        {projection.pieces_purchased > 0 ? (
+          <>
+            <StatsRow items={[
+              ['Fingerlings Bought', Number(projection.pieces_purchased).toLocaleString()],
+              ['Projected Survivors', Number(projection.projected_survivors).toLocaleString()],
+              ['Projected Harvest Value', currency(projection.projected_revenue)],
+              ['Estimated Return', currency(projection.projected_return), returnPositive],
+              ['Estimated ROI', `${projection.projected_roi_percent}%`, returnPositive],
+            ]} />
+            <div className="roi-insight-grid">
+              <div className="card roi-insight">
+                <span className="muted">Your cost per fingerling</span>
+                <strong>{currency(projection.cost_per_piece)}</strong>
+              </div>
+              <div className="card roi-insight">
+                <span className="muted">Break-even price per harvested fish</span>
+                <strong>{currency(projection.break_even_value_per_piece)}</strong>
+                <span className="helper-text">Sell above this and this stock turns a profit.</span>
+              </div>
+              <div className="card roi-insight">
+                <span className="muted">Expected losses at {survivalPercent}% survival</span>
+                <strong>{Number(projection.projected_losses).toLocaleString()} pcs</strong>
+              </div>
+            </div>
+            {projection.excluded_orders > 0 && (
+              <p className="helper-text">
+                {projection.excluded_orders} order{projection.excluded_orders === 1 ? ' was' : 's were'} bought by kilogram or bulk and
+                {projection.excluded_orders === 1 ? ' is' : ' are'} not included in this projection.
+              </p>
+            )}
+          </>
+        ) : (
+          <EmptyState message="No piece-priced purchases in this period yet, so there is nothing to project." />
+        )}
+      </Section>
+
+      <Section title="Purchase History">
+        <p className="helper-text">Your completed purchases in this period.</p>
+        {history.length ? (
+          <div className="table">
+            <div className="table-row first">
+              <span>Date</span>
+              <span>Order #</span>
+              <span>Hatchery</span>
+              <span>Species</span>
+              <span>Quantity</span>
+              <span>Unit Price</span>
+              <span>Total</span>
+            </div>
+            {history.map((row) => (
+              <div className="table-row" key={row.order_number}>
+                <span className="order-date-cell">
+                  {formatOrderDate(row.date, { withTime: false })}
+                  <small>{new Date(row.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small>
+                </span>
+                <span>{row.order_number}</span>
+                <span>{row.seller || 'Unknown'}</span>
+                <span>{row.species || 'Fingerlings'}</span>
+                <span>{Number(row.quantity).toLocaleString()} {row.unit_label}</span>
+                <span>{currency(row.unit_price)}</span>
+                <span>{currency(row.total_amount)}</span>
+              </div>
+            ))}
+          </div>
+        ) : <EmptyState message="No completed purchases in this period." />}
+      </Section>
+    </>
+  )
+}
+
 function MessagesPanel({ initialUserId }) {
   const session = getSession()
   const [activeUserId, setActiveUserId] = useState(initialUserId || null)
@@ -5297,6 +6308,18 @@ function MessagesPanel({ initialUserId }) {
     markRead.mutate(userId)
   }
 
+  // Where "View Profile" goes for the person in the open conversation, or null
+  // when this pairing has no profile page to open.
+  const counterpart = thread.data?.user
+  const threadProfilePath = (() => {
+    if (!counterpart) return null
+    if (session?.role === 'seller' && counterpart.role === 'buyer') return `/seller/buyers/${counterpart.id}`
+    if (session?.role === 'buyer' && counterpart.role === 'seller' && counterpart.seller_profile_id) {
+      return sellerProfilePath(counterpart.seller_profile_id)
+    }
+    return null
+  })()
+
   return (
     <div className="messages-layout">
       <div className="card thread-list">
@@ -5312,6 +6335,9 @@ function MessagesPanel({ initialUserId }) {
             <div>
               <strong>{item.user.name}</strong>
               <span>{item.last_message?.body}</span>
+              {item.last_message?.created_at && (
+                <span className="thread-timestamp">{formatMessageTimestamp(item.last_message.created_at)}</span>
+              )}
             </div>
             {item.unread_count > 0 && <span className="pill">{item.unread_count} new</span>}
           </button>
@@ -5324,8 +6350,12 @@ function MessagesPanel({ initialUserId }) {
             <h4>
               <Avatar src={thread.data?.user?.profile_picture} alt={thread.data?.user?.name} className="thread-header-avatar" />
               {thread.data?.user?.name || 'Conversation'}
-              {session?.role === 'seller' && thread.data?.user?.role === 'buyer' && (
-                <Link className="seller-name-link thread-view-profile" to={`/seller/buyers/${thread.data.user.id}`}>View Profile</Link>
+              {/* View Profile works both ways: a seller opens the buyer they're
+                  talking to, and a buyer opens the hatchery. The seller's page
+                  is addressed by seller_profiles.id, which the thread payload
+                  carries for seller counterparts (MessageController). */}
+              {threadProfilePath && (
+                <Link className="seller-name-link thread-view-profile" to={threadProfilePath}>View Profile</Link>
               )}
             </h4>
             <div className="message-log">
@@ -5352,6 +6382,33 @@ function MessagesPanel({ initialUserId }) {
 }
 
 const MESSAGE_EDIT_WINDOW_MS = 15 * 60 * 1000
+
+/**
+ * Date + time for one message, shown on every bubble for both sender and
+ * receiver. Today's messages read "Today, 2:34 PM" and this year's drop the
+ * year, so a long thread stays scannable while still always carrying a date.
+ */
+function formatMessageTimestamp(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+
+  const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  const today = new Date()
+  const isSameDay = (a, b) => a.toDateString() === b.toDateString()
+  const yesterday = new Date(today)
+  yesterday.setDate(today.getDate() - 1)
+
+  if (isSameDay(date, today)) return `Today, ${time}`
+  if (isSameDay(date, yesterday)) return `Yesterday, ${time}`
+
+  const day = date.toLocaleDateString(undefined, {
+    year: date.getFullYear() === today.getFullYear() ? undefined : 'numeric',
+    month: 'short',
+    day: 'numeric',
+  })
+  return `${day}, ${time}`
+}
 
 function MessageBubble({ message, isMine, onEdit, onDelete }) {
   const [editing, setEditing] = useState(false)
@@ -5405,7 +6462,17 @@ function MessageBubble({ message, isMine, onEdit, onDelete }) {
     <div className={`message-bubble ${isMine ? 'mine' : 'theirs'}`}>
       <p className={isDeleted ? 'deleted' : ''}>{message.body}</p>
       <div className="message-meta">
-        {!isDeleted && message.edited_at && <span className="muted">(edited)</span>}
+        {/* Date and time on every message, for whoever is reading it -- this
+            bubble renders identically for the sender and the receiver, so both
+            sides see the same stamp. Read straight from messages.created_at,
+            which every message has always had, so existing conversations show
+            their real history rather than a blank. */}
+        <span className="message-timestamp" title={new Date(message.created_at).toString()}>
+          {formatMessageTimestamp(message.created_at)}
+        </span>
+        {!isDeleted && message.edited_at && (
+          <span className="muted" title={new Date(message.edited_at).toString()}>· edited {formatMessageTimestamp(message.edited_at)}</span>
+        )}
         {canModify && withinEditWindow && <button type="button" className="link-action" onClick={() => setEditing(true)}>Edit</button>}
         {canModify && <button type="button" className="link-action" disabled={busy} onClick={remove}>Delete</button>}
       </div>
@@ -5854,6 +6921,11 @@ function SellerProfilePage() {
             <MessageCircle size={16} /> Chat Seller
           </button>
         )}
+        {/* Reporting is buyer -> seller only; admins moderate from their own
+            dashboards and a seller cannot report another seller. */}
+        {seller.user_id && session?.role === 'buyer' && (
+          <ReportUserAction userId={seller.user_id} userName={seller.hatchery_name} label="Report Seller" />
+        )}
       </section>
       {farmDetails.length > 0 && (
         <Section title="About This Hatchery">
@@ -5874,9 +6946,10 @@ function SellerProfilePage() {
             items={sellerListings}
             detailPath={
               session?.role === 'buyer' ? (item) => `/buyer/listings/${item.id}?source=browse`
-                : session?.role === 'lgu_admin' ? (item) => `/lgu/listings/${item.id}`
-                  : session?.role === 'super_admin' ? (item) => `/admin/listings/${item.id}`
-                    : undefined
+                : session?.role === 'seller' ? (item) => `/seller/listings/${item.id}?source=marketplace`
+                  : session?.role === 'lgu_admin' ? (item) => `/lgu/listings/${item.id}`
+                    : session?.role === 'super_admin' ? (item) => `/admin/listings/${item.id}`
+                      : undefined
             }
           />
         ) : <EmptyState message="No listings available from this seller yet." />}
@@ -6006,9 +7079,12 @@ function BuyerProfileForSellerPage() {
           <span><strong>Total Spent (with you):</strong> {currency(stats.total_spent)}</span>
           <span><strong>Most Recent Purchase:</strong> {stats.most_recent_purchase ? new Date(stats.most_recent_purchase).toLocaleDateString() : 'None yet'}</span>
         </div>
-        <button className="button" type="button" onClick={() => navigate(`/seller/dashboard?tab=messages&with=${buyer.id}`)}>
-          <MessageCircle size={16} /> Message Buyer
-        </button>
+        <div className="row-actions">
+          <button className="button" type="button" onClick={() => navigate(`/seller/dashboard?tab=messages&with=${buyer.id}`)}>
+            <MessageCircle size={16} /> Message Buyer
+          </button>
+          <ReportUserAction userId={buyer.id} userName={buyer.name} label="Report Buyer" />
+        </div>
       </section>
 
       <Section title="Rate this Buyer">

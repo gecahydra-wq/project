@@ -10,6 +10,7 @@ use App\Models\Message;
 use App\Models\MockPayment;
 use App\Models\Order;
 use App\Models\Review;
+use App\Models\SellerNotice;
 use App\Models\SellerProfile;
 use App\Models\User;
 use App\Models\WithdrawalRequest;
@@ -30,7 +31,10 @@ class SellerController extends Controller
         $seller = SellerProfile::with(['user', 'municipality'])->where('user_id', $request->user()->id)->firstOrFail();
 
         return response()->json([
-            'seller' => $seller,
+            // A seller always sees their own registration review notes -- the
+            // dashboard banner explains why a rejected registration was turned
+            // down (see SellerProfile::$hidden).
+            'seller' => $seller->makeVisible(SellerProfile::REVIEW_FIELDS),
             'active_listings' => FingerlingListing::where('seller_profile_id', $seller->id)->count(),
             'pending_orders' => Order::where('seller_profile_id', $seller->id)->whereIn('status', ['placed', 'paid', 'confirmed'])->count(),
             'total_sales' => Order::where('seller_profile_id', $seller->id)->where('status', 'completed')->sum('total_amount'),
@@ -43,6 +47,12 @@ class SellerController extends Controller
             // same way (see OrderController::index).
             'orders' => Order::with(['listing', 'payment', 'buyer', 'buyerRating'])->where('seller_profile_id', $seller->id)->latest()->get(),
             'notifications' => AppNotification::where('user_id', $request->user()->id)->whereNull('read_at')->latest()->get(),
+            // Open Notices to Explain, so the dashboard can surface one the
+            // seller still has to answer (App\Support\SellerReputation).
+            'open_notices' => SellerNotice::where('seller_profile_id', $seller->id)
+                ->whereIn('status', SellerNotice::OPEN_STATUSES)
+                ->latest()
+                ->get(),
         ]);
     }
 
@@ -325,6 +335,55 @@ class SellerController extends Controller
      * buyer's cached aggregate on buyer_profiles is refreshed after each,
      * mirroring how a Review refreshes seller_profiles.rating.
      */
+    /**
+     * The seller's own Notices to Explain -- raised automatically when their
+     * average rating falls to 3 stars or below (App\Support\SellerReputation).
+     */
+    public function notices(Request $request)
+    {
+        $seller = SellerProfile::where('user_id', $request->user()->id)->firstOrFail();
+
+        return response()->json(
+            SellerNotice::where('seller_profile_id', $seller->id)->latest()->get()
+        );
+    }
+
+    /**
+     * Answer a Notice to Explain. This is the whole point of the notice: the
+     * seller explains, the LGU reads it and decides. Answering does not close
+     * the notice -- only the LGU can do that.
+     */
+    public function respondToNotice(Request $request, SellerNotice $notice)
+    {
+        $seller = SellerProfile::where('user_id', $request->user()->id)->firstOrFail();
+
+        abort_if($notice->seller_profile_id !== $seller->id, 403, 'You can only respond to your own notices.');
+        abort_if(! in_array($notice->status, SellerNotice::OPEN_STATUSES, true), 422, 'This notice has already been closed by your LGU.');
+
+        $data = $request->validate([
+            'response' => ['required', 'string', 'min:10', 'max:2000'],
+        ]);
+
+        $notice->update([
+            'seller_response' => $data['response'],
+            'responded_at' => now(),
+            // Answering moves it out of the untouched queue so the LGU can see
+            // which notices are actually waiting on them.
+            'status' => $notice->status === 'open' ? 'under_review' : $notice->status,
+        ]);
+
+        foreach (User::where('role', 'lgu_admin')->where('municipality_id', $seller->municipality_id)->get() as $admin) {
+            AppNotification::create([
+                'user_id' => $admin->id,
+                'type' => 'seller_notice_answered',
+                'title' => 'Seller Responded to Notice',
+                'body' => "{$seller->hatchery_name} has responded to their Notice to Explain. Review it under Notices to Explain and decide what action to take.",
+            ]);
+        }
+
+        return response()->json($notice->fresh());
+    }
+
     public function rateBuyer(Request $request, Order $order)
     {
         $seller = SellerProfile::where('user_id', $request->user()->id)->firstOrFail();

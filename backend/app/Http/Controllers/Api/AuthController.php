@@ -8,6 +8,7 @@ use App\Models\SellerProfile;
 use App\Models\User;
 use App\Support\AuthValidation;
 use App\Support\SafeMailer;
+use App\Support\SellerApproval;
 use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -27,9 +28,11 @@ class AuthController extends Controller
 {
     /**
      * Register a Buyer or Seller. Also provisions the matching profile row --
-     * a BuyerProfile, or a SellerProfile that starts as 'pending' until an LGU
-     * Admin verifies it. Sends the email-verification link but deliberately
-     * returns NO token, so the new account can't be used until verified.
+     * a BuyerProfile, or a SellerProfile that starts in the registration
+     * approval queue and must be approved by an LGU Admin (or the Super Admin)
+     * before it can list (App\Support\SellerApproval). Sends the
+     * email-verification link but deliberately returns NO token, so the new
+     * account can't be used until verified.
      *
      * @throws \Illuminate\Validation\ValidationException  On invalid input or a
      *         duplicate email. municipality_id is required for sellers only.
@@ -64,6 +67,10 @@ class AuthController extends Controller
                 'hatchery_name' => $user->name,
                 'description' => 'New hatchery profile pending LGU verification.',
                 'status' => 'pending',
+                // Enters the registration review queue. Listing creation stays
+                // blocked until an LGU Admin (or the Super Admin) approves --
+                // see App\Support\SellerApproval.
+                'approval_status' => SellerApproval::PENDING,
             ]);
         }
 

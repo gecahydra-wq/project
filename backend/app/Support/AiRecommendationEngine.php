@@ -83,7 +83,7 @@ class AiRecommendationEngine
 
         if ($cheapestOnly) {
             $ranked = $listings->sortBy('price_per_piece')->values()->take(5);
-            $lines = $ranked->map(fn ($l, $i) => self::describeListing($i + 1, $l).' -- price '.$l->price_per_piece.' per piece.')->implode(' ');
+            $lines = $ranked->map(fn ($l, $i) => self::describeListing($i + 1, $l).' -- price '.$l->price_per_piece.' per '.$l->unit_label.'.')->implode(' ');
             $context = "Cheapest listings, ranked by price: {$lines}";
 
             return ['subject' => 'buyer_recommendations', 'context' => $context, 'fallback' => ['English' => $context, 'Tagalog' => $context, 'Bisaya' => $context]];
@@ -91,8 +91,9 @@ class AiRecommendationEngine
 
         $scored = self::scoreListingsForBuyer($listings, $user->municipality_id)->take(5);
         $lines = $scored->values()->map(fn ($l, $i) => self::describeListing($i + 1, $l).sprintf(
-            ' -- price %s/pc, rating %s/5 (%d reviews), %d completed orders, %s, %d in stock, score %.2f.',
+            ' -- price %s/%s, rating %s/5 (%d reviews), %d completed orders, %s, %d in stock, score %.2f.',
             $l->price_per_piece,
+            $l->unit_label,
             $l->sellerProfile->rating,
             $l->reviews_count,
             $l->completed_orders,

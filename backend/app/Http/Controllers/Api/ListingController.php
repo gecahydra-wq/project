@@ -7,7 +7,9 @@ use App\Models\FingerlingListing;
 use App\Models\ListingMedia;
 use App\Models\SellerProfile;
 use App\Support\ImageUploader;
+use App\Support\SellerApproval;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 /**
  * Fingerling listings -- the marketplace catalogue and the seller's own
@@ -16,8 +18,9 @@ use Illuminate\Http\Request;
  * Public reads (index/show) only ever surface APPROVED listings from
  * non-suspended sellers; the LGU/Super Admin moderation views use their own
  * controllers to see pending/rejected/archived ones. All writes are restricted
- * to the listing's owning seller, and suspended sellers are blocked from
- * creating or editing. A listing with existing orders can't be deleted (the
+ * to the listing's owning seller. Suspended sellers -- and sellers whose
+ * registration has not been approved yet -- are blocked from creating or
+ * editing. A listing with existing orders can't be deleted (the
  * order history must be preserved) -- setting quantity to 0 takes it off the
  * market instead.
  */
@@ -72,13 +75,22 @@ class ListingController extends Controller
             return response()->json(['message' => 'Suspended sellers cannot create listings.'], 403);
         }
 
+        if ($response = $this->guardRegistrationApproved($seller)) {
+            return $response;
+        }
+
         $data = $request->validate([
             'species' => ['required', 'string'],
             'scientific_name' => ['nullable', 'string'],
             'title' => ['required', 'string'],
             'description' => ['nullable', 'string'],
             'quantity' => ['required', 'integer', 'min:1'],
+            // The price of ONE unit_type unit -- per piece, per kilogram, or
+            // per bulk, whichever the seller chose.
             'price_per_piece' => ['required', 'numeric', 'min:0.01'],
+            'unit_type' => ['nullable', Rule::in(array_keys(FingerlingListing::UNIT_TYPES))],
+            'minimum_order' => ['nullable', 'integer', 'min:1'],
+            'unit_description' => ['nullable', 'string', 'max:255'],
             'average_size' => ['nullable', 'string'],
             'availability_status' => ['nullable', 'string'],
         ]);
@@ -101,6 +113,10 @@ class ListingController extends Controller
             return response()->json(['message' => 'Suspended sellers cannot edit listings.'], 403);
         }
 
+        if ($response = $this->guardRegistrationApproved($seller)) {
+            return $response;
+        }
+
         $data = $request->validate([
             'species' => ['sometimes', 'string'],
             'scientific_name' => ['nullable', 'string'],
@@ -108,6 +124,9 @@ class ListingController extends Controller
             'description' => ['nullable', 'string'],
             'quantity' => ['sometimes', 'integer', 'min:0'],
             'price_per_piece' => ['sometimes', 'numeric', 'min:0.01'],
+            'unit_type' => ['sometimes', Rule::in(array_keys(FingerlingListing::UNIT_TYPES))],
+            'minimum_order' => ['sometimes', 'integer', 'min:1'],
+            'unit_description' => ['nullable', 'string', 'max:255'],
             'average_size' => ['nullable', 'string'],
             'availability_status' => ['nullable', 'string'],
         ]);
@@ -214,5 +233,24 @@ class ListingController extends Controller
         $seller = SellerProfile::where('user_id', $request->user()->id)->firstOrFail();
 
         abort_if($listing->seller_profile_id !== $seller->id, 403, 'You can only manage images on your own listings.');
+    }
+
+    /**
+     * The Seller Registration Approval gate: a seller may only create or edit
+     * listings once their registration has been approved by an LGU Admin or
+     * the Super Admin (App\Support\SellerApproval). Returns a 403 response to
+     * return, or null when the seller is cleared.
+     */
+    private function guardRegistrationApproved(SellerProfile $seller): ?\Illuminate\Http\JsonResponse
+    {
+        if (SellerApproval::isApproved($seller)) {
+            return null;
+        }
+
+        $message = $seller->approval_status === SellerApproval::REJECTED
+            ? 'Your seller registration was rejected'.($seller->registration_rejection_reason ? ": {$seller->registration_rejection_reason}" : '.').' Contact your LGU to have it reviewed again.'
+            : 'Your seller registration is still awaiting approval. You can manage listings once your LGU Admin has approved it.';
+
+        return response()->json(['message' => $message], 403);
     }
 }

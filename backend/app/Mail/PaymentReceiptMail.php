@@ -44,7 +44,7 @@ class PaymentReceiptMail extends Mailable
                     ['Order Number', $order->order_number],
                     ['Seller', $order->sellerProfile?->hatchery_name ?? 'Unknown seller'],
                     ['Item', $order->listing?->species ?? 'Fingerlings'],
-                    ['Quantity', number_format($order->quantity).' pcs'],
+                    ['Quantity', number_format($order->quantity).' '.($order->listing?->unit_label_plural ?? 'pcs')],
                     ['Unit Price', '₱'.number_format((float) $order->unit_price, 2)],
                     ['Total Amount Paid', '₱'.number_format((float) $order->total_amount, 2)],
                     ['Payment Method', 'PayMongo'],

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\Review;
+use App\Support\SellerReputation;
 use Illuminate\Http\Request;
 
 /**
@@ -55,9 +56,11 @@ class ReviewController extends Controller
             'comment' => $data['comment'] ?? null,
         ]);
 
-        $order->sellerProfile()->update([
-            'rating' => round(Review::where('seller_profile_id', $order->seller_profile_id)->avg('rating'), 2),
-        ]);
+        // Refreshes seller_profiles.rating and, if the new average has fallen
+        // to 3 stars or below, automatically raises a Notice to Explain and
+        // notifies the seller's LGU. It never suspends anyone -- see
+        // App\Support\SellerReputation.
+        SellerReputation::refreshAverage($order->seller_profile_id, $request->user());
 
         return response()->json($review, 201);
     }

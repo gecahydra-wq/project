@@ -64,8 +64,8 @@ class CartController extends Controller
 
         $quantity = ($existing?->quantity ?? 0) + $data['quantity'];
 
-        if ($quantity > $listing->quantity) {
-            return response()->json(['message' => 'Requested quantity exceeds available stock.'], 422);
+        if ($issue = $listing->quantityIssue($quantity)) {
+            return response()->json(['message' => $issue], 422);
         }
 
         $item = CartItem::updateOrCreate(
@@ -86,8 +86,8 @@ class CartController extends Controller
 
         $item->loadMissing('listing');
 
-        if ($data['quantity'] > $item->listing->quantity) {
-            return response()->json(['message' => 'Requested quantity exceeds available stock.'], 422);
+        if ($issue = $item->listing->quantityIssue((int) $data['quantity'])) {
+            return response()->json(['message' => $issue], 422);
         }
 
         $item->update(['quantity' => $data['quantity']]);
@@ -130,7 +130,18 @@ class CartController extends Controller
             ! $listing => 'This listing is no longer available.',
             $listing->approval_status !== 'approved' => 'This listing is no longer available.',
             (int) $listing->quantity <= 0 => 'This listing is out of stock.',
-            $item->quantity > (int) $listing->quantity => sprintf('Only %s pcs left -- lower the quantity to check out.', number_format((int) $listing->quantity)),
+            $item->quantity > (int) $listing->quantity => sprintf(
+                'Only %s %s left -- lower the quantity to check out.',
+                number_format((int) $listing->quantity),
+                $listing->unit_label_plural
+            ),
+            // The seller may have raised their Minimum Order after this line
+            // was saved, so a saved cart line can fall below it retroactively.
+            $item->quantity < $listing->minimumOrder() => sprintf(
+                'This seller now requires a minimum order of %s %s -- raise the quantity to check out.',
+                number_format($listing->minimumOrder()),
+                $listing->unit_label_plural
+            ),
             default => null,
         };
 
@@ -148,6 +159,15 @@ class CartController extends Controller
                 'species' => $listing->species,
                 'price_per_piece' => $unitPrice,
                 'quantity' => (int) $listing->quantity,
+                // Unit of Measurement + Minimum Order, so the cart can label
+                // quantities and enforce the minimum in the same words the
+                // listing page uses.
+                'unit_type' => $listing->unit_type,
+                'unit_label' => $listing->unit_label,
+                'unit_label_plural' => $listing->unit_label_plural,
+                'unit_type_label' => $listing->unit_type_label,
+                'unit_description' => $listing->unit_description,
+                'minimum_order' => $listing->minimumOrder(),
                 'approval_status' => $listing->approval_status,
                 'media' => $listing->media,
                 'municipality' => $listing->municipality ? ['id' => $listing->municipality->id, 'name' => $listing->municipality->name] : null,

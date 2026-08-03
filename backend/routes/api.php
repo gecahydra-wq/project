@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\SellerPostController;
 use App\Http\Controllers\Api\SellerPostInteractionController;
 use App\Http\Controllers\Api\SellerProfileController;
 use App\Http\Controllers\Api\SuperAdminController;
+use App\Http\Controllers\Api\UserReportController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('auth')->group(function () {
@@ -110,12 +111,22 @@ Route::middleware(['auth:sanctum', 'verified', 'role:seller'])->group(function (
     Route::delete('seller/posts/{post}', [SellerPostController::class, 'destroy']);
     Route::post('seller/posts/{post}/media', [SellerPostController::class, 'addMedia']);
     Route::delete('seller/posts/{post}/media/{media}', [SellerPostController::class, 'deleteMedia']);
+    // Notices to Explain raised against this seller by the automatic
+    // low-rating check (App\Support\SellerReputation). The seller can read and
+    // answer them; only their LGU can close one.
+    Route::get('seller/notices', [SellerController::class, 'notices']);
+    Route::post('seller/notices/{notice}/respond', [SellerController::class, 'respondToNotice']);
     Route::get('seller/buyers/{buyer}', [SellerController::class, 'buyerProfile']);
     Route::post('orders/{order}/rate-buyer', [SellerController::class, 'rateBuyer']);
     Route::patch('orders/{order:order_number}/notes', [OrderController::class, 'updateSellerNotes']);
 });
 
 Route::middleware(['auth:sanctum', 'verified', 'role:buyer,seller'])->group(function () {
+    // User Reports -- a Buyer reports a Seller, a Seller reports a Buyer. The
+    // direction is derived from the caller's role (UserReportController).
+    Route::get('reports/reasons', [UserReportController::class, 'reasons']);
+    Route::get('reports/mine', [UserReportController::class, 'mine']);
+    Route::post('reports', [UserReportController::class, 'store']);
     Route::get('orders', [OrderController::class, 'index']);
     // Order Lookup by Order Number -- Buyer's own orders, or Seller's own
     // listings' orders (scoped in OrderController::show). Also how the
@@ -147,9 +158,20 @@ Route::prefix('lgu')->middleware(['auth:sanctum', 'verified', 'role:lgu_admin'])
     Route::patch('listings/{listing}/archive', [LguController::class, 'archiveListing']);
     Route::delete('listings/{listing}', [LguController::class, 'destroyListing']);
     Route::get('sellers', [LguController::class, 'sellers']);
+    // Seller Registration Approval, stage 1 (App\Support\SellerApproval).
+    // 'verify' is kept as a backwards-compatible alias of 'approve'.
+    Route::get('seller-registrations', [LguController::class, 'sellerRegistrations']);
+    Route::patch('sellers/{seller}/approve-registration', [LguController::class, 'approveSellerRegistration']);
+    Route::patch('sellers/{seller}/reject-registration', [LguController::class, 'rejectSellerRegistration']);
     Route::patch('sellers/{seller}/verify', [LguController::class, 'verifySeller']);
     Route::patch('sellers/{seller}/suspend', [LguController::class, 'suspendSeller']);
     Route::patch('sellers/{seller}/reinstate', [LguController::class, 'reinstateSeller']);
+    // User Reports and Notices to Explain -- both scoped to this LGU's own
+    // municipality (App\Support\UserReports / App\Support\SellerReputation).
+    Route::get('user-reports', [LguController::class, 'userReports']);
+    Route::patch('user-reports/{report}', [LguController::class, 'updateUserReport']);
+    Route::get('seller-notices', [LguController::class, 'sellerNotices']);
+    Route::patch('seller-notices/{notice}', [LguController::class, 'updateSellerNotice']);
     Route::get('users', [LguController::class, 'users']);
     Route::get('reviews', [PlatformController::class, 'lguReviews']);
     Route::delete('reviews/{review}', [LguController::class, 'destroyReview']);
@@ -189,9 +211,17 @@ Route::prefix('super-admin')->middleware(['auth:sanctum', 'verified', 'role:supe
     Route::patch('lgu-admins/{admin}/disable', [SuperAdminController::class, 'disableLguAdmin']);
     Route::patch('lgu-admins/{admin}/enable', [SuperAdminController::class, 'enableLguAdmin']);
     Route::get('sellers', [PlatformController::class, 'sellers']);
+    // Seller Registration Approval, stage 2 -- the final approval that makes a
+    // seller verified and able to list (App\Support\SellerApproval).
+    Route::get('seller-registrations', [SuperAdminController::class, 'sellerRegistrations']);
+    Route::patch('sellers/{seller}/approve-registration', [SuperAdminController::class, 'approveSellerRegistration']);
+    Route::patch('sellers/{seller}/reject-registration', [SuperAdminController::class, 'rejectSellerRegistration']);
     Route::patch('sellers/{seller}/suspend', [SuperAdminController::class, 'suspendSeller']);
     Route::patch('sellers/{seller}/reinstate', [SuperAdminController::class, 'reinstateSeller']);
     Route::delete('sellers/{seller}', [SuperAdminController::class, 'destroySeller']);
+    // User Reports, platform-wide -- every municipality (App\Support\UserReports).
+    Route::get('user-reports', [SuperAdminController::class, 'userReports']);
+    Route::patch('user-reports/{report}', [SuperAdminController::class, 'updateUserReport']);
     Route::get('users', [SuperAdminController::class, 'users']);
     Route::patch('buyers/{user}/suspend', [SuperAdminController::class, 'suspendBuyer']);
     Route::patch('buyers/{user}/reinstate', [SuperAdminController::class, 'reinstateBuyer']);
