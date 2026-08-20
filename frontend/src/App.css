@@ -1,102 +1,180 @@
 :root {
-  /* Brand */
-  --color-primary: #0b5a8a;
-  --color-primary-hover: #094a72;
-  --color-primary-dark: #073b5c;
-  --color-teal: #0f9b8e;
-  --color-teal-dark: #0c7b71;
-  --color-teal-soft: #e3f7f4;
+  /* ==========================================================================
+     PALETTE -- the single source of truth. Every colour in the app resolves
+     back to one of the raw tokens in this first block; nothing below should
+     introduce a new hex value. The semantic aliases that follow are what the
+     rest of the stylesheet actually references, so re-theming means editing
+     this block only.
+     ========================================================================== */
 
-  /* Neutrals */
-  --color-white: #ffffff;
-  --color-gray-50: #f8fafc;
-  --color-gray-100: #f1f5f9;
-  --color-gray-200: #e2e8f0;
-  --color-gray-300: #cbd5e1;
-  --color-gray-500: #64748b;
-  --color-gray-700: #334155;
-  --color-ink: #0f172a;
+  /* Brand ------------------------------------------------------------------ */
+  --brand-navy: #0b2e4f;    /* header, sidebar, footer, admin nav            */
+  --brand-teal: #0e7c86;    /* buttons, links, active tabs, selected states  */
+  --brand-seafoam: #a8e6da; /* tags, icons on dark bg, empty states          */
+  --brand-coral: #ff6b4a;   /* prices and the single primary CTA only        */
 
-  /* Semantic surface aliases */
-  --color-bg: var(--color-gray-50);
-  --color-surface: var(--color-white);
-  --color-surface-subtle: #fbfcfe;
-  --color-border: var(--color-gray-200);
+  /* Supporting brand steps, derived from the four above for hover/press and
+     tinted fills. Not new hues -- just lighter/darker of the same colours. */
+  --brand-navy-deep: #072135;
+  --brand-teal-hover: #0a626a;
+  --brand-teal-press: #084d54;
+  --brand-teal-soft: #e6f4f5;   /* teal at ~8% over white: selected rows     */
+  --brand-seafoam-deep: #0d6b62; /* seafoam is too light for text on white   */
+  /* Seafoam mixed down over white, precomputed rather than color-mix() so the
+     app doesn't require Chrome 111+. 45% / 20% / 65% respectively. */
+  --brand-seafoam-tint: #d8f4ee; /* tag + pill fills                         */
+  --brand-seafoam-wash: #eefaf8; /* empty-state panel                        */
+  --brand-seafoam-line: #c6efe7; /* empty-state dashed hairline              */
+  /* Coral's hover step goes LIGHTER, not darker. The CTA carries Slate type
+     (white fails on coral), so darkening the fill would have dropped the
+     button to 3.62:1 on hover; lifting it reaches 5.08:1. */
+  --brand-coral-hover: #ff7a5c;
+
+  /* TEXT-SAFE VARIANTS -------------------------------------------------------
+     Three colours in the brief do not reach WCAG AA as TEXT, so each has a
+     darker sibling used wherever the colour becomes type. The originals are
+     untouched and still used for fills, where they are fine.
+
+       Coral  #ff6b4a  as text = 2.82:1 White, 2.66:1 Sea mist -> FAIL
+                       as a fill under Slate text = 4.62:1        -> PASS
+       Mist   #8a97a3  as text = 2.98:1 White, 2.81:1 Sea mist -> FAIL
+       Teal   #0e7c86  as text = 4.95:1 White, 4.67:1 Sea mist -> tight
+
+     Measured with the WCAG 2.1 relative-luminance formula; see the change
+     notes for the full table. */
+  --brand-coral-text: #c43f22;  /* 5.15:1 White / 4.86:1 Sea mist -> PASS */
+  --brand-teal-text: #0b6870;   /* 6.50:1 White / 6.13:1 Sea mist -> PASS */
+  --neutral-mist-text: #616e78; /* 5.24:1 White / 4.94:1 Sea mist -> PASS */
+
+  /* Neutrals --------------------------------------------------------------- */
+  /* Cool, so they sit with the underwater photograph rather than against it. */
+  --neutral-seamist: #eef3f5; /* page background                             */
+  --neutral-white: #ffffff;   /* cards, panels, table rows                   */
+  --neutral-mist: #8a97a3;    /* field labels and helper text                */
+  --neutral-slate: #22333f;   /* body text -- never pure black               */
+  --neutral-hairline: #dce4e8; /* borders and dividers                       */
+
+  /* Cool ramp between Sea mist and Hairline, for fills that need to sit
+     between the page and a card. */
+  --neutral-seamist-tint: #f7fafb;
+  --neutral-seamist-deep: #e3ebef;
+  --neutral-slate-soft: #45535e;
+
+  /* Legacy aliases -----------------------------------------------------------
+     The stylesheet grew up on a blue/grey scale. Rather than rename ~3,000
+     lines of rules, the old names now point at the new palette, so a single
+     edit here restyles every screen. New rules should prefer the semantic
+     names below. */
+  --color-primary: var(--brand-teal);
+  --color-primary-hover: var(--brand-teal-hover);
+  --color-primary-dark: var(--brand-navy);
+  --color-teal: var(--brand-teal);
+  --color-teal-dark: var(--brand-teal-press);
+  --color-teal-soft: var(--brand-teal-soft);
+  --color-white: var(--neutral-white);
+  --color-gray-50: var(--neutral-seamist-tint);
+  --color-gray-100: var(--neutral-seamist);
+  --color-gray-200: var(--neutral-hairline);
+  --color-gray-300: #b9c5cc;
+  /* Mist resolves to its text-safe variant because every use of this token in
+     the app is type. Raw --neutral-mist stays available for non-text uses
+     (icon strokes, dividers). */
+  --color-gray-500: var(--neutral-mist-text);
+  --color-gray-700: var(--neutral-slate-soft);
+  --color-ink: var(--neutral-slate);
+
+  /* Semantic surface aliases ------------------------------------------------ */
+  /* Every page sits on Sea mist; every card, panel and table row is White.
+     There is no third surface colour -- the pale sage that used to back
+     expanded order details is gone. */
+  --color-bg: var(--neutral-seamist);
+  --color-surface: var(--neutral-white);
+  --color-surface-subtle: var(--neutral-seamist-tint);
+  --color-border: var(--neutral-hairline);
   /* A hair lighter than --color-border, for dividers INSIDE a card where a
      full-strength line reads as a box rather than a separator. */
-  --color-border-subtle: #eef2f7;
-  --color-text: var(--color-ink);
-  --color-text-muted: var(--color-gray-500);
-  --color-primary-soft: #e8f2f9;
+  --color-border-subtle: #e8eef1;
+  --color-text: var(--neutral-slate);
+  --color-text-muted: var(--neutral-mist-text);
+  --color-primary-soft: var(--brand-teal-soft);
 
-  /* Status */
-  --color-success: #15803d;
-  --color-success-bg: #dcfce7;
-  --color-warning: #b45309;
-  --color-warning-bg: #fef3c7;
-  --color-danger: #b91c1c;
-  --color-danger-bg: #fee2e2;
-  --color-info: #0369a1;
-  --color-info-bg: #e0f2fe;
-  --color-neutral-text: #475569;
-  --color-neutral-bg: #e2e8f0;
+  /* Status ------------------------------------------------------------------
+     Reserved for stock/freshness state ONLY -- never branding or navigation.
+     Each pair is the brief's text-on-background combination. */
+  --color-success: #1b6b3a;      /* Fresh     */
+  --color-success-bg: #e3f5e9;
+  --color-warning: #7a4e06;      /* Low stock */
+  --color-warning-bg: #fdf0d9;
+  --color-danger: #8c2320;       /* Sold out  */
+  --color-danger-bg: #fbe7e6;
+  --color-info: var(--brand-navy); /* Frozen  */
+  --color-info-bg: #e4eef5;
+  --color-neutral-text: var(--neutral-slate-soft);
+  --color-neutral-bg: var(--neutral-sand-deep);
 
-  /* Sidebar (dark surface) tints */
+  /* Sidebar (dark surface) tints -- left on the original values along with the
+     rest of the sidebar, which is deliberately excluded from the repalette. */
   --color-sidebar-text: #d7ecef;
   --color-sidebar-active: rgba(15, 155, 142, 0.28);
 
-  /* Sidebar background artwork, shared by every role's dashboard.
+  /* Sidebar artwork -- the identity of the app, kept on every role's dashboard.
      ---------------------------------------------------------------
-     Four layers, painted back to front (see .sidebar):
+     Three layers, painted back to front (see .sidebar):
 
-       --sidebar-base   flat brand colour; the floor, always opaque
-       --sidebar-decor  gradient wash; what shows if the photo is missing
-       --sidebar-image  the photo itself
-       --sidebar-scrim  darkening veil that keeps nav text readable
+       --sidebar-base   flat navy floor; what shows if the photo never loads
+       --sidebar-image  the underwater photograph itself
+       --sidebar-scrim  a FLAT navy veil at --sidebar-scrim-alpha
+
+     The scrim is deliberately a single flat colour, not the old three-stop
+     gradient. A gradient meant the veil was thinnest in the middle of the
+     column -- exactly where the photo is brightest -- so a nav label could
+     drift over a light patch and lose contrast. One flat value means every
+     label sits on the same colour and the worst case is measurable: even over
+     pure white, 85% navy resolves to #2F4D69, which carries white text at
+     8.8:1. The fish still read clearly as texture underneath.
 
      To swap the photo, drop a file in frontend/public/ and change the one
-     url() below -- it applies to every role at once. Keeping --sidebar-decor
-     underneath means a missing/slow/renamed image degrades to a tinted
-     gradient rather than a flat slab. */
-  --sidebar-base: linear-gradient(180deg, var(--color-primary-dark) 0%, #062f4a 100%);
-  --sidebar-decor: radial-gradient(120% 80% at 15% 0%, rgba(15, 155, 142, 0.42) 0%, rgba(15, 155, 142, 0) 58%),
-                   radial-gradient(90% 60% at 100% 100%, rgba(8, 145, 178, 0.34) 0%, rgba(8, 145, 178, 0) 60%);
+     url() below -- it applies to every role at once. */
+  --sidebar-scrim-alpha: 0.85;
+  --sidebar-base: #0b2e4f;
   --sidebar-image: url('/sidebar-bg.jpg');
-  /* Deliberately light: the photo is the point, so the veil only takes enough
-     contrast out of the bright cyan centre to stop it fighting the nav, and
-     the fish stay clearly visible. Legibility is carried by the text-shadow on
-     .sidebar rather than by drowning the artwork -- that's what lets this stay
-     this low. Raise the middle stop if labels are ever hard to read. */
-  --sidebar-scrim: linear-gradient(180deg,
-                     rgba(4, 26, 43, 0.62) 0%,
-                     rgba(4, 26, 43, 0.42) 45%,
-                     rgba(4, 26, 43, 0.68) 100%);
+  --sidebar-scrim: linear-gradient(rgba(11, 46, 79, var(--sidebar-scrim-alpha)),
+                                   rgba(11, 46, 79, var(--sidebar-scrim-alpha)));
 
   /* Chart categorical series (species breakdowns) -- fixed hue order, validated
-     for CVD-safe separation; --color-primary/--color-teal double as slots 1-2 */
-  --chart-violet: #6d4aa7;
-  --chart-gold: #c98500;
-  --chart-magenta: #c2477c;
-  --chart-green: #3f7d3f;
+     for CVD-safe separation; --color-primary/--color-teal double as slots 1-2.
+     Re-tuned to sit with navy/teal rather than the old blue scale. */
+  --chart-violet: #6b4a86;
+  --chart-gold: #b8791a;
+  --chart-magenta: #b04a6e;
+  --chart-green: #3f7d5a;
   --chart-grid: var(--color-gray-200);
   --chart-axis: var(--color-text-muted);
 
-  /* Elevation. Layered rather than single-blur: a tight contact shadow plus a
-     wider ambient one reads as a real surface instead of a grey halo. */
-  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05), 0 2px 6px rgba(15, 23, 42, 0.04);
-  --shadow-md: 0 2px 4px rgba(15, 23, 42, 0.05), 0 10px 24px rgba(15, 23, 42, 0.08);
-  --shadow-lg: 0 4px 10px rgba(15, 23, 42, 0.07), 0 24px 48px rgba(15, 23, 42, 0.13);
+  /* Elevation -- deliberately NONE. The system is flat: surfaces are separated
+     by a 1px Hairline and by the White-on-Sea-mist contrast, never by a drop
+     shadow or a glow. These four tokens are kept (rather than deleted) so the
+     ~40 rules that reference them keep resolving; setting them here is what
+     makes "no shadows" a one-line, reversible decision.
+
+     --shadow-float is the single exception: the modal and lightbox sit over a
+     dimmed backdrop where a hairline alone cannot separate them from the page
+     behind. */
+  --shadow-xs: none;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --shadow-float: 0 12px 32px rgba(11, 46, 79, 0.18);
 
   /* Focus ring, shared by every interactive element so focus looks like one
      idea across the app rather than per-control. */
-  --ring: 0 0 0 3px rgba(11, 90, 138, 0.18);
-  --ring-danger: 0 0 0 3px rgba(185, 28, 28, 0.16);
+  --ring: 0 0 0 3px rgba(14, 124, 134, 0.22);
+  --ring-danger: 0 0 0 3px rgba(140, 35, 32, 0.18);
 
-  /* Radius */
-  --radius-sm: 10px;
-  --radius-md: 14px;
-  --radius-lg: 22px;
+  /* Radius -- cards 12px, buttons and inputs 8px, per the design system. */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
   --radius-full: 999px;
 
   /* Spacing rhythm -- one 4px-based scale so section, card, and grid gaps
@@ -187,6 +265,42 @@ body {
 a {
   color: inherit;
   text-decoration: none;
+}
+
+/* Inline links inside body copy are Ocean teal. Anchors that are styled as
+   buttons, nav, cards, or list rows opt out -- they carry their own colour. */
+.card p a,
+.helper-text a,
+.listing-seller-row a,
+.seller-name-link {
+  color: var(--brand-teal-text);
+  font-weight: var(--fw-medium);
+}
+
+.card p a:hover,
+.helper-text a:hover,
+.listing-seller-row a:hover,
+.seller-name-link:hover {
+  text-decoration: underline;
+}
+
+/* ---------------------------------------------------------------------------
+   THE single primary CTA. Design system: coral appears at most twice per
+   screen and only on prices and one call to action -- here, the buyer's
+   checkout button, which is the one moment money changes hands.
+
+   Raw coral takes WHITE text to 2.82:1, so the button carries Slate type
+   instead (4.62:1, AA). Coral is never placed on navy or teal, so this only
+   ever renders on a white card.
+   --------------------------------------------------------------------------- */
+.checkout-bar button:not(.ghost):not(:disabled) {
+  background: var(--brand-coral);
+  color: var(--neutral-slate);
+}
+
+.checkout-bar button:not(.ghost):not(:disabled):hover {
+  background: var(--brand-coral-hover);
+  color: var(--neutral-slate);
 }
 
 button,
@@ -457,7 +571,7 @@ h4 {
 
 .brand span {
   align-items: center;
-  background: linear-gradient(135deg, var(--color-primary), var(--color-teal));
+  background: var(--brand-teal);
   border-radius: var(--radius-sm);
   color: var(--color-white);
   display: inline-flex;
@@ -494,7 +608,7 @@ main {
 
 .hero {
   align-items: center;
-  background: linear-gradient(135deg, var(--color-primary-dark) 0%, var(--color-primary) 55%, var(--color-teal) 100%);
+  background: var(--brand-navy);
   color: white;
   display: grid;
   gap: 2rem;
@@ -645,29 +759,21 @@ main {
 .listing {
   display: grid;
   gap: var(--space-2);
-  transition: box-shadow var(--transition-base), transform var(--transition-base), border-color var(--transition-base);
+  transition: border-color var(--transition-base);
 }
 
+/* Design system rule 6: product images sit on white cards with a thin Border
+   hairline -- no drop shadows, no gradients, no glow. So a product card
+   answers hover by darkening its hairline only. The lift, the deep shadow,
+   and the photo zoom that used to live here have all been removed. */
 .listing:hover,
 .seller:hover,
 .seller-earnings-card:hover {
-  border-color: var(--color-gray-300);
-  box-shadow: var(--shadow-lg);
-  transform: translateY(-4px);
+  border-color: var(--brand-teal);
 }
 
-/* A slow zoom on the photo makes a listing card feel alive without moving
-   anything the reader is trying to read. */
 .listing-media {
   overflow: hidden;
-}
-
-.listing-media .listing-image {
-  transition: transform var(--transition-base);
-}
-
-.listing:hover .listing-media .listing-image {
-  transform: scale(1.04);
 }
 
 .seller-earnings-card {
@@ -704,14 +810,26 @@ main {
   margin-top: 0.2rem;
 }
 
-.listing-price {
-  color: var(--color-primary);
-  font-size: var(--fs-lg);
-  font-weight: var(--fw-bold);
+/* ---------------------------------------------------------------------------
+   PRICES. Coral, 21px, weight 500 -- the loudest thing in the row. Coral is
+   reserved for this and for the single primary CTA (.checkout-bar button);
+   nothing else in the app may use it.
+
+   The text-safe coral is used because raw #ff6b4a is 2.82:1 on white, and at
+   21px/500 the text is NOT "large" by WCAG (that needs 24px at this weight),
+   so it must clear 4.5:1. #c43f22 reaches 5.15:1 and reads as the same colour.
+   --------------------------------------------------------------------------- */
+.listing-price,
+.price {
+  color: var(--brand-coral-text);
+  font-size: 21px;
+  font-weight: var(--fw-medium);
+  letter-spacing: -0.01em;
 }
 
-.listing-price small {
-  color: var(--color-text-muted);
+.listing-price small,
+.price small {
+  color: var(--neutral-mist-text);
   font-size: var(--fs-sm);
   font-weight: var(--fw-regular);
 }
@@ -721,14 +839,23 @@ main {
   font-size: var(--fs-sm);
 }
 
+/* Product imagery: flat white bed, one hairline, nothing else. The gradient
+   that used to sit behind these is gone -- rule 6. */
 .listing-image,
 .detail-art {
-  background: linear-gradient(135deg, var(--color-teal-soft), var(--color-gray-100));
+  background: var(--neutral-white);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   display: block;
   min-height: 150px;
   object-fit: cover;
   width: 100%;
+}
+
+.listing-media .listing-image {
+  border-left: 0;
+  border-right: 0;
+  border-top: 0;
 }
 
 .listing-media .listing-image {
@@ -755,28 +882,43 @@ main {
   justify-content: space-between;
 }
 
+/* Tags use Seafoam, per the palette. Text is the deep seafoam step so the
+   pill reaches AA -- seafoam-on-seafoam would not. */
 .pill,
 .species-list span {
-  background: var(--color-teal-soft);
+  background: var(--brand-seafoam-tint);
   border-radius: var(--radius-full);
-  color: var(--color-teal-dark);
+  color: var(--brand-seafoam-deep);
   display: inline-flex;
   font-size: var(--fs-sm);
   font-weight: var(--fw-semibold);
   padding: 0.35rem 0.65rem;
 }
 
+/* Status pills sit on White cards now, so their tinted fills read as distinct
+   chips rather than blending into a tinted row. A 1px hairline of the pill's
+   own colour holds the edge without adding a shadow. */
 .badge {
   align-items: center;
+  border: 1px solid currentColor;
   border-radius: var(--radius-full);
   display: inline-flex;
   font-size: var(--fs-xs);
   font-weight: var(--fw-semibold);
   gap: 0.3rem;
   line-height: 1;
-  padding: 0.35rem 0.65rem;
+  padding: 0.3rem 0.6rem;
   text-transform: capitalize;
   white-space: nowrap;
+}
+
+/* Role badges carry solid fills, so a currentColor outline would draw a ring
+   in the text colour around them. */
+.badge-role-lgu,
+.badge-role-admin,
+.badge-role-buyer,
+.badge-role-seller {
+  border-color: transparent;
 }
 
 .badge-success {
@@ -806,24 +948,28 @@ main {
 
 /* Role badges -- one distinct colour per role, used next to names in the
    seller post author header and comments. */
+/* Role badges are identity, not state, so they may not borrow the status
+   colours -- and Buyer's lavender-blue and LGU's violet belonged to no
+   palette at all. All four now come from the brand ramp (Seafoam, Teal,
+   Navy, Slate), separated by weight rather than by hue. */
 .badge-role-buyer {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: var(--brand-seafoam);
+  color: var(--brand-navy);
 }
 
 .badge-role-seller {
-  background: var(--color-teal-soft);
-  color: var(--color-teal-dark);
+  background: var(--brand-teal-soft);
+  color: var(--brand-teal-text);
 }
 
 .badge-role-lgu {
-  background: #ede9fe;
-  color: var(--chart-violet);
+  background: var(--brand-navy);
+  color: var(--neutral-white);
 }
 
 .badge-role-admin {
-  background: var(--color-warning-bg);
-  color: var(--color-warning);
+  background: var(--neutral-slate);
+  color: var(--neutral-white);
 }
 
 .full {
@@ -845,7 +991,7 @@ main {
 
 .step span {
   align-items: center;
-  background: linear-gradient(135deg, var(--color-teal), var(--color-primary));
+  background: var(--brand-teal);
   border-radius: var(--radius-full);
   box-shadow: 0 6px 14px rgba(15, 155, 142, 0.28);
   color: white;
@@ -918,10 +1064,9 @@ footer {
 
 .auth-page {
   align-items: center;
-  background:
-    radial-gradient(circle at 15% 20%, rgba(15, 155, 142, 0.08), transparent 45%),
-    radial-gradient(circle at 85% 80%, rgba(11, 90, 138, 0.08), transparent 45%),
-    var(--color-bg);
+  /* Flat Sea mist. The two radial washes here were the last decorative
+     gradients in the app and were tinted with the old blue/green pair. */
+  background: var(--color-bg);
   display: flex;
   justify-content: center;
   min-height: calc(100vh - 82px);
@@ -941,7 +1086,7 @@ footer {
 }
 
 .auth-brand-panel {
-  background: linear-gradient(160deg, var(--color-primary-dark) 0%, var(--color-primary) 55%, var(--color-teal) 100%);
+  background: var(--brand-navy);
   color: white;
   display: flex;
   flex-direction: column;
@@ -1107,12 +1252,15 @@ footer {
    it -- 'local' would drag the photo along with the links, and 'fixed' would
    anchor it to the viewport instead of this column. */
 .sidebar {
-  background-image: var(--sidebar-scrim), var(--sidebar-image), var(--sidebar-decor), var(--sidebar-base);
+  background-color: var(--sidebar-base);
+  background-image: var(--sidebar-scrim), var(--sidebar-image);
   background-position: center;
   background-repeat: no-repeat;
   background-size: cover;
   background-attachment: scroll;
-  color: white;
+  /* Reads as a deliberate panel rather than a photo that ran out of room. */
+  border-right: 1px solid var(--brand-teal);
+  color: var(--neutral-white);
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
@@ -1121,32 +1269,22 @@ footer {
   padding: 1.25rem 1rem;
   position: sticky;
   scrollbar-width: thin;
-  /* Carries legibility over the photo so --sidebar-scrim doesn't have to.
-     Shadowing the text costs the artwork nothing, whereas a veil heavy enough
-     to do the same job would wash the fish out entirely. Inherited by every
-     label in here. */
-  text-shadow: 0 1px 3px rgba(2, 14, 24, 0.9);
   top: 0;
 }
 
-/* Icons are strokes, not glyphs, so text-shadow misses them -- give them the
-   same lift so they don't dissolve into the bright part of the photo. */
+/* The flat scrim now guarantees contrast on its own, so the text-shadow and
+   icon drop-shadow that used to prop up legibility over the bright part of the
+   photo are gone -- they were softening every glyph in the nav to compensate
+   for a veil that varied. */
 .sidebar svg {
-  filter: drop-shadow(0 1px 2px rgba(2, 14, 24, 0.9));
+  color: var(--brand-seafoam);
+  opacity: 0.7;
 }
 
-/* ...but anything sitting on its own opaque surface (the role badge, the
-   Logout button) is already legible and must opt out of both: the shadow is
-   inherited, and a dark blur under small dark text on a light pill just reads
-   as a blurred glyph. Only text laid directly over the photo wants it. */
-.sidebar .badge,
-.sidebar button {
-  text-shadow: none;
-}
-
-.sidebar .badge svg,
-.sidebar button svg {
-  filter: none;
+.sidebar .brand,
+.sidebar .brand svg {
+  color: var(--neutral-white);
+  opacity: 1;
 }
 
 .sidebar .brand {
@@ -1206,36 +1344,61 @@ footer {
   gap: 0.35rem;
 }
 
+/* Nav labels are plain white on the navy scrim -- 8.8:1 in the worst case. */
 .side-nav a {
   align-items: center;
-  border-left: 3px solid transparent;
   border-radius: var(--radius-sm);
-  color: var(--color-sidebar-text);
+  color: var(--neutral-white);
   display: flex;
   font-size: var(--fs-sm);
   font-weight: var(--fw-medium);
   gap: 0.7rem;
-  padding: 0.65rem 0.7rem;
-  transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
+  padding: 0.65rem 0.75rem;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
 }
 
-/* Hover/active sit directly on the photo, so both are opaque enough to read
-   as their own surface -- a 10%-white tint that worked over a flat colour
-   just looks like a smudge over moving artwork. */
 .side-nav a:hover {
-  background: rgba(4, 26, 43, 0.55);
-  color: white;
-  transform: translateX(2px);
+  background: rgba(255, 255, 255, 0.12);
 }
 
+/* Active item is a solid Ocean teal pill -- no gradient, no left rule. */
 .side-nav a.active {
-  background: linear-gradient(90deg, rgba(15, 155, 142, 0.85) 0%, rgba(15, 155, 142, 0.6) 100%);
-  border-left-color: var(--color-teal);
-  color: white;
+  background: var(--brand-teal);
+  color: var(--neutral-white);
   font-weight: var(--fw-semibold);
 }
 
+/* The active item's icon drops the seafoam tint and the 70% veil: on a solid
+   teal pill it should read as part of the label, not as a separate accent. */
+.side-nav a.active svg {
+  color: var(--neutral-white);
+  opacity: 1;
+}
+
+/* Logout is outlined white on the navy, not a solid white block competing
+   with the active pill for attention. */
+.sidebar > button.ghost {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  color: var(--neutral-white);
+}
+
+.sidebar > button.ghost:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: var(--neutral-white);
+  color: var(--neutral-white);
+}
+
+.sidebar > button.ghost svg {
+  color: var(--neutral-white);
+  opacity: 1;
+}
+
+/* Every page -- customer, seller, LGU -- sits on Sea mist; the White is
+   carried by the cards on top of it. This is what makes the expanded order
+   detail (now White) separate from the page instead of sinking into it. */
 .app-main {
+  background: var(--color-bg);
   min-width: 0;
   padding: clamp(1rem, 3vw, 2.25rem);
 }
@@ -1363,7 +1526,7 @@ footer {
 }
 
 .stat-card::before {
-  background: linear-gradient(90deg, var(--color-primary), var(--color-teal));
+  background: var(--brand-teal);
   content: "";
   height: 3px;
   left: 0;
@@ -1387,8 +1550,8 @@ footer {
 }
 
 .stat-card-highlight {
-  background: linear-gradient(160deg, var(--color-teal-soft), var(--color-surface) 70%);
-  border-color: rgba(15, 155, 142, 0.4);
+  background: var(--brand-teal-soft);
+  border-color: rgba(14, 124, 134, 0.4);
 }
 
 .stat-card-highlight::before {
@@ -1707,9 +1870,15 @@ a.activity-log-item:hover {
   margin: 0.2rem 0 0;
 }
 
+/* Expanded order details used to sit on a pale tinted panel while the header
+   row above it stayed white -- so the "detail" read as a different, sunken
+   surface. Reversed: the row is White like every other card, and the Sea mist
+   page behind the table is what separates them. A Hairline top edge marks
+   where the expansion begins. */
 .order-table-detail-row {
-  background: var(--color-gray-50);
+  background: var(--neutral-white);
   border-bottom: 1px solid var(--color-border);
+  border-top: 1px solid var(--color-border-subtle);
   padding: 1rem 1.1rem 1.25rem;
 }
 
@@ -1736,11 +1905,14 @@ a.activity-log-item:hover {
   gap: 0.15rem;
 }
 
+/* Field labels recede: ORDER NUMBER / MUNICIPALITY / DELIVERY STATUS are
+   scaffolding, not content. Mist grey at 12px with wider tracking, so the
+   value underneath is what the eye lands on. */
 .order-detail-field-label {
-  color: var(--color-text-muted);
-  font-size: var(--fs-xs);
+  color: var(--neutral-mist-text);
+  font-size: 12px;
   font-weight: var(--fw-semibold);
-  letter-spacing: 0.02em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
@@ -1749,9 +1921,14 @@ a.activity-log-item:hover {
   gap: 0;
 }
 
+/* Timeline: pending steps are Mist dot + Mist text, completed steps are Ocean
+   teal dot + Slate text. The connector is a Hairline, not a heavy grey rule --
+   it should join the dots, not compete with them. Completed steps used to use
+   the green status colour, which is reserved for state and was reading as a
+   second meaning on top of "done". */
 .order-timeline-step {
-  border-left: 2px solid var(--color-gray-300);
-  color: var(--color-text-muted);
+  border-left: 1px solid var(--color-border);
+  color: var(--neutral-mist-text);
   display: grid;
   gap: 0.15rem;
   padding: 0 0 1rem 1rem;
@@ -1759,11 +1936,11 @@ a.activity-log-item:hover {
 }
 
 .order-timeline-step::before {
-  background: var(--color-gray-300);
+  background: var(--neutral-mist);
   border-radius: 50%;
   content: '';
   height: 10px;
-  left: -6px;
+  left: -5.5px;
   position: absolute;
   top: 2px;
   width: 10px;
@@ -1775,11 +1952,11 @@ a.activity-log-item:hover {
 }
 
 .order-timeline-step.reached {
-  color: var(--color-text);
+  color: var(--neutral-slate);
 }
 
 .order-timeline-step.reached::before {
-  background: var(--color-success);
+  background: var(--brand-teal);
 }
 
 .order-timeline-step-time {
@@ -1954,7 +2131,7 @@ a.activity-log-item:hover {
 /* Seller Profile masthead -- a tinted band so the hatchery's identity reads
    as the header of the page rather than the first of several plain cards. */
 .seller-profile-header {
-  background: linear-gradient(160deg, var(--color-primary-soft) 0%, var(--color-surface) 55%);
+  background: var(--brand-teal-soft);
   display: grid;
   gap: var(--space-3);
   padding: var(--space-6);
@@ -2647,10 +2824,12 @@ a.activity-log-item:hover {
   font-weight: var(--fw-semibold);
 }
 
+/* Seafoam is the palette's empty-state colour. Used as a wash rather than a
+   flat fill so the message stays quiet, with the icon carrying the hue. */
 .empty-state {
   animation: fade-in 0.3s ease both;
-  background: var(--color-gray-50);
-  border: 1px dashed var(--color-border);
+  background: var(--brand-seafoam-wash);
+  border: 1px dashed var(--brand-seafoam-line);
   border-radius: var(--radius-md);
   color: var(--color-text-muted);
   display: grid;
@@ -2663,9 +2842,9 @@ a.activity-log-item:hover {
 
 .empty-state-icon {
   align-items: center;
-  background: var(--color-gray-100);
+  background: var(--brand-seafoam);
   border-radius: 50%;
-  color: var(--color-gray-300);
+  color: var(--brand-seafoam-deep);
   display: flex;
   height: 56px;
   justify-content: center;
@@ -2727,7 +2906,7 @@ a.activity-log-item:hover {
   background: white;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-float);
   transform-origin: bottom right;
   display: grid;
   gap: 0.75rem;
@@ -3211,7 +3390,7 @@ a.activity-log-item:hover {
 .lightbox-video {
   animation: scale-in 0.25s ease both;
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-float);
   cursor: default;
   max-height: 90vh;
   max-width: 90vw;
@@ -3291,7 +3470,7 @@ body.modal-open {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-float);
   display: flex;
   flex-direction: column;
   max-height: calc(100vh - 3rem);

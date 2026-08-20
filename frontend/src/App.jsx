@@ -715,7 +715,7 @@ function ListingDetailPanel({ item, isBuyer = false, checkout, qty, setQty, onPa
           )}
           {quantityError && <p className="error">{quantityError}</p>}
           <div className="checkout-bar">
-            <strong>Total: {currency(canOrder ? safeQty * item.price : 0)}</strong>
+            <strong className="price">Total: {currency(canOrder ? safeQty * item.price : 0)}</strong>
             {addToCart && (
               <button className="ghost" type="button" disabled={!canOrder || addToCart.isPending} onClick={() => addToCart.mutate(safeQty)}>
                 <ShoppingBag size={16} /> {addToCart.isPending ? 'Adding...' : 'Add to Cart'}
@@ -1614,7 +1614,7 @@ function CartItemRow({ item, onUpdateQuantity, onRemove, onBuy, busy }) {
             onBlur={commitQuantity}
           />
         </label>
-        <strong>{currency(item.line_total)}</strong>
+        <strong className="price">{currency(item.line_total)}</strong>
         <button type="button" disabled={!item.available || busy} onClick={onBuy}>
           {busy ? 'Starting...' : 'Buy Now'}
         </button>
@@ -5854,7 +5854,7 @@ function OrderDetailPanel({ detail }) {
         <div className="order-detail-field"><span className="order-detail-field-label">Buyer</span><span>{detail.buyer?.name || 'N/A'}</span></div>
         {detail.municipality && <div className="order-detail-field"><span className="order-detail-field-label">Municipality</span><span>{detail.municipality.name}</span></div>}
         <div className="order-detail-field"><span className="order-detail-field-label">Quantity</span><span>{formatQuantity(detail.quantity, detail.listing)}</span></div>
-        <div className="order-detail-field"><span className="order-detail-field-label">Total Amount</span><span>{currency(detail.total_amount)}</span></div>
+        <div className="order-detail-field"><span className="order-detail-field-label">Total Amount</span><span className="price">{currency(detail.total_amount)}</span></div>
         <div className="order-detail-field"><span className="order-detail-field-label">Payment Status</span><span><Badge status={detail.payment_status || 'pending'}>{statusChartLabel(detail.payment_status || 'pending')}</Badge></span></div>
         <div className="order-detail-field"><span className="order-detail-field-label">Order Status</span><span><Badge status={detail.order_status}>{statusChartLabel(detail.order_status)}</Badge></span></div>
         <div className="order-detail-field"><span className="order-detail-field-label">Delivery Status</span><span>{detail.delivery_status}</span></div>
