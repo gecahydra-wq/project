@@ -4,7 +4,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC
 ENV LANG=C.UTF-8
 
-WORKDIR /var/www/html
+# The existing Railway Volume is mounted at /app/storage/app/public. Keep the
+# Laravel root at /app so the mount, public/storage link, and uploads all
+# address the same filesystem location.
+WORKDIR /app
 
 RUN apt-get update && apt-get install -y \
     ca-certificates \
