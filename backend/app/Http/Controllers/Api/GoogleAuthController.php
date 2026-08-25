@@ -6,16 +6,21 @@ use App\Http\Controllers\Controller;
 use App\Models\BuyerProfile;
 use App\Models\SellerProfile;
 use App\Models\User;
+use App\Support\SellerApproval;
+use Illuminate\Contracts\Encryption\DecryptException;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Laravel\Socialite\Facades\Socialite;
 use Throwable;
 
 /**
  * Google OAuth sign-in (via Laravel Socialite). Both legs are full-page
  * browser redirects, not XHR: redirect() sends the user to Google's consent
- * screen, and callback() receives them back, upserts a Buyer account matched
- * by email, and hands the SPA a Sanctum token through a frontend callback URL.
+ * screen, and callback() receives them back, upserts an account matched by
+ * email, and hands the SPA a Sanctum token through a frontend callback URL.
  * Google accounts arrive already email-verified, so they skip our own
  * email-ownership step. Suspended/disabled accounts are bounced to /login with
  * a reason, mirroring AuthController::login.
@@ -38,10 +43,29 @@ class GoogleAuthController extends Controller
      * screen on every single login -- that's not needed here since we only
      * ever request the default email/profile scopes.
      */
-    public function redirect()
+    public function redirect(Request $request)
     {
+        $params = ['prompt' => 'select_account'];
+
+        if ($request->boolean('registration')) {
+            $data = $request->validate([
+                'role' => ['required', Rule::in(['buyer', 'seller'])],
+                'municipality_id' => [
+                    Rule::requiredIf(fn () => $request->input('role') === 'seller'),
+                    'nullable',
+                    'exists:municipalities,id',
+                ],
+            ]);
+
+            $params['state'] = Crypt::encryptString(json_encode([
+                'role' => $data['role'],
+                'municipality_id' => $data['role'] === 'seller' ? $data['municipality_id'] : null,
+                'expires_at' => now()->addMinutes(10)->timestamp,
+            ]));
+        }
+
         return Socialite::driver('google')->stateless()
-            ->with(['prompt' => 'select_account'])
+            ->with($params)
             ->redirect();
     }
 
@@ -53,7 +77,7 @@ class GoogleAuthController extends Controller
      * string, and that page exchanges it for the user via GET /auth/me,
      * exactly like a normal token-based login.
      */
-    public function callback()
+    public function callback(Request $request)
     {
         $frontend = rtrim(config('app.frontend_url'), '/');
 
@@ -78,6 +102,8 @@ class GoogleAuthController extends Controller
                 $user->update(['google_id' => $googleUser->getId()]);
             }
         } else {
+            $intent = $this->registrationIntent($request) ?? ['role' => 'buyer', 'municipality_id' => null];
+
             $user = User::create([
                 'name' => $googleUser->getName() ?: $googleUser->getNickname() ?: 'AbaiMarket Buyer',
                 'email' => $email,
@@ -87,14 +113,26 @@ class GoogleAuthController extends Controller
                 // keep working unmodified for it.
                 'password' => Hash::make(Str::random(40)),
                 'google_id' => $googleUser->getId(),
-                'role' => 'buyer',
+                'role' => $intent['role'],
+                'municipality_id' => $intent['municipality_id'],
                 'status' => 'active',
             ]);
 
-            BuyerProfile::create([
-                'user_id' => $user->id,
-                'municipality_id' => null,
-            ]);
+            if ($user->role === 'seller') {
+                SellerProfile::create([
+                    'user_id' => $user->id,
+                    'municipality_id' => $user->municipality_id,
+                    'hatchery_name' => $user->name,
+                    'description' => 'New hatchery profile pending LGU verification.',
+                    'status' => 'pending',
+                    'approval_status' => SellerApproval::PENDING,
+                ]);
+            } else {
+                BuyerProfile::create([
+                    'user_id' => $user->id,
+                    'municipality_id' => null,
+                ]);
+            }
         }
 
         // Google only ever surfaces an account to us via OAuth if that
@@ -118,5 +156,35 @@ class GoogleAuthController extends Controller
         $token = $user->createToken('fishmarket')->plainTextToken;
 
         return redirect($frontend.'/auth/google/callback?token='.urlencode($token));
+    }
+
+    private function registrationIntent(Request $request): ?array
+    {
+        if (! $request->filled('state')) {
+            return null;
+        }
+
+        try {
+            $payload = json_decode(Crypt::decryptString($request->query('state')), true, flags: JSON_THROW_ON_ERROR);
+        } catch (DecryptException|\JsonException) {
+            return null;
+        }
+
+        if (($payload['expires_at'] ?? 0) < now()->timestamp) {
+            return null;
+        }
+
+        if (($payload['role'] ?? null) !== 'seller') {
+            return ['role' => 'buyer', 'municipality_id' => null];
+        }
+
+        if (! isset($payload['municipality_id'])) {
+            return null;
+        }
+
+        return [
+            'role' => 'seller',
+            'municipality_id' => $payload['municipality_id'],
+        ];
     }
 }
