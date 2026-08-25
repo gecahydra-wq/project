@@ -39,7 +39,16 @@ return [
 
         'smtp' => [
             'transport' => 'smtp',
-            'scheme' => env('MAIL_SCHEME'),
+            // Laravel 12/Symfony Mailer uses a transport scheme instead of
+            // Laravel's older MAIL_ENCRYPTION setting. Keep MAIL_SCHEME as
+            // the explicit, preferred setting, but accept the conventional
+            // Railway/Gmail MAIL_ENCRYPTION variable too so a production
+            // deployment cannot silently fall back to an unintended SMTP
+            // transport after an upgrade.
+            //
+            // STARTTLS is negotiated by the smtp transport when available;
+            // SSL-on-connect needs the smtps transport.
+            'scheme' => env('MAIL_SCHEME', env('MAIL_ENCRYPTION') === 'ssl' ? 'smtps' : null),
             'url' => env('MAIL_URL'),
             'host' => env('MAIL_HOST', '127.0.0.1'),
             'port' => env('MAIL_PORT', 2525),

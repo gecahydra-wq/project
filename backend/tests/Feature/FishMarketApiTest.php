@@ -39,6 +39,7 @@ use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification;
@@ -3087,6 +3088,37 @@ class FishMarketApiTest extends TestCase
         $this->assertSame('google-new-1', $user->google_id);
         $this->assertNotNull($user->email_verified_at);
         $this->assertDatabaseHas('buyer_profiles', ['user_id' => $user->id]);
+    }
+
+    public function test_google_registration_creates_a_pending_seller_in_the_selected_municipality(): void
+    {
+        $municipality = Municipality::firstOrFail();
+
+        Socialite::fake('google', SocialiteUser::fake([
+            'id' => 'google-seller-registration-1',
+            'email' => 'new-google-seller@fishmarket.test',
+            'name' => 'Google Hatchery',
+        ]));
+
+        $state = Crypt::encryptString(json_encode([
+            'role' => 'seller',
+            'municipality_id' => $municipality->id,
+            'expires_at' => now()->addMinutes(10)->getTimestamp(),
+        ], JSON_THROW_ON_ERROR));
+
+        $this->get('/api/auth/google/callback?state='.urlencode($state))->assertRedirect();
+
+        $user = User::where('email', 'new-google-seller@fishmarket.test')->firstOrFail();
+        $this->assertSame('seller', $user->role);
+        $this->assertSame($municipality->id, $user->municipality_id);
+        $this->assertNotNull($user->email_verified_at);
+        $this->assertDatabaseHas('seller_profiles', [
+            'user_id' => $user->id,
+            'municipality_id' => $municipality->id,
+            'approval_status' => 'pending',
+            'status' => 'pending',
+        ]);
+        $this->assertDatabaseMissing('buyer_profiles', ['user_id' => $user->id]);
     }
 
     public function test_google_login_signs_into_the_existing_account_for_a_known_email_without_duplicating(): void

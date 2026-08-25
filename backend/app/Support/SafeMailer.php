@@ -17,6 +17,9 @@ use Throwable;
  */
 class SafeMailer
 {
+    /** Avoid repeating a configuration warning for every recipient in a request. */
+    private static bool $configurationChecked = false;
+
     /**
      * @param  string|array|null  $to  A recipient address, or null/empty to
      *                                 skip silently (e.g. a user with no
@@ -28,6 +31,8 @@ class SafeMailer
         if (empty($to)) {
             return;
         }
+
+        self::logProductionConfigurationIssue();
 
         try {
             Mail::to($to)->send($mailable);
@@ -48,6 +53,8 @@ class SafeMailer
      */
     public static function notify(mixed $notifiable, Notification $notification): void
     {
+        self::logProductionConfigurationIssue();
+
         try {
             $notifiable->notify($notification);
         } catch (Throwable $e) {
@@ -57,6 +64,51 @@ class SafeMailer
                 'id' => $notifiable->getKey() ?? null,
                 'error' => $e->getMessage(),
             ]);
+        }
+    }
+
+    /**
+     * `log` is a useful local mailer but means no user will receive email.
+     * Surface that explicitly in production logs, where it otherwise looks
+     * like a successful send and is easily mistaken for an SMTP outage.
+     *
+     * This never logs credentials or changes the configured transport.
+     */
+    private static function logProductionConfigurationIssue(): void
+    {
+        if (self::$configurationChecked || ! app()->environment('production')) {
+            return;
+        }
+
+        self::$configurationChecked = true;
+        $mailer = (string) config('mail.default');
+
+        if (in_array($mailer, ['log', 'array', 'null'], true)) {
+            Log::critical('Transactional email is not configured for delivery in production.', [
+                'mailer' => $mailer,
+                'action' => 'Set MAIL_MAILER to a configured delivery provider in Railway Variables.',
+            ]);
+
+            return;
+        }
+
+        if ($mailer === 'smtp') {
+            $smtp = (array) config('mail.mailers.smtp', []);
+            $missing = [];
+
+            foreach (['host', 'username', 'password'] as $key) {
+                if (blank($smtp[$key] ?? null)) {
+                    $missing[] = $key;
+                }
+            }
+
+            if ($missing) {
+                Log::critical('SMTP mailer is missing production configuration.', [
+                    'mailer' => $mailer,
+                    'missing' => $missing,
+                    'action' => 'Set the missing MAIL_* Railway Variables, then redeploy.',
+                ]);
+            }
         }
     }
 }
