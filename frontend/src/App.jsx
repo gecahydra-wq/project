@@ -1412,7 +1412,7 @@ function validateEmail(value) {
 }
 
 function RegisterPage() {
-  const { register, handleSubmit, watch, getValues, setError, clearErrors, formState: { errors } } = useForm({ defaultValues: { role: 'buyer', municipality_id: '' } })
+  const { register, handleSubmit, watch, formState: { errors } } = useForm({ defaultValues: { role: 'buyer', municipality_id: '' } })
   const role = watch('role')
   const isSeller = role === 'seller'
   const passwordField = register('password', {
@@ -1439,21 +1439,6 @@ function RegisterPage() {
     },
     onSuccess: (data) => setRegisteredEmail(data.user?.email || null),
   })
-  const beginGoogleRegistration = () => {
-    const values = getValues()
-    const params = new URLSearchParams({ registration: '1', role: values.role || 'buyer' })
-
-    if (values.role === 'seller') {
-      if (!values.municipality_id) {
-        setError('municipality_id', { type: 'required', message: 'Please select your hatchery\'s municipality before continuing with Google.' })
-        return
-      }
-      clearErrors('municipality_id')
-      params.set('municipality_id', values.municipality_id)
-    }
-
-    window.location.assign(`${API_URL}/auth/google/redirect?${params.toString()}`)
-  }
 
   if (registeredEmail) {
     return (
@@ -1492,9 +1477,9 @@ function RegisterPage() {
         {registerUser.error && <p className="error">{registerUser.error.message}</p>}
       </form>
       <div className="auth-divider"><span>or</span></div>
-      <button className="ghost full google-button" type="button" onClick={beginGoogleRegistration}>
-        <GoogleIcon /> Continue with Google as {isSeller ? 'Seller / Hatchery' : 'Buyer / Fish Farmer'}
-      </button>
+      <a className="ghost full google-button" href={`${API_URL}/auth/google/redirect`}>
+        <GoogleIcon /> Continue with Google
+      </a>
     </AuthCard>
   )
 }

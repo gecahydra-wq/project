@@ -6,23 +6,16 @@ use App\Http\Controllers\Controller;
 use App\Models\BuyerProfile;
 use App\Models\SellerProfile;
 use App\Models\User;
-use App\Support\SellerApproval;
-use Illuminate\Contracts\Encryption\DecryptException;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
-use Illuminate\Validation\Rule;
 use Laravel\Socialite\Facades\Socialite;
 use Throwable;
 
 /**
  * Google OAuth sign-in (via Laravel Socialite). Both legs are full-page
  * browser redirects, not XHR: redirect() sends the user to Google's consent
- * screen, and callback() receives them back, signs in an account matched by
- * email, or creates a Buyer/Seller account selected from the registration
- * page. The normal Login-page flow carries no role selection and preserves
- * the historical default of creating a Buyer if an account does not exist.
+ * screen, and callback() receives them back, upserts a Buyer account matched
+ * by email, and hands the SPA a Sanctum token through a frontend callback URL.
  * Google accounts arrive already email-verified, so they skip our own
  * email-ownership step. Suspended/disabled accounts are bounced to /login with
  * a reason, mirroring AuthController::login.
@@ -45,32 +38,10 @@ class GoogleAuthController extends Controller
      * screen on every single login -- that's not needed here since we only
      * ever request the default email/profile scopes.
      */
-    public function redirect(Request $request)
+    public function redirect()
     {
-        $parameters = ['prompt' => 'select_account'];
-
-        // Only the Register page supplies registration=1. Its role and, for
-        // sellers, municipality are encrypted into OAuth state rather than
-        // trusted again from the callback query string. The Login page sends
-        // neither value, so it remains a role-free automatic Google login.
-        if ($request->boolean('registration')) {
-            $data = $request->validate([
-                'role' => ['required', Rule::in(['buyer', 'seller'])],
-                'municipality_id' => [Rule::requiredIf(fn () => $request->input('role') === 'seller'), 'nullable', 'exists:municipalities,id'],
-            ]);
-
-            $parameters['state'] = Crypt::encryptString(json_encode([
-                'role' => $data['role'],
-                'municipality_id' => $data['municipality_id'] ?? null,
-                // State is not used for a browser session in this API-only
-                // Socialite flow, but its short expiry stops a registration
-                // choice from being replayed indefinitely.
-                'expires_at' => now()->addMinutes(10)->getTimestamp(),
-            ], JSON_THROW_ON_ERROR));
-        }
-
         return Socialite::driver('google')->stateless()
-            ->with($parameters)
+            ->with(['prompt' => 'select_account'])
             ->redirect();
     }
 
@@ -82,7 +53,7 @@ class GoogleAuthController extends Controller
      * string, and that page exchanges it for the user via GET /auth/me,
      * exactly like a normal token-based login.
      */
-    public function callback(Request $request)
+    public function callback()
     {
         $frontend = rtrim(config('app.frontend_url'), '/');
 
@@ -107,11 +78,8 @@ class GoogleAuthController extends Controller
                 $user->update(['google_id' => $googleUser->getId()]);
             }
         } else {
-            $registration = $this->registrationIntent($request);
-            $role = $registration['role'] ?? 'buyer';
-
             $user = User::create([
-                'name' => $googleUser->getName() ?: $googleUser->getNickname() ?: "AbaiMarket {$role}",
+                'name' => $googleUser->getName() ?: $googleUser->getNickname() ?: 'AbaiMarket Buyer',
                 'email' => $email,
                 // Unusable random password -- this account only ever signs
                 // in through Google, but the column is non-nullable and
@@ -119,26 +87,14 @@ class GoogleAuthController extends Controller
                 // keep working unmodified for it.
                 'password' => Hash::make(Str::random(40)),
                 'google_id' => $googleUser->getId(),
-                'role' => $role,
-                'municipality_id' => $registration['municipality_id'] ?? null,
+                'role' => 'buyer',
                 'status' => 'active',
             ]);
 
-            if ($role === 'seller') {
-                SellerProfile::create([
-                    'user_id' => $user->id,
-                    'municipality_id' => $registration['municipality_id'],
-                    'hatchery_name' => $user->name,
-                    'description' => 'New hatchery profile pending LGU verification.',
-                    'status' => 'pending',
-                    'approval_status' => SellerApproval::PENDING,
-                ]);
-            } else {
-                BuyerProfile::create([
-                    'user_id' => $user->id,
-                    'municipality_id' => null,
-                ]);
-            }
+            BuyerProfile::create([
+                'user_id' => $user->id,
+                'municipality_id' => null,
+            ]);
         }
 
         // Google only ever surfaces an account to us via OAuth if that
@@ -162,43 +118,5 @@ class GoogleAuthController extends Controller
         $token = $user->createToken('fishmarket')->plainTextToken;
 
         return redirect($frontend.'/auth/google/callback?token='.urlencode($token));
-    }
-
-    /**
-     * Decode a role selection made only from the registration page. A missing,
-     * malformed, or expired state intentionally falls back to the legacy Buyer
-     * creation behavior; it can never be used to change an existing account.
-     *
-     * @return array{role: 'buyer'|'seller', municipality_id: int|null}|null
-     */
-    private function registrationIntent(Request $request): ?array
-    {
-        $state = $request->query('state');
-
-        if (! is_string($state) || $state === '') {
-            return null;
-        }
-
-        try {
-            $data = json_decode(Crypt::decryptString($state), true, flags: JSON_THROW_ON_ERROR);
-        } catch (DecryptException|\JsonException) {
-            return null;
-        }
-
-        $role = $data['role'] ?? null;
-        $municipalityId = filter_var($data['municipality_id'] ?? null, FILTER_VALIDATE_INT);
-
-        if (! in_array($role, ['buyer', 'seller'], true) || (int) ($data['expires_at'] ?? 0) < now()->getTimestamp()) {
-            return null;
-        }
-
-        if ($role === 'seller' && (! $municipalityId || ! \App\Models\Municipality::whereKey($municipalityId)->exists())) {
-            return null;
-        }
-
-        return [
-            'role' => $role,
-            'municipality_id' => $role === 'seller' ? $municipalityId : null,
-        ];
     }
 }
