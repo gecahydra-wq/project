@@ -5826,12 +5826,15 @@ class FishMarketApiTest extends TestCase
         Sanctum::actingAs($superAdmin);
 
         $active = $this->postJson('/api/super-admin/announcements', ['title' => 'Active One', 'body' => 'Currently visible.'])->json();
-        $this->postJson('/api/super-admin/announcements', [
+        // Past dates can no longer be entered through the API, so an announcement
+        // that has already run its course is created directly.
+        \App\Models\Announcement::create([
             'title' => 'Expired One',
             'body' => 'No longer visible.',
-            'starts_at' => now()->subDays(10)->toDateTimeString(),
-            'expires_at' => now()->subDay()->toDateTimeString(),
-        ])->assertCreated();
+            'created_by' => $superAdmin->id,
+            'starts_at' => now()->subDays(10),
+            'expires_at' => now()->subDay(),
+        ]);
         $this->postJson('/api/super-admin/announcements', [
             'title' => 'Future One',
             'body' => 'Not visible yet.',
@@ -5866,6 +5869,78 @@ class FishMarketApiTest extends TestCase
         $this->assertArrayHasKey('updated_at', $response->json('0'));
         $this->assertArrayNotHasKey('created_by', $response->json('0'));
         $this->assertArrayNotHasKey('notified_at', $response->json('0'));
+    }
+
+    public function test_announcement_dates_cannot_be_in_the_past_or_end_before_they_start(): void
+    {
+        $superAdmin = User::where('role', 'super_admin')->firstOrFail();
+        $buyer = $this->makeBuyer();
+        Sanctum::actingAs($superAdmin);
+
+        // The reported case: starts today, "ends" two months earlier.
+        $this->postJson('/api/super-admin/announcements', [
+            'title' => 'Backwards',
+            'body' => 'Should be refused.',
+            'starts_at' => now()->toIso8601String(),
+            'expires_at' => now()->subMonths(2)->toIso8601String(),
+        ])->assertStatus(422)->assertJsonValidationErrors('expires_at');
+
+        $this->postJson('/api/super-admin/announcements', [
+            'title' => 'Past start',
+            'body' => 'Should be refused.',
+            'starts_at' => now()->subDay()->toIso8601String(),
+        ])->assertStatus(422)->assertJsonValidationErrors('starts_at');
+
+        $this->postJson('/api/super-admin/announcements', [
+            'title' => 'Ends before it starts',
+            'body' => 'Should be refused.',
+            'starts_at' => now()->addDays(5)->toIso8601String(),
+            'expires_at' => now()->addDays(2)->toIso8601String(),
+        ])->assertStatus(422)->assertJsonValidationErrors('expires_at');
+
+        $this->postJson('/api/super-admin/announcements', [
+            'title' => 'Too far ahead',
+            'body' => 'Should be refused.',
+            'expires_at' => '2101-06-01T08:00:00+00:00',
+        ])->assertStatus(422)->assertJsonValidationErrors('expires_at');
+
+        $this->assertDatabaseCount('announcements', 0);
+        $this->assertDatabaseMissing('notifications', ['user_id' => $buyer->id]);
+
+        // A valid window sent with a UTC offset is stored as the same moment.
+        $starts = now()->addDay()->startOfMinute();
+        $response = $this->postJson('/api/super-admin/announcements', [
+            'title' => 'Valid window',
+            'body' => 'Accepted.',
+            'starts_at' => $starts->copy()->setTimezone('Asia/Manila')->toIso8601String(),
+            'expires_at' => now()->addDays(3)->toIso8601String(),
+        ])->assertCreated();
+        $this->assertTrue(\App\Models\Announcement::findOrFail($response->json('id'))->starts_at->equalTo($starts));
+    }
+
+    public function test_an_already_expired_announcement_can_still_be_edited_without_changing_its_dates(): void
+    {
+        $superAdmin = User::where('role', 'super_admin')->firstOrFail();
+        $announcement = \App\Models\Announcement::create([
+            'title' => 'Old notice',
+            'body' => 'Ran last month.',
+            'created_by' => $superAdmin->id,
+            'starts_at' => now()->subMonth()->startOfMinute(),
+            'expires_at' => now()->subWeek()->startOfMinute(),
+        ]);
+        Sanctum::actingAs($superAdmin);
+
+        // The edit form sends the unchanged dates back along with the new title.
+        $this->patchJson("/api/super-admin/announcements/{$announcement->id}", [
+            'title' => 'Old notice (typo fixed)',
+            'starts_at' => $announcement->starts_at->toIso8601String(),
+            'expires_at' => $announcement->expires_at->toIso8601String(),
+        ])->assertOk()->assertJsonPath('title', 'Old notice (typo fixed)');
+
+        // Moving the end date to another past date is still refused.
+        $this->patchJson("/api/super-admin/announcements/{$announcement->id}", [
+            'expires_at' => now()->subDay()->toIso8601String(),
+        ])->assertStatus(422)->assertJsonValidationErrors('expires_at');
     }
 
     public function test_super_admin_can_update_and_delete_an_announcement(): void

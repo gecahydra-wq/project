@@ -6,7 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Models\Announcement;
 use App\Support\AnnouncementNotifier;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class AnnouncementController extends Controller
 {
@@ -54,7 +56,7 @@ class AnnouncementController extends Controller
 
     public function update(Request $request, Announcement $announcement)
     {
-        $data = $this->validated($request, partial: true);
+        $data = $this->validated($request, $announcement);
         $announcement->update($data);
 
         return response()->json($announcement->fresh());
@@ -67,16 +69,83 @@ class AnnouncementController extends Controller
         return response()->json(['message' => 'Announcement deleted.']);
     }
 
-    private function validated(Request $request, bool $partial = false): array
+    /**
+     * @param  Announcement|null  $existing  The announcement being edited (null on create).
+     */
+    private function validated(Request $request, ?Announcement $existing = null): array
     {
-        $required = $partial ? 'sometimes' : 'required';
+        $required = $existing ? 'sometimes' : 'required';
 
-        return $request->validate([
+        $data = $request->validate([
             'title' => [$required, 'string', 'max:255'],
             'body' => [$required, 'string'],
             'category' => ['sometimes', Rule::in(['maintenance', 'update', 'policy', 'holiday', 'general'])],
             'starts_at' => ['nullable', 'date'],
             'expires_at' => ['nullable', 'date'],
         ]);
+
+        // The form sends times with their UTC offset; store them in the app
+        // timezone so scheduling and the display window compare real moments.
+        foreach (['starts_at', 'expires_at'] as $field) {
+            if (array_key_exists($field, $data)) {
+                $data[$field] = $data[$field] ? Carbon::parse($data[$field])->setTimezone(config('app.timezone')) : null;
+            }
+        }
+
+        $this->guardSchedule($data, $existing);
+
+        return $data;
+    }
+
+    /**
+     * An announcement's dates must make sense: the start can't be in the past
+     * (blank means publish now), the end must be in the future, and the end
+     * must come after the start. Without this, an announcement set to run
+     * "Sep 13 until Jul 12" was accepted and its notification went out at once.
+     *
+     * On edit, only a date that actually changed is held to the "not in the
+     * past" rules, so fixing a typo in an announcement that already started or
+     * expired still saves. A few minutes of grace covers time spent on the form.
+     */
+    private function guardSchedule(array $data, ?Announcement $existing): void
+    {
+        $start = array_key_exists('starts_at', $data) ? $data['starts_at'] : $existing?->starts_at;
+        $end = array_key_exists('expires_at', $data) ? $data['expires_at'] : $existing?->expires_at;
+
+        $changed = function (string $field) use ($data, $existing): bool {
+            if (! array_key_exists($field, $data)) {
+                return false;
+            }
+            $old = $existing?->{$field};
+            $new = $data[$field];
+
+            return ! ($old === null && $new === null)
+                && ! ($old && $new && $old->copy()->startOfMinute()->equalTo($new->copy()->startOfMinute()));
+        };
+
+        $errors = [];
+
+        foreach (['starts_at' => $start, 'expires_at' => $end] as $field => $date) {
+            if ($date && $changed($field) && $date->year > 2100) {
+                $errors[$field] = "The year can't be after 2100.";
+            }
+        }
+        if ($errors) {
+            throw ValidationException::withMessages($errors);
+        }
+
+        if ($start && $changed('starts_at') && $start->lt(now()->subMinutes(5))) {
+            $errors['starts_at'] = "The start date can't be in the past. Leave it blank to publish right away.";
+        }
+
+        if ($end && $changed('expires_at') && $end->lte(now())) {
+            $errors['expires_at'] = 'The end date must be in the future.';
+        } elseif ($start && $end && $end->lte($start)) {
+            $errors['expires_at'] = 'The end date must be after the start date.';
+        }
+
+        if ($errors) {
+            throw ValidationException::withMessages($errors);
+        }
     }
 }

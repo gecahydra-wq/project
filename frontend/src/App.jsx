@@ -4760,6 +4760,51 @@ const ANNOUNCEMENT_CATEGORIES = [
 
 const EMPTY_ANNOUNCEMENT_FORM = { title: '', body: '', category: 'general', starts_at: '', expires_at: '' }
 
+// datetime-local inputs work in the viewer's local time with no timezone.
+// The API receives ISO strings with an offset, and stored UTC values are
+// converted back to local time before they are put in the inputs.
+function toLocalDateTimeInput(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function localDateTimeInputToIso(value) {
+  return value ? new Date(value).toISOString() : null
+}
+
+const ANNOUNCEMENT_START_GRACE_MS = 5 * 60 * 1000
+const ANNOUNCEMENT_MAX_YEAR = 2100
+const ANNOUNCEMENT_MAX_INPUT = `${ANNOUNCEMENT_MAX_YEAR}-12-31T23:59`
+
+/**
+ * Mirrors AnnouncementController::guardSchedule so the Super Admin sees the
+ * problem before submitting. Only a date that changed from `original` (the
+ * values loaded for editing) is held to the "not in the past" rules.
+ */
+function announcementScheduleIssue(form, original) {
+  const now = Date.now()
+  const start = form.starts_at ? new Date(form.starts_at).getTime() : null
+  const end = form.expires_at ? new Date(form.expires_at).getTime() : null
+  const yearOf = (value) => new Date(value).getFullYear()
+
+  if ((start && yearOf(form.starts_at) > ANNOUNCEMENT_MAX_YEAR) || (end && yearOf(form.expires_at) > ANNOUNCEMENT_MAX_YEAR)) {
+    return `The year can't be after ${ANNOUNCEMENT_MAX_YEAR}.`
+  }
+  if (start && form.starts_at !== original.starts_at && start < now - ANNOUNCEMENT_START_GRACE_MS) {
+    return "The start date can't be in the past. Leave it blank to publish right away."
+  }
+  if (end && form.expires_at !== original.expires_at && end <= now) {
+    return 'The end date must be in the future.'
+  }
+  if (start && end && end <= start) {
+    return 'The end date must be after the start date.'
+  }
+  return ''
+}
+
 /**
  * Super Admin Announcements CRUD -- create/edit/delete (see
  * AnnouncementController). Creating (or updating into) a past-or-immediate
@@ -4769,7 +4814,36 @@ const EMPTY_ANNOUNCEMENT_FORM = { title: '', body: '', category: 'general', star
  */
 function SuperAdminAnnouncements() {
   const [form, setForm] = useState(EMPTY_ANNOUNCEMENT_FORM)
+  const [original, setOriginal] = useState(EMPTY_ANNOUNCEMENT_FORM)
   const [editingId, setEditingId] = useState(null)
+  const startsAtRef = useRef(null)
+  const expiresAtRef = useRef(null)
+  // Real date problems (past dates, end before start, year after 2100) gray out Publish.
+  const scheduleIssue = announcementScheduleIssue(form, original)
+
+  // A half-typed date makes the browser report an EMPTY value, which would
+  // otherwise publish as "no date". No message for it; the click just moves
+  // the cursor back to the unfinished field.
+  const isIncompleteDate = (input) => Boolean(input && input.value === '' && input.validity.badInput)
+
+  const publish = () => {
+    // The date inputs themselves are the source of truth at click time, so a
+    // date the form state never heard about (e.g. set by a native picker) is
+    // still validated and sent, never silently published as "no end date".
+    const current = {
+      ...form,
+      starts_at: startsAtRef.current ? startsAtRef.current.value : form.starts_at,
+      expires_at: expiresAtRef.current ? expiresAtRef.current.value : form.expires_at,
+    }
+    setForm(current)
+    const unfinished = [startsAtRef.current, expiresAtRef.current].find(isIncompleteDate)
+    if (unfinished) {
+      unfinished.focus()
+      return
+    }
+    if (announcementScheduleIssue(current, original)) return
+    save.mutate(current)
+  }
 
   const list = useQuery({
     queryKey: ['super-admin-announcements'],
@@ -4780,17 +4854,18 @@ function SuperAdminAnnouncements() {
 
   const resetForm = () => {
     setForm(EMPTY_ANNOUNCEMENT_FORM)
+    setOriginal(EMPTY_ANNOUNCEMENT_FORM)
     setEditingId(null)
   }
 
   const save = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (values) => {
       const payload = {
-        title: form.title,
-        body: form.body,
-        category: form.category,
-        starts_at: form.starts_at || null,
-        expires_at: form.expires_at || null,
+        title: values.title,
+        body: values.body,
+        category: values.category,
+        starts_at: localDateTimeInputToIso(values.starts_at),
+        expires_at: localDateTimeInputToIso(values.expires_at),
       }
       return editingId
         ? (await api.patch(`/super-admin/announcements/${editingId}`, payload)).data
@@ -4812,14 +4887,16 @@ function SuperAdminAnnouncements() {
   })
 
   const startEdit = (a) => {
-    setEditingId(a.id)
-    setForm({
+    const loaded = {
       title: a.title,
       body: a.body,
       category: a.category,
-      starts_at: a.starts_at ? a.starts_at.slice(0, 16) : '',
-      expires_at: a.expires_at ? a.expires_at.slice(0, 16) : '',
-    })
+      starts_at: toLocalDateTimeInput(a.starts_at),
+      expires_at: toLocalDateTimeInput(a.expires_at),
+    }
+    setEditingId(a.id)
+    setForm(loaded)
+    setOriginal(loaded)
   }
 
   return (
@@ -4830,12 +4907,35 @@ function SuperAdminAnnouncements() {
           <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
             {ANNOUNCEMENT_CATEGORIES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
-          <input type="datetime-local" value={form.starts_at} onChange={(e) => setForm({ ...form, starts_at: e.target.value })} title="Starts at (optional -- leave blank to publish immediately)" />
-          <input type="datetime-local" value={form.expires_at} onChange={(e) => setForm({ ...form, expires_at: e.target.value })} title="Expires at (optional -- leave blank for no expiration)" />
+          <label className="profile-field">
+            <span className="profile-field-label">Starts at</span>
+            <input
+              ref={startsAtRef}
+              type="datetime-local"
+              value={form.starts_at}
+              min={toLocalDateTimeInput(new Date())}
+              max={ANNOUNCEMENT_MAX_INPUT}
+              onChange={(e) => setForm({ ...form, starts_at: e.target.value })}
+            />
+            <span className="profile-field-hint">Optional. Leave blank to publish right away.</span>
+          </label>
+          <label className="profile-field">
+            <span className="profile-field-label">Ends at</span>
+            <input
+              ref={expiresAtRef}
+              type="datetime-local"
+              value={form.expires_at}
+              min={form.starts_at || toLocalDateTimeInput(new Date())}
+              max={ANNOUNCEMENT_MAX_INPUT}
+              onChange={(e) => setForm({ ...form, expires_at: e.target.value })}
+            />
+            <span className="profile-field-hint">Optional. Leave blank to keep it up until you delete it.</span>
+          </label>
           <textarea placeholder="Announcement body" value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} />
         </div>
-        <p className="helper-text">Leave Starts At blank to notify Buyers, Sellers, and LGU Admins immediately. Leave Expires At blank for no expiration.</p>
-        <button type="button" onClick={() => save.mutate()} disabled={save.isPending || !form.title || !form.body}>
+        {scheduleIssue && <p className="error" role="alert">{scheduleIssue}</p>}
+        <p className="helper-text">Leave Starts at blank to notify Buyers, Sellers, and LGU Admins immediately. Leave Ends at blank for no expiration.</p>
+        <button type="button" onClick={publish} disabled={save.isPending || !form.title || !form.body || Boolean(scheduleIssue)}>
           {save.isPending ? 'Saving...' : editingId ? 'Update Announcement' : 'Publish Announcement'}
         </button>
         {editingId && <button type="button" className="ghost" onClick={resetForm}>Cancel</button>}
