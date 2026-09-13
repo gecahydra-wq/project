@@ -44,7 +44,7 @@ Some endpoints additionally require `verified` (a verified email). Public catalo
 | **PayMongo** | Payment gateway. Hosts checkout and confirms payment through a **signed** webhook (signature checked against `PAYMONGO_WEBHOOK_SECRET`) and a checkout-session status check when the buyer returns. | `PayMongoService`, `OrderController::checkout` / `paymongoWebhook` / `markPaymentSuccess` |
 | **Google OAuth** | Federated login provider. | `GoogleAuthController::redirect` / `callback` |
 | **Gemini AI** | LLM that phrases the AI Assistant's grounded answers. | `GeminiService`, `AiAssistantController::ask` |
-| **Email (SMTP)** | Outbound mail for verification, password reset, and transactional notifications. | `EmailVerificationController`, `PasswordResetController`, `App\Mail\*` |
+| **Email (Resend / SMTP)** | Outbound mail for verification, password reset, and transactional notifications. Production sends through the **Resend** HTTPS API from `no-reply@teamabai.website` (Railway blocks SMTP); local development uses Gmail SMTP. | `EmailVerificationController`, `PasswordResetController`, `App\Mail\*`, `SafeMailer` |
 | **Scheduler (Laravel)** | Time-based system actor. Runs every 5 minutes (started by `start.sh` on Railway, `php artisan schedule:work` locally). | `routes/console.php`: `orders:expire-unpaid`, `announcements:publish`, `sanctum:prune-expired` |
 
 ---
@@ -68,7 +68,7 @@ Each row is a use case and the concrete endpoint(s) that implement it. `✔ veri
 | View seller profiles & posts | `GET /sellers`, `GET /sellers/{seller}` |
 | View municipalities | `GET /municipalities` |
 
-*«include»* Register, Verify email and Reset forgotten password → **Email (SMTP)**; Log in with Google → **Google OAuth**.
+*«include»* Register, Verify email and Reset forgotten password → **Email (Resend / SMTP)**; Log in with Google → **Google OAuth**.
 
 > Reset forgotten password works for every role, including Google-registered accounts (the reset gives them a usable password; Google sign-in keeps working). It answers identically for unknown emails, the link expires after 60 minutes and is single-use, and a successful reset logs the account out everywhere.
 

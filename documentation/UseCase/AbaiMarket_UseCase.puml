@@ -32,7 +32,7 @@ actor "Authenticated\nUser" as Auth
 actor "PayMongo" as PayMongo
 actor "Google OAuth" as Google
 actor "Gemini AI" as Gemini
-actor "Email (SMTP)" as Email
+actor "Email\n(Resend / SMTP)" as Email
 actor "Scheduler\n(Laravel)" as Scheduler
 
 ' Role generalization: every signed-in role IS an Authenticated User.

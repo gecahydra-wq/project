@@ -49,7 +49,7 @@ FishMarket is a **decoupled SPA + REST API**:
                           │                        │                        │                           │
                     Controllers              Service Layer              Eloquent                External
                    (thin, HTTP)          (app/Support + Services)      Models / DB            PayMongo · Gemini
-                                          business rules & money        MySQL/SQLite          Google OAuth · SMTP
+                                          business rules & money        MySQL/SQLite          Google OAuth · Resend/SMTP
 ```
 
 Guiding principles baked into the codebase:
@@ -302,8 +302,10 @@ Because the AI assistant answers "how much can I withdraw?" using the exact same
 ### Email System
 
 - All mail is a Laravel Mailable in `app/Mail`, sent through `SafeMailer` so a broken transport degrades gracefully (a failed send never turns a successful action into a 500).
-- Local dev: set `MAIL_MAILER=log` to capture emails in `storage/logs`.
-- Covers verification, payment receipt, order lifecycle, listing approval/rejection, earnings/payout releases, and account suspension/reinstatement.
+- Local dev: set `MAIL_MAILER=log` to capture emails in `storage/logs`, or `smtp` with a Gmail App Password to really send.
+- **Production uses Resend, not SMTP.** Railway blocks outbound SMTP, so the live service runs `MAIL_MAILER=resend` with `RESEND_API_KEY` (package `resend/resend-php`) and sends from `no-reply@teamabai.website`. Mailables are transport-agnostic — no code path checks which mailer is active.
+- `MAIL_TIMEOUT` (default 10 s) caps SMTP connection waits so an unreachable server can't stall a request.
+- Covers verification, password reset, payment receipt, order lifecycle, listing approval/rejection, seller registration decisions, earnings approval, withdrawal approval/release, and account suspension/reinstatement/removal.
 
 ### AI Integration
 
@@ -372,6 +374,7 @@ A typical vertical slice (mirroring how existing features were built):
 **Backend**
 - `storage/logs/laravel.log` is the first stop (Gemini/PayMongo failures are logged there).
 - Set `MAIL_MAILER=log` to inspect emails without sending.
+- **Emails not arriving in production?** `SafeMailer` failures only go to `storage/logs/laravel.log` inside the Railway container (not `railway logs`), so read it with `railway ssh --service capstone-project -- tail -n 20 /app/storage/logs/laravel.log`. Check the Resend dashboard's Emails page too.
 - `php artisan tinker` to poke models/services interactively.
 - `php artisan route:list` to confirm a route's middleware/binding.
 - Run a single test: `php artisan test --filter=test_name`. Tests use an in-memory SQLite DB, so they never touch your dev data.

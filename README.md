@@ -96,7 +96,7 @@ The system emphasizes correctness of money movement, strict role permissions, a 
 | **Database** | MySQL (production) / SQLite (local default & test) via Eloquent migrations |
 | **Payments** | PayMongo Checkout API (demo fallback when unconfigured) |
 | **AI** | Google Gemini API (local knowledge-base fallback when unconfigured) |
-| **Email** | SMTP (any provider; `log` driver fallback for local dev) |
+| **Email** | Resend HTTPS API in production (Railway blocks SMTP); Gmail SMTP locally; `log` driver fallback for local dev |
 | **Auth (social)** | Google OAuth 2.0 |
 
 > **Styling note:** Tailwind CSS 4 is installed, but the shipped UI is driven primarily by a hand-authored, token-based design system in `frontend/src/App.css`. See the Developer Guide for details.
@@ -150,13 +150,17 @@ All backend configuration lives in `backend/.env`. Copy from `.env.example` and 
 | `DB_CONNECTION` | `sqlite` (default) or `mysql` |
 | `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` | MySQL connection (uncomment when using MySQL) |
 
-### Email (SMTP)
+### Email
 
 | Variable | Description |
 | --- | --- |
-| `MAIL_MAILER` | `smtp` for real mail, `log` to write emails to the log |
-| `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_ENCRYPTION` | SMTP credentials |
-| `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME` | Sender identity |
+| `MAIL_MAILER` | `resend` in production (Railway), `smtp` locally (Gmail), or `log` to write emails to the log |
+| `RESEND_API_KEY` | Resend API key (`re_...`) — production only; set in Railway Variables, never commit it |
+| `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_ENCRYPTION` | SMTP credentials (local Gmail App Password); ignored by the Resend mailer |
+| `MAIL_TIMEOUT` | Seconds to wait for an SMTP server before giving up (default `10`) |
+| `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME` | Sender identity — production uses `no-reply@teamabai.website` (domain verified in Resend) |
+
+> **Why two mail setups?** Railway blocks outbound SMTP (Gmail ports 587/465 time out from the container), so production sends through Resend's HTTPS API instead. Locally, Gmail SMTP works normally. See `backend/RAILWAY_DEPLOYMENT.md` for the Resend + DNS setup.
 
 ### PayMongo
 
@@ -388,6 +392,8 @@ A single, role-aware Gemini assistant is available on every page.
 ## Email System
 
 Transactional email is sent through Laravel Mailables via a `SafeMailer` wrapper, so a broken mail transport never turns a successful action into a 500 error. Set `MAIL_MAILER=log` locally to capture emails in the log instead of sending them.
+
+**Delivery:** production (Railway) sends through **Resend** over HTTPS from `no-reply@teamabai.website` (DKIM/SPF records added in Namecheap DNS; domain verified in Resend), because Railway blocks outbound SMTP. Local development sends through **Gmail SMTP**. The same Mailables and templates are used in both — only `MAIL_MAILER` differs. A new sending domain may land in spam at first until it builds reputation; the DMARC record and "Not spam" reports help.
 
 Implemented emails include:
 - Email Verification
