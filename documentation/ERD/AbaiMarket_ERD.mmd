@@ -33,6 +33,18 @@ erDiagram
     USERS ||--o{ MODERATION_LOGS : "performs (moderator_id)"
     USERS ||--o{ ACTIVITY_LOGS : "acts (actor_id)"
     USERS ||--o{ ACTIVITY_LOGS : "is target (target_user_id)"
+    MUNICIPALITIES ||--o{ USER_REPORTS : "scopes"
+    MUNICIPALITIES ||--o{ SELLER_NOTICES : "scopes"
+    USERS ||--o{ USER_REPORTS : "files (reporter_id)"
+    USERS ||--o{ USER_REPORTS : "is reported in (reported_user_id)"
+    USERS ||--o{ USER_REPORTS : "reviews (reviewed_by)"
+    USERS ||--o{ SELLER_NOTICES : "reviews (reviewed_by)"
+    USERS ||--o{ AI_DISEASE_REPORTS : "submits"
+    USERS ||--o{ AI_GROWTH_LOGS : "logs (buyer_id)"
+    SELLER_PROFILES ||--o{ SELLER_NOTICES : "receives"
+    LISTINGS ||--o{ AI_DISEASE_REPORTS : "is assessed in"
+    ORDERS ||--o{ AI_GROWTH_LOGS : "tracks growth of"
+    ORDERS ||--o{ USER_REPORTS : "gives context to"
 
     SELLER_PROFILES ||--o{ LISTINGS : "publishes"
     SELLER_PROFILES ||--o{ ORDERS : "fulfills"
@@ -368,5 +380,60 @@ erDiagram
         string reference_type "nullable"
         string reference_number "nullable"
         text description "nullable"
+        timestamps created_updated
+    }
+
+    USER_REPORTS {
+        bigint id PK
+        bigint reporter_id FK "cascade -> users"
+        bigint reported_user_id FK "cascade -> users"
+        string reporter_role "role snapshot"
+        string reported_role "role snapshot"
+        bigint municipality_id FK "nullable, nullOnDelete"
+        bigint order_id FK "nullable, nullOnDelete"
+        string reason
+        text description
+        string status "pending|under_review|resolved|dismissed"
+        text resolution_notes "nullable"
+        bigint reviewed_by FK "nullable, nullOnDelete -> users"
+        timestamp reviewed_at "nullable"
+        timestamps created_updated
+    }
+
+    SELLER_NOTICES {
+        bigint id PK
+        bigint seller_profile_id FK "cascade"
+        bigint municipality_id FK "nullable, nullOnDelete"
+        string type "default low_rating"
+        decimal average_rating "nullable, 3-2"
+        uint ratings_count "default 0"
+        text details "nullable"
+        string status "open|under_review|resolved|dismissed"
+        text seller_response "nullable"
+        timestamp responded_at "nullable"
+        text lgu_notes "nullable"
+        bigint reviewed_by FK "nullable, nullOnDelete -> users"
+        timestamp reviewed_at "nullable"
+        timestamps created_updated
+    }
+
+    AI_DISEASE_REPORTS {
+        bigint id PK
+        bigint user_id FK "cascade"
+        bigint listing_id FK "nullable, nullOnDelete"
+        text symptoms
+        string image_path "nullable"
+        text diagnosis "nullable"
+        string status "default pending"
+        timestamps created_updated
+    }
+
+    AI_GROWTH_LOGS {
+        bigint id PK
+        bigint order_id FK "cascade"
+        bigint buyer_id FK "cascade -> users"
+        string stage "nullable"
+        text notes "nullable"
+        timestamp logged_at "defaults to now"
         timestamps created_updated
     }

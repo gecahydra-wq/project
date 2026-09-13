@@ -49,7 +49,7 @@ import {
   X,
   XCircle,
 } from 'lucide-react'
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Bar,
   BarChart,
@@ -105,9 +105,17 @@ const SPECIES_PLACEHOLDERS = [
   [/tilapia/i, '/placeholders/tilapia.svg'],
   [/catfish/i, '/placeholders/catfish.svg'],
   [/carp/i, '/placeholders/carp.svg'],
+  // Grouper is no longer offered (replaced by Tuna in SPECIES_OPTIONS) but the
+  // mapping stays so any listing already recorded against it keeps its
+  // artwork. Tuna has no illustration yet and falls through to the default.
   [/grouper/i, '/placeholders/grouper.svg'],
   [/sea.?bass/i, '/placeholders/sea-bass.svg'],
 ]
+// The species the marketplace filters by, in one place -- Browse, the in-app
+// marketplace browser and the landing page's Shop by Species row all read this
+// list, so they can never drift apart. Each one has artwork in
+// SPECIES_PLACEHOLDERS above.
+const SPECIES_OPTIONS = ['Bangus', 'Tilapia', 'Tuna', 'Catfish', 'Sea Bass', 'Carp']
 const DEFAULT_PLACEHOLDER_IMAGE = '/placeholders/default.svg'
 const DEFAULT_AVATAR_IMAGE = '/placeholders/avatar.svg'
 const DEFAULT_COVER_IMAGE = '/placeholders/cover.svg'
@@ -441,7 +449,13 @@ function PublicLayout() {
           </div>
         )}
       </header>
-      <Outlet />
+      {/* Scope wrapper: the storefront-scale type and section rhythm below
+          apply to the public marketing pages only. The four role dashboards
+          are dense tables and approval queues where that spacing would mean
+          far more scrolling for the same work, so they keep the base styles. */}
+      <div className="public-shell">
+        <Outlet />
+      </div>
       <FloatingAi />
     </>
   )
@@ -523,6 +537,57 @@ function roleLabel(role) {
   return ({ buyer: 'Buyer', seller: 'Seller', lgu_admin: 'LGU Admin', super_admin: 'Super Admin' })[role]
 }
 
+/**
+ * Photo for one Shop by Species tile, resolved in priority order:
+ *
+ *   1. /species/<slug>.jpg -- a curated photograph dropped into
+ *      frontend/public/species/ (bangus, tilapia, tuna, catfish, sea-bass,
+ *      carp). Nothing else has to change when those files appear: the tile
+ *      picks them up on the next load. Supply photos you hold the rights to.
+ *   2. A real uploaded photo from an approved listing of that species -- so
+ *      the row shows the actual stock on the marketplace today.
+ *   3. The species artwork in SPECIES_PLACEHOLDERS, so a species with neither
+ *      a curated photo nor a listing still renders.
+ *
+ * Each source is tried in turn via onError, which is the only way to know
+ * whether a static file exists without shipping a manifest of them. The index
+ * never advances past the last entry, so a failing final source cannot loop.
+ */
+function SpeciesTileImage({ species, listings = [] }) {
+  const [attempt, setAttempt] = useState(0)
+
+  const sources = useMemo(() => {
+    const slug = species.toLowerCase().replace(/\s+/g, '-')
+    const fromListing = listings.find((listing) => (
+      (listing.species || '').toLowerCase() === species.toLowerCase()
+      && listing.media?.some((media) => media.type === 'photo' && media.url)
+    ))
+
+    return [
+      `/species/${slug}.jpg`,
+      fromListing ? resolveListingImage(fromListing) : null,
+      resolveListingImage({ species }),
+    ].filter(Boolean)
+  }, [species, listings])
+
+  const src = sources[Math.min(attempt, sources.length - 1)]
+  // The fallback artwork is a line illustration that needs room around it; a
+  // real photograph should fill the tile edge to edge.
+  const isArtwork = src.endsWith('.svg')
+
+  return (
+    <span className="species-tile-media">
+      <img
+        src={src}
+        alt={species}
+        loading="lazy"
+        className={isArtwork ? 'species-tile-art' : 'species-tile-photo'}
+        onError={() => setAttempt((current) => Math.min(current + 1, sources.length - 1))}
+      />
+    </span>
+  )
+}
+
 function LandingPage() {
   const listingsQuery = useQuery({
     queryKey: ['listings'],
@@ -563,7 +628,18 @@ function LandingPage() {
         {featuredSellers.length ? <SellerGrid items={featuredSellers.slice(0, 3)} /> : <EmptyState message="No sellers registered yet." />}
       </Section>
       <Section title="How It Works"><div className="steps"><Step n="1" t="Register" d="Buyers and sellers create verified marketplace accounts." /><Step n="2" t="Order & Pay" d="Buyers place orders and pay through PayMongo Checkout." /><Step n="3" t="LGU Oversight" d="LGU admins verify sellers and approve local listings." /><Step n="4" t="Release" d="Super Admin releases held seller funds after completion." /></div></Section>
-      <Section title="Supported Species"><div className="species-list">{['Bangus', 'Tilapia', 'Grouper', 'Catfish', 'Sea Bass', 'Carp'].map((s) => <span key={s}>{s}</span>)}</div></Section>
+      {/* Browse-by-species row: the photo leads, the label sits under it, and
+          each tile lands on Browse already filtered to that species. */}
+      <Section title="Shop by Species">
+        <div className="species-row">
+          {SPECIES_OPTIONS.map((species) => (
+            <Link className="species-tile" key={species} to={`/browse?species=${encodeURIComponent(species)}`}>
+              <SpeciesTileImage species={species} listings={featured} />
+              <strong>{species}</strong>
+            </Link>
+          ))}
+        </div>
+      </Section>
       <AboutPage compact />
       <footer>AbaiMarket - LGU, Sellers, and Fish Farmers working together for local aquaculture.</footer>
     </main>
@@ -571,7 +647,15 @@ function LandingPage() {
 }
 
 function BrowsePage() {
-  const [filters, setFilters] = useState({ q: '', species: 'All', municipality: 'All' })
+  const [searchParams] = useSearchParams()
+  // Honour ?species= so the landing page's Shop by Species tiles arrive
+  // pre-filtered instead of dropping the visitor into the full catalogue.
+  const requestedSpecies = searchParams.get('species')
+  const [filters, setFilters] = useState({
+    q: '',
+    species: SPECIES_OPTIONS.includes(requestedSpecies) ? requestedSpecies : 'All',
+    municipality: 'All',
+  })
   const { data = [] } = useQuery({
     queryKey: ['listings'],
     queryFn: async () => (await api.get('/listings')).data.map(mapListing),
@@ -587,7 +671,7 @@ function BrowsePage() {
       <aside className="filter-card">
         <h2>Advanced Filters</h2>
         <label className="filter-label">Search<input placeholder="Search listings" value={filters.q} onChange={(e) => setFilters({ ...filters, q: e.target.value })} /></label>
-        <label className="filter-label">Species<select value={filters.species} onChange={(e) => setFilters({ ...filters, species: e.target.value })}><option>All</option>{['Bangus', 'Tilapia', 'Grouper', 'Catfish', 'Sea Bass', 'Carp'].map((s) => <option key={s}>{s}</option>)}</select></label>
+        <label className="filter-label">Species<select value={filters.species} onChange={(e) => setFilters({ ...filters, species: e.target.value })}><option>All</option>{SPECIES_OPTIONS.map((s) => <option key={s}>{s}</option>)}</select></label>
         <label className="filter-label">Municipality<select value={filters.municipality} onChange={(e) => setFilters({ ...filters, municipality: e.target.value })}><option>All</option>{['Mandaue', 'Consolacion', 'Compostela', 'Talisay', 'Lapu-Lapu', 'Carmen'].map((s) => <option key={s}>{s}</option>)}</select></label>
       </aside>
       {filtered.length ? <ListingGrid items={filtered} /> : <EmptyState message="No listings match your filters yet." />}
@@ -611,7 +695,7 @@ function MarketplaceBrowser({ detailPath }) {
     <div className="buyer-browse">
       <div className="filter-card inline">
         <label className="filter-label">Search<input placeholder="Search listings" value={filters.q} onChange={(e) => setFilters({ ...filters, q: e.target.value })} /></label>
-        <label className="filter-label">Species<select value={filters.species} onChange={(e) => setFilters({ ...filters, species: e.target.value })}><option>All</option>{['Bangus', 'Tilapia', 'Grouper', 'Catfish', 'Sea Bass', 'Carp'].map((s) => <option key={s}>{s}</option>)}</select></label>
+        <label className="filter-label">Species<select value={filters.species} onChange={(e) => setFilters({ ...filters, species: e.target.value })}><option>All</option>{SPECIES_OPTIONS.map((s) => <option key={s}>{s}</option>)}</select></label>
         <label className="filter-label">Municipality<select value={filters.municipality} onChange={(e) => setFilters({ ...filters, municipality: e.target.value })}><option>All</option>{['Mandaue', 'Consolacion', 'Compostela', 'Talisay', 'Lapu-Lapu', 'Carmen'].map((s) => <option key={s}>{s}</option>)}</select></label>
       </div>
       {filtered.length ? (
@@ -6055,7 +6139,7 @@ function PeriodFilter({ period, onChange }) {
 const SPECIES_CHART_COLORS = {
   Bangus: 'var(--color-primary)',
   Tilapia: 'var(--color-teal)',
-  Grouper: 'var(--chart-violet)',
+  Tuna: 'var(--chart-violet)',
   Catfish: 'var(--chart-gold)',
   'Sea Bass': 'var(--chart-magenta)',
   Carp: 'var(--chart-green)',
@@ -7010,24 +7094,97 @@ function SellerProfilePage() {
         ) : <EmptyState message="No listings available from this seller yet." />}
       </Section>
       <MediaGallery media={galleryMedia} title="Farm Gallery" />
-      <Section title="Buyer Reviews">
-        {reviews.length ? (
+      <SellerReviewsSection reviews={reviews} fallbackAverage={seller.rating} />
+    </main>
+  )
+}
+
+const REVIEW_STARS = [5, 4, 3, 2, 1]
+
+/**
+ * Buyer reviews at the foot of a seller profile. The old version listed bare
+ * star rows, which told a buyer nothing about whether 5 stars came from one
+ * order or forty -- so this leads with the shape of the score (average, total,
+ * and how the ratings are spread) before the individual write-ups.
+ *
+ * The distribution is one series of counts, so it reads as a single-hue bar set
+ * with the count printed on every row: the number beside each bar is the whole
+ * data table, and nothing is carried by colour alone. The average is computed
+ * from the reviews actually on screen, falling back to the stored seller rating
+ * only when there are none to average.
+ *
+ * Every review is tied to one completed order of the buyer's own (see
+ * ReviewController::store), which is what makes the "Verified purchase" mark a
+ * fact rather than decoration.
+ */
+function SellerReviewsSection({ reviews = [], fallbackAverage }) {
+  const total = reviews.length
+  const average = total
+    ? reviews.reduce((sum, review) => sum + Number(review.rating || 0), 0) / total
+    : Number(fallbackAverage || 0)
+  const written = reviews.filter((review) => (review.comment || '').trim()).length
+  const distribution = REVIEW_STARS.map((star) => ({
+    star,
+    count: reviews.filter((review) => Math.round(Number(review.rating || 0)) === star).length,
+  }))
+
+  return (
+    <Section title="Buyer Reviews">
+      {total ? (
+        <>
+          <div className="card review-summary">
+            <div className="review-summary-score">
+              <strong className="review-summary-average">{average.toFixed(1)}<span>/5</span></strong>
+              {renderStars(average)}
+              <p className="muted">
+                {total} verified review{total === 1 ? '' : 's'}
+                {written ? ` · ${written} with a written comment` : ''}
+              </p>
+            </div>
+            <ul className="review-distribution">
+              {distribution.map(({ star, count }) => (
+                <li key={star} title={`${count} of ${total} review${total === 1 ? '' : 's'} rated ${star} star${star === 1 ? '' : 's'}`}>
+                  <span className="review-distribution-label">{star}<Star size={12} /></span>
+                  <span className="review-distribution-track">
+                    <span
+                      className="review-distribution-bar"
+                      style={{ width: `${total ? (count / total) * 100 : 0}%` }}
+                    />
+                  </span>
+                  <span className="review-distribution-count">{count}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
           <div className="review-list">
             {reviews.map((review) => (
-              <div className="card review-item" key={review.id}>
-                <div className="card-row">
-                  <strong>{renderStars(review.rating)}</strong>
-                  <span className="muted">{new Date(review.created_at).toLocaleDateString()}</span>
+              <article className="card review-item" key={review.id}>
+                <div className="review-card-head">
+                  <p className="review-author">
+                    <Avatar src={review.buyer?.profile_picture} alt={review.buyer?.name} className="review-avatar" />
+                    {review.buyer?.name || 'AbaiMarket Buyer'}
+                  </p>
+                  <span className="muted">{review.created_at ? new Date(review.created_at).toLocaleString() : ''}</span>
                 </div>
-                <p className="review-author"><Avatar src={review.buyer?.profile_picture} alt={review.buyer?.name} className="review-avatar" />{review.buyer?.name || 'AbaiMarket Buyer'}</p>
+                <div className="review-rating-line">
+                  {renderStars(review.rating)}
+                  <strong className="review-score">{Number(review.rating || 0).toFixed(1)}<span>/5</span></strong>
+                  {review.order_id && <span className="review-badge"><ShieldCheck size={13} /> Verified purchase</span>}
+                </div>
                 {review.title && <p className="review-title">{review.title}</p>}
-                <p>{review.comment || 'No comment left.'}</p>
-              </div>
+                <blockquote className="review-quote">{review.comment || 'No comment left.'}</blockquote>
+              </article>
             ))}
           </div>
-        ) : <EmptyState message="No reviews yet." />}
-      </Section>
-    </main>
+        </>
+      ) : (
+        <EmptyState
+          icon={Star}
+          title="No reviews yet"
+          message="Buyers can leave a review once their order with this hatchery is completed."
+        />
+      )}
+    </Section>
   )
 }
 

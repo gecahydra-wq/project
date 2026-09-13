@@ -239,9 +239,9 @@ class AiIntentClassifier
         [
             'category' => 'Fish Care',
             'keywords' => ['beginner', 'good species', 'what species', 'which species', 'species available'],
-            'English' => 'For beginners, Tilapia is a great starting point -- hardy, tolerates imperfect water, grows fast (about 6 months to harvest), and has strong market demand. AbaiMarket also lists Bangus, Grouper, Catfish, Sea Bass, and Carp fingerlings; use the Species filter on Browse to compare what local sellers currently have in stock.',
-            'Tagalog' => 'Para sa mga baguhan, magandang simulan ang Tilapia -- matibay, kayang mag-adjust sa di-perpektong tubig, mabilis lumaki (mga 6 buwan hanggang harvest), at may mataas na demand sa merkado. May Bangus, Grouper, Catfish, Sea Bass, at Carp fingerlings din sa AbaiMarket -- gamitin ang Species filter sa Browse para makita kung ano ang available ngayon.',
-            'Bisaya' => 'Para sa mga baguhan, maayo ang Tilapia isugod -- lig-on siya, ka-adjust sa dili perpekto nga tubig, paspas motubo (mga 6 ka bulan hangtod sa harvest), ug taas ang demand sa merkado. Naa say Bangus, Grouper, Catfish, Sea Bass, ug Carp fingerlings sa AbaiMarket -- gamita ang Species filter sa Browse para makita unsay naa karon.',
+            'English' => 'For beginners, Tilapia is a great starting point -- hardy, tolerates imperfect water, grows fast (about 6 months to harvest), and has strong market demand. AbaiMarket also lists Bangus, Tuna, Catfish, Sea Bass, and Carp fingerlings; use the Species filter on Browse to compare what local sellers currently have in stock.',
+            'Tagalog' => 'Para sa mga baguhan, magandang simulan ang Tilapia -- matibay, kayang mag-adjust sa di-perpektong tubig, mabilis lumaki (mga 6 buwan hanggang harvest), at may mataas na demand sa merkado. May Bangus, Tuna, Catfish, Sea Bass, at Carp fingerlings din sa AbaiMarket -- gamitin ang Species filter sa Browse para makita kung ano ang available ngayon.',
+            'Bisaya' => 'Para sa mga baguhan, maayo ang Tilapia isugod -- lig-on siya, ka-adjust sa dili perpekto nga tubig, paspas motubo (mga 6 ka bulan hangtod sa harvest), ug taas ang demand sa merkado. Naa say Bangus, Tuna, Catfish, Sea Bass, ug Carp fingerlings sa AbaiMarket -- gamita ang Species filter sa Browse para makita unsay naa karon.',
         ],
         [
             'category' => 'Fish Care',

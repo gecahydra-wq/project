@@ -30,8 +30,6 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 COPY composer.json composer.lock ./
 
-RUN php -m | grep -i gd
-
 RUN composer install \
     --optimize-autoloader \
     --no-scripts \

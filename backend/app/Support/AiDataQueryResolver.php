@@ -32,7 +32,7 @@ class AiDataQueryResolver
      * falling through to an off-topic refusal), merged with whatever is
      * actually in the listings table.
      */
-    private const KNOWN_SPECIES = ['Tilapia', 'Bangus', 'Grouper', 'Catfish', 'Sea Bass', 'Carp'];
+    private const KNOWN_SPECIES = ['Tilapia', 'Bangus', 'Tuna', 'Catfish', 'Sea Bass', 'Carp'];
 
     private const COUNT_TRIGGERS = [
         'how many', 'number of', 'total number', 'count of', 'registered', // English

@@ -6,4 +6,10 @@ dockerfilePath = "Dockerfile"
 startCommand = "sh start.sh"
 healthcheckPath = "/up"
 healthcheckTimeout = 300
-restartPolicyType = "ON_FAILURE"
+# ALWAYS, not ON_FAILURE: ON_FAILURE gives up after its retry budget and then
+# parks the service on a permanent 502 ("Application failed to respond") even
+# when the crash was transient, which needs a manual redeploy to clear. The
+# API is served by `php artisan serve`, a single-process dev server that can
+# die on a fatal error, so unattended recovery matters more here than it would
+# behind php-fpm.
+restartPolicyType = "ALWAYS"

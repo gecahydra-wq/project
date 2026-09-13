@@ -243,6 +243,8 @@ npm run dev
 
 The SPA runs on `http://127.0.0.1:5173` (or `localhost:5173`). A single login page serves every role. On Windows, `start-frontend.cmd` is provided.
 
+> `frontend/vite.config.js` pins the dev server to `host: '127.0.0.1'` with `strictPort`. Keep it: Vite otherwise binds only the IPv6 loopback (`::1`) on Windows, so `localhost:5173` works while the IPv4 literal `127.0.0.1:5173` is refused — which silently breaks every backend-generated redirect into the SPA (the Google callback, password-reset and email-verification links), because those are built from `FRONTEND_URL`. `strictPort` stops Vite quietly moving to 5174 and breaking the same redirects.
+
 ---
 
 ## Building for Production

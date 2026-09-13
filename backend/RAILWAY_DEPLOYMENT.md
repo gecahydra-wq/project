@@ -64,8 +64,45 @@ VITE_API_URL=https://capstone-project-production-aba8.up.railway.app/api
    for schema changes. Never run `migrate:fresh` in production.
 4. Configure an external scheduler only if scheduled announcements are used:
    `php artisan schedule:run` every minute.
-5. Configure persistent object storage before relying on user-uploaded media;
-   Railway container storage and logs are not durable.
+5. **Attach a volume mounted at exactly `/app/storage/app/public`.** Uploads go
+   through `ImageUploader` onto the `public` disk (`storage/app/public`), and
+   the container filesystem is rebuilt on every deployment — anything not on a
+   volume is destroyed. Re-running `storage:link` does not help: `start.sh`
+   already runs it on every boot (with `--force`, so a stale symlink is
+   replaced), and it only recreates the *link*, never the files. Do **not**
+   mount at `/app/storage`; the volume starts empty and would hide
+   `storage/framework/{cache,sessions,views}` and `storage/logs`, breaking the
+   app. Railway logs are still not durable. Object storage (S3/R2) remains the
+   more robust option, since a volume ties the service to one region.
+6. **Keep the listening port and the public domain's target port in agreement.**
+   `start.sh` serves on `${PORT:-8080}`. Set a service variable `PORT=8080` and
+   set the public domain's target port to `8080` under Settings → Networking.
+
+## Troubleshooting: 502 "Application failed to respond"
+
+A 502 carrying the header `x-railway-fallback: true` means Railway's edge has
+**no reachable container** — the request never entered PHP, so the application
+code and the database are not implicated. Read the deployment log before
+changing anything:
+
+- **Build succeeded, `[1/1] Healthcheck succeeded!`, log shows
+  `Server running on [http://0.0.0.0:8080]`, but the public URL still 502s** →
+  this is a **port mismatch**, and it is the most likely cause. The healthcheck
+  does not use the public domain's target port, so it passes while every real
+  request hits a port nothing listens on. Fix it in Settings → Networking as in
+  item 6 above; no redeploy is needed. Beware that `railway up` uploads the
+  working tree rather than a commit, so an experimental `EXPOSE`/`--port` value
+  can pin the domain's port and outlive the code that introduced it.
+- **Repeated `Starting Container` lines** → the process is crash-looping. The
+  service uses `restartPolicyType = "ALWAYS"` (not `ON_FAILURE`, which exhausts
+  its retry budget and then parks the service on a permanent 502 until someone
+  redeploys manually).
+- **A genuine database problem** appears as a connection exception in the log,
+  not as a fallback 502. Confirm `DB_*` point at the database service and not
+  at `127.0.0.1` — a local `.env` pasted into Railway is the usual cause.
+  Prefer `DB_URL=${{<MySQL service>.MYSQL_URL}}`, which `config/database.php`
+  already reads, so host and credentials track the service over the private
+  network instead of being copied by hand.
 
 ## SMTP and sender verification
 
@@ -84,7 +121,12 @@ official PHP transport dependency in an approved follow-up.
 
 - Google Cloud: register the exact `GOOGLE_REDIRECT_URI` above. The app uses
   Socialite `stateless()` with `prompt=select_account`, so users can choose a
-  different Google account.
+  different Google account. **Authorized redirect URIs is a list — add, never
+  replace.** Keep the production callback alongside the local ones
+  (`http://127.0.0.1:8000/api/auth/google/callback` and the `localhost`
+  variant, which Google treats as a distinct entry) so the same OAuth client
+  serves both environments; replacing one with the other is what produces
+  `Error 400: redirect_uri_mismatch`.
 - PayMongo: register `POST https://capstone-project-production-aba8.up.railway.app/api/paymongo/webhook`.
   The webhook secret is reserved in configuration, but signature validation is
   a separate security improvement and must be implemented before treating the

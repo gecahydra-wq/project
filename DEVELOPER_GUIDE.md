@@ -213,7 +213,9 @@ Money-related rows are **append-only** where it matters: a `Settlement` is never
 The SPA is deliberately compact:
 
 - **`frontend/src/App.jsx`** — the entire application: the router, the axios instance, session helpers, and every screen/component. Components are plain function components; data fetching is via **TanStack React Query**; forms use **React Hook Form**; charts use **Recharts**; icons are **lucide-react**.
-- **`frontend/src/App.css`** — a hand-authored design system built on CSS custom properties (design tokens for color, type scale, spacing, radius, shadow). Most "make it look good" changes happen here, and because primitives are shared, one CSS change propagates app-wide.
+- **`frontend/src/App.css`** — a hand-authored design system built on CSS custom properties (design tokens for color, type scale, spacing, radius, shadow). Most "make it look good" changes happen here, and because primitives are shared, one CSS change propagates app-wide. Two things to know before editing it:
+  - **Not everything is tokenised.** Colour, elevation (`--shadow-*`, ~16 rules) and radius (`--radius-*`, ~34 rules) really are token-driven, so changing those propagates app-wide. Most *spacing and type*, however, is hardcoded per rule — `--space-5` has only a handful of uses — so a token-only edit has a limited ceiling there. `--space-5` is the exception worth knowing: it is the card's inner padding, and `.listing-media` cancels it with `margin: calc(var(--space-5) * -1)` to bleed photos to the card edge. Those two must stay in step; both reference the token, so they move together.
+  - **The `PUBLIC STOREFRONT LAYER`** at the end of the file holds the storefront-scale type, section rhythm and borderless photo-led product cards. It is scoped to `.public-shell` (the wrapper `PublicLayout` puts around the public routes) so it cannot reach the four role dashboards, where that spacing would mean far more scrolling through tables and approval queues. Deleting the block reverts the public pages to the base styles.
 - **`frontend/src/main.jsx`** — mounts `<App/>`.
 
 ### Key patterns in `App.jsx`
@@ -243,10 +245,15 @@ There is a custom hook stub at `app/Services/useAiAssistant.js` in the backend t
 
 Handled by `GoogleAuthController` via Laravel Socialite (`stateless()`):
 
-1. `redirect()` sends the browser to Google's consent screen (`prompt=select_account`).
-2. `callback()` matches/creates a **buyer** account by email (never duplicating an existing account), marks it verified (Google already verified the email), applies the same suspension/disabled checks as normal login, then redirects the SPA to a frontend callback URL carrying a Sanctum token in the query string.
+1. `redirect()` sends the browser to Google's consent screen (`prompt=select_account`). When called with `registration=1`, it validates `role` (and `municipality_id`, required for sellers) and packs them into a `Crypt`-encrypted `state` parameter with a 30-minute expiry, forwarded to Google via Socialite's `->with()`.
+2. `callback()` matches an existing account by email (never duplicating one) and signs it in **without changing its role**. For an email with no account it reads the registration intent back out of `state`:
+   - **Intent present** → creates the user with the chosen role. A seller also gets a `SellerProfile` with `status=pending` and `approval_status=SellerApproval::PENDING`, so Google sellers enter the same LGU approval workflow as email sellers; a buyer gets a `BuyerProfile`.
+   - **No usable intent** (no `state`, undecodable, or expired) → **creates nothing** and redirects to `/register?google_role_required=1&email=…`, where the SPA asks for a role. This is what stops a new Google user being silently made a buyer.
+3. Either way the account is marked verified (Google already verified the email), the same suspension/disabled checks as normal login apply, and the SPA is handed a Sanctum token via a frontend callback URL.
 
-Requires `GOOGLE_CLIENT_ID/SECRET/REDIRECT_URI`; the redirect URI must exactly match the one registered in Google Cloud.
+Every rejection path in `registrationIntent()` logs its reason at warning level (`"Google registration intent …"`) — check those logs first when a registration unexpectedly lands back on `/register`, since all three failures look identical in the browser.
+
+Requires `GOOGLE_CLIENT_ID/SECRET/REDIRECT_URI`. **The redirect URI must exactly match one registered in Google Cloud, and the OAuth client holds a list** — register the production callback *and* the local one (`http://127.0.0.1:8000/api/auth/google/callback`, plus the `localhost` variant, which Google treats as a separate entry) rather than swapping between them. Note that `state` is encrypted with `APP_KEY`, so rotating that key drops any role choice currently in flight.
 
 ### Order Workflow
 

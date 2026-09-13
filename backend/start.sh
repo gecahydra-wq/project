@@ -18,7 +18,24 @@ if ! php artisan config:cache --no-interaction; then
     echo "Warning: unable to cache Laravel configuration; continuing startup." >&2
 fi
 
-if ! php artisan storage:link --no-interaction; then
+# The Dockerfile's chmod runs at BUILD time, before Railway mounts its volume
+# over storage/app/public -- so at runtime that directory can arrive empty or
+# root-owned, and uploads then fail silently for the whole deployment. Redo it
+# here, after the mount, and make sure the upload directory exists at all.
+# Uploaded images live on that volume (ImageUploader writes to the 'public'
+# disk); anything written outside it is destroyed by the next deploy.
+if ! mkdir -p storage/app/public storage/framework/cache storage/framework/sessions storage/framework/views storage/logs; then
+    echo "Warning: unable to create storage directories; continuing startup." >&2
+fi
+
+if ! chmod -R 775 storage bootstrap/cache; then
+    echo "Warning: unable to reset storage permissions; continuing startup." >&2
+fi
+
+# --force so a stale or broken public/storage symlink is replaced rather than
+# left in place: without it storage:link just reports "link already exists"
+# and every image 404s for the life of the deployment.
+if ! php artisan storage:link --force --no-interaction; then
     echo "Warning: unable to create public/storage link; continuing startup." >&2
 fi
 

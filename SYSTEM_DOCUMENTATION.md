@@ -95,7 +95,14 @@ A user submits email and password. The system checks three things in order: (1) 
 The verification email contains a **signed, time-limited link**. Clicking it proves ownership of the email address and activates the account — no separate login is required to verify, because the signed link itself is the proof (useful when the link is opened on a different device). Links expire after a set period; an expired or invalid link shows a friendly page with the option to request a new one. Verification is required before first login.
 
 ### 4. Google Login
-A user can sign in with Google instead of a password. They are redirected to Google's consent screen; after approving, Google returns them to FishMarket. The system finds an existing account by email (never creating a duplicate) or creates a new **buyer** account, treats the email as already verified (Google verified it), applies the same suspension checks as normal login, and signs the user in. New Google accounts start as buyers.
+A user can sign in with Google instead of a password. They are redirected to Google's consent screen; after approving, Google returns them to FishMarket. The system finds an existing account by email (never creating a duplicate), treats the email as already verified (Google verified it), applies the same suspension checks as normal login, and signs the user in. **An existing user always keeps the role they already have.**
+
+**Google registration never assumes a role.** A Google sign-in whose email has no account yet is a *registration*, not a login, so the system will not guess whether the person is a buyer or a seller — guessing "buyer" would silently deny a hatchery its LGU approval workflow. Two cases follow:
+
+- **The visitor chose a role first.** On the Register page they pick Buyer or Seller (and, for a seller, a municipality) before pressing the Google button. That choice travels through Google and back inside an encrypted, time-limited parameter, and the account is created with it. A seller created this way gets a **pending** seller profile and follows the normal LGU approval workflow, exactly as an email registration would.
+- **The visitor made no choice** (for example they used the Google button on the Login page). **No account is created.** They are sent to the Register page to choose a role, then continue with Google again to finish.
+
+Because the role choice is encrypted with the application key, rotating that key invalidates any choice already in flight; the visitor is simply asked to pick again.
 
 ### 5. Listing Approval
 A seller creates a listing (species, price, quantity, description, media). New listings are **not public** — they start unapproved and appear in a queue for the LGU admin of the seller's municipality. The LGU admin can **approve** (the listing becomes publicly visible and orderable), **reject** (with a reason; the seller is emailed), or **archive** (remove it from the market). The Super Admin can perform the same actions platform-wide. Only approved listings from non-suspended sellers appear in the public catalogue.

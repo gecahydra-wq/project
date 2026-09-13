@@ -59,6 +59,7 @@ Each row is a use case and the concrete endpoint(s) that implement it. `✔ veri
 | Register account | `POST /auth/register` |
 | Log in | `POST /auth/login` |
 | Log in with Google | `GET /auth/google/redirect`, `GET /auth/google/callback` |
+| Register with Google (role chosen first) | `GET /auth/google/redirect?registration=1&role=…[&municipality_id=…]`, `GET /auth/google/callback` |
 | Verify email | `GET /email/verify/{id}/{hash}`, `POST /email/resend` |
 | Browse listings | `GET /listings` |
 | View listing details | `GET /listings/{listing}` |
@@ -66,6 +67,8 @@ Each row is a use case and the concrete endpoint(s) that implement it. `✔ veri
 | View municipalities | `GET /municipalities` |
 
 *«include»* Register and Verify email → **Email (SMTP)**; Log in with Google → **Google OAuth**.
+
+> Registering with Google never assumes a role. The visitor picks Buyer or Seller (plus a municipality, for a seller) before leaving for Google, and the choice returns inside an encrypted `state` parameter. A Google sign-in for an unknown email with no such choice creates **no** account — it redirects to the Register page to collect the role first. A seller registered this way follows the same *Verify seller registration* LGU workflow as an email registration.
 
 ### 3.2 Common — all signed-in roles (`role:buyer,seller,lgu_admin,super_admin`, ✔ verified)
 
@@ -90,6 +93,7 @@ Each row is a use case and the concrete endpoint(s) that implement it. `✔ veri
 | Checkout & pay | `POST /orders/{order}/checkout`, `POST /orders/{order}/payment-success`, `POST /orders/{order}/payment-cancelled` |
 | Track / look up own orders | `GET /orders`, `GET /orders/{order:order_number}` |
 | Review seller (completed order) | `POST /orders/{order}/review` |
+| Report a seller | `GET /reports/reasons`, `POST /reports`, `GET /reports/mine` (shared `role:buyer,seller`; direction derived from the caller's role) |
 | Manage notifications | `GET /buyer/notifications`, `PATCH /buyer/notifications/read-all`, `PATCH /buyer/notifications/{notification}/read` |
 
 *«include»* Checkout & pay → **PayMongo** (hosted checkout + `POST /paymongo/webhook`, which is unauthenticated by design). *«extend»* Add to cart → Place order (a cart item is checked out through the same place-order flow).
@@ -104,6 +108,8 @@ Each row is a use case and the concrete endpoint(s) that implement it. `✔ veri
 | Update order delivery status | `PATCH /orders/{order}/status` |
 | Add seller notes to order | `PATCH /orders/{order:order_number}/notes` |
 | Rate buyer (completed order) | `POST /orders/{order}/rate-buyer` |
+| Report a buyer | `GET /reports/reasons`, `POST /reports`, `GET /reports/mine` (shared `role:buyer,seller`) |
+| Answer a Notice to Explain | `GET /seller/notices`, `POST /seller/notices/{notice}/respond` |
 | View buyer profile | `GET /seller/buyers/{buyer}` |
 | Wallet & request withdrawal | `GET /seller/wallet`, `POST /seller/withdrawals` |
 | Dashboard & analytics | `GET /seller/dashboard`, `GET /seller/analytics` |
@@ -120,6 +126,8 @@ Each row is a use case and the concrete endpoint(s) that implement it. `✔ veri
 | Approve seller earnings (create settlement) | `GET /lgu/earnings`, `PATCH /lgu/payments/{payment}/approve` |
 | Hold / reject / reopen earnings | `PATCH /lgu/payments/{payment}/hold\|clear-hold\|reject\|reopen`, `GET /lgu/earnings/rejected` |
 | Remove unfair reviews & ratings | `GET /lgu/reviews`, `DELETE /lgu/reviews/{review}`, `DELETE /lgu/buyer-ratings/{rating}` |
+| Handle user reports (own municipality) | `GET /lgu/user-reports`, `PATCH /lgu/user-reports/{report}` |
+| Review Notices to Explain | `GET /lgu/seller-notices`, `PATCH /lgu/seller-notices/{notice}` |
 | Reports & export | `GET /lgu/reports`, `GET /lgu/reports/export` |
 | LGU wallet & withdrawals | `GET /lgu/wallet`, `POST /lgu/withdrawals` |
 | Activity log | `GET /lgu/activity-log...` |
@@ -138,6 +146,7 @@ Each row is a use case and the concrete endpoint(s) that implement it. `✔ veri
 | Manage listings (global) | `GET /super-admin/listings...`, `PATCH .../approve\|reject\|archive\|update`, `DELETE /super-admin/listings/{listing}` |
 | Manage announcements | `GET/POST /super-admin/announcements`, `PATCH/DELETE /super-admin/announcements/{announcement}` |
 | Remove reviews & ratings | `DELETE /super-admin/reviews/{review}`, `DELETE /super-admin/buyer-ratings/{rating}` |
+| Handle user reports (platform-wide) | `GET /super-admin/user-reports`, `PATCH /super-admin/user-reports/{report}` |
 | Reports, activity & moderation logs | `GET /super-admin/reports...`, `GET /super-admin/activity-log...`, `GET /super-admin/moderation-log` |
 | Manage profile picture & notifications | `POST/DELETE /super-admin/profile/picture`, `GET /super-admin/notifications`, `PATCH .../read`, `GET /super-admin/users` |
 
@@ -163,6 +172,9 @@ Each row is a use case and the concrete endpoint(s) that implement it. `✔ veri
 - **Reversible rejection.** "Hold / reject / reopen earnings" exists because a rejected order's payment stays held; the reopen path returns it to the approval queue.
 - **Two-directional feedback.** "Review seller" (buyer→seller) and "Rate buyer" (seller→buyer) are distinct use cases, each allowed once per completed order.
 - **Verified email required.** Every authenticated use case is behind the `verified` middleware; an unverified account can log in but cannot transact.
+- **Reporting is two-directional but role-derived.** Buyers report sellers and sellers report buyers through the *same* endpoint (`POST /reports`); the direction comes from the caller's role rather than a field, so neither side can file on another's behalf. An LGU Admin handles reports in their own municipality; the Super Admin handles them platform-wide.
+- **A Notice to Explain is not a suspension.** A poor average rating raises a notice asking the seller to explain, and the seller answers it (`POST /seller/notices/{notice}/respond`). Only an LGU Admin or the Super Admin can actually suspend, through the separate seller-moderation use case — nothing suspends automatically.
+- **Google registration never assumes a role** (see §3.1): a Google sign-in for an unknown email either carries an explicit Buyer/Seller choice or creates no account at all.
 
 ---
 

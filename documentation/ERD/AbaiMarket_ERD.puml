@@ -392,4 +392,75 @@ seller_posts ||--o{ seller_post_media
 seller_posts ||--o{ seller_post_likes
 seller_posts ||--o{ seller_post_comments
 
+entity "user_reports" as user_reports {
+  * id : bigint <<PK>>
+  --
+  * reporter_id : bigint <<FK users, cascade>>
+  * reported_user_id : bigint <<FK users, cascade>>
+  * reporter_role : string
+  * reported_role : string
+  municipality_id : bigint <<FK, nullOnDelete>>
+  order_id : bigint <<FK, nullOnDelete>>
+  * reason : string
+  * description : text
+  * status : string
+  resolution_notes : text
+  reviewed_by : bigint <<FK users, nullOnDelete>>
+  reviewed_at : timestamp
+}
+
+entity "seller_notices" as seller_notices {
+  * id : bigint <<PK>>
+  --
+  * seller_profile_id : bigint <<FK, cascade>>
+  municipality_id : bigint <<FK, nullOnDelete>>
+  * type : string
+  average_rating : decimal(3,2)
+  * ratings_count : uint
+  details : text
+  * status : string
+  seller_response : text
+  responded_at : timestamp
+  lgu_notes : text
+  reviewed_by : bigint <<FK users, nullOnDelete>>
+  reviewed_at : timestamp
+}
+
+entity "ai_disease_reports" as ai_disease_reports {
+  * id : bigint <<PK>>
+  --
+  * user_id : bigint <<FK, cascade>>
+  listing_id : bigint <<FK, nullOnDelete>>
+  * symptoms : text
+  image_path : string
+  diagnosis : text
+  * status : string
+}
+
+entity "ai_growth_logs" as ai_growth_logs {
+  * id : bigint <<PK>>
+  --
+  * order_id : bigint <<FK, cascade>>
+  * buyer_id : bigint <<FK users, cascade>>
+  stage : string
+  notes : text
+  * logged_at : timestamp
+}
+
+
+municipalities ||--o{ user_reports
+municipalities ||--o{ seller_notices
+
+users ||--o{ user_reports : "files (reporter_id)"
+users ||--o{ user_reports : "is reported (reported_user_id)"
+users ||--o{ user_reports : "reviews (reviewed_by)"
+users ||--o{ seller_notices : "reviews (reviewed_by)"
+users ||--o{ ai_disease_reports
+users ||--o{ ai_growth_logs : "logs (buyer_id)"
+
+seller_profiles ||--o{ seller_notices
+listings ||--o{ ai_disease_reports
+orders ||--o{ ai_growth_logs
+orders ||--o{ user_reports : "context"
+
 @enduml

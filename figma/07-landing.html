@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AbaiMarket — Public Landing (design mock)</title>
+<link rel="stylesheet" href="assets/app.css">
+<link rel="stylesheet" href="assets/mock.css">
+</head>
+<body>
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+  <symbol id="fish" viewBox="0 0 24 24"><path d="M6.5 12c.94-3.46 4.94-6 8.5-6 3.56 0 6.06 2.54 7 6-.94 3.47-3.44 6-7 6s-7.56-2.53-8.5-6Z"/><path d="M18 12v.5"/><path d="M16 17.93a9.77 9.77 0 0 0 0-11.86"/><path d="M7 10.67C7 8 5.58 5.97 2.73 5.5c-1 1.5-1 5 .23 6.5-1.24 1.5-1.24 5-.23 6.5C5.58 18.03 7 16 7 13.33"/><path d="M10.46 7.26C10.2 5.88 9.17 4.24 8 3h5.8a2 2 0 0 1 1.98 1.67l.23 1.4"/><path d="m16.01 17.93-.23 1.4A2 2 0 0 1 13.8 21H9.5a5.96 5.96 0 0 0 1.49-3.98"/></symbol>
+  <symbol id="search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+  <symbol id="shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1Z"/><path d="m9 12 2 2 4-4"/></symbol>
+</svg>
+
+<div class="mock-banner">
+  <strong>DESIGN MOCK</strong> · AbaiMarket — Public landing page · static HTML reference for Figma (no interactivity)
+</div>
+
+<header class="site-header">
+  <a class="brand" href="#"><span><svg class="ic" width="22" height="22"><use href="#fish"/></svg></span>AbaiMarket</a>
+  <nav>
+    <a href="#">Home</a>
+    <a href="#">Browse</a>
+    <a href="#">Sellers</a>
+    <a href="#">About</a>
+  </nav>
+  <div class="nav-actions">
+    <a class="ghost" href="#">Login</a>
+    <a class="button" href="#">Register</a>
+  </div>
+</header>
+
+<!-- .public-shell is the scope wrapper PublicLayout puts around the public
+     routes. The PUBLIC STOREFRONT LAYER in app.css only applies inside it. -->
+<div class="public-shell">
+<main>
+  <section class="hero">
+    <div class="hero-copy">
+      <p class="eyebrow">Government-supported aquaculture marketplace</p>
+      <h1>Fresh fish fingerlings from verified local hatcheries.</h1>
+      <p class="lead">Search species, compare sellers, coordinate orders, pay through PayMongo, and get farming guidance from Gemini AI.</p>
+      <div class="hero-search">
+        <svg class="ic" width="20" height="20"><use href="#search"/></svg>
+        <input placeholder="Search Bangus, Tilapia, Mandaue...">
+        <a class="button" href="#">Search</a>
+      </div>
+      <div class="hero-actions">
+        <a class="button" href="#">Start buying</a>
+        <a class="ghost" href="#">Register hatchery</a>
+      </div>
+    </div>
+    <div class="market-panel">
+      <div class="stat-card"><strong>24</strong><span>Active listings</span></div>
+      <div class="stat-card"><strong>8</strong><span>Verified sellers</span></div>
+      <div class="stat-card"><strong>Escrow</strong><span>Secure PayMongo checkout</span></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head"><h2>Featured Listings</h2></div>
+    <div class="listing-grid">
+      <article class="card listing">
+        <div class="listing-media">
+          <img class="listing-image" src="assets/placeholders/bangus.svg" alt="Bangus fingerlings">
+          <span class="listing-status-tag"><span class="badge badge-success">Approved</span></span>
+        </div>
+        <h3>Bangus Fingerlings (2–3 in)</h3>
+        <p class="listing-seller-row">
+          <img class="avatar listing-seller-avatar" src="assets/placeholders/avatar.svg" alt="">
+          <a class="seller-name-link" href="#">Sanchez Hatchery</a> · Consolacion
+        </p>
+        <p class="listing-rating"><span class="stars">★★★★★</span> <span class="muted">5.0/5</span></p>
+        <p class="listing-description-preview">Healthy, fast-growing milkfish fry from LGU-verified brood stock, acclimatised before release.</p>
+        <p class="listing-price">₱4.50 <span class="muted">/ piece</span></p>
+      </article>
+      <article class="card listing">
+        <div class="listing-media">
+          <img class="listing-image" src="assets/placeholders/tilapia.svg" alt="Tilapia fingerlings">
+          <span class="listing-status-tag"><span class="badge badge-success">Approved</span></span>
+        </div>
+        <h3>GIFT Tilapia Fingerlings</h3>
+        <p class="listing-seller-row">
+          <img class="avatar listing-seller-avatar" src="assets/placeholders/avatar.svg" alt="">
+          <a class="seller-name-link" href="#">Mandaue Aqua Farm</a> · Mandaue
+        </p>
+        <p class="listing-rating"><span class="stars">★★★★☆</span> <span class="muted">4.4/5</span></p>
+        <p class="listing-description-preview">Hardy strain suited to first-time farmers; roughly six months to harvest size.</p>
+        <p class="listing-price">₱2.80 <span class="muted">/ piece</span></p>
+      </article>
+      <article class="card listing">
+        <div class="listing-media">
+          <img class="listing-image" src="assets/placeholders/catfish.svg" alt="Catfish fingerlings">
+          <span class="listing-status-tag"><span class="badge badge-success">Approved</span></span>
+        </div>
+        <h3>Hito (Catfish) Fingerlings</h3>
+        <p class="listing-seller-row">
+          <img class="avatar listing-seller-avatar" src="assets/placeholders/avatar.svg" alt="">
+          <a class="seller-name-link" href="#">Compostela Fishery</a> · Compostela
+        </p>
+        <p class="listing-rating"><span class="stars">★★★★☆</span> <span class="muted">4.2/5</span></p>
+        <p class="listing-description-preview">Sold per kilogram in bulk lots, with a 5 kg minimum order.</p>
+        <p class="listing-price">₱180.00 <span class="muted">/ kg</span></p>
+      </article>
+    </div>
+  </section>
+
+  <!-- Shop by Species: the photo leads, a bold label sits under it. In the live
+       app each tile prefers /species/<slug>.jpg, then a real uploaded listing
+       photo, then this species artwork. -->
+  <section class="section">
+    <div class="section-head"><h2>Shop by Species</h2></div>
+    <div class="species-row">
+      <a class="species-tile" href="#"><span class="species-tile-media"><img class="species-tile-art" src="assets/placeholders/bangus.svg" alt="Bangus"></span><strong>Bangus</strong></a>
+      <a class="species-tile" href="#"><span class="species-tile-media"><img class="species-tile-art" src="assets/placeholders/tilapia.svg" alt="Tilapia"></span><strong>Tilapia</strong></a>
+      <a class="species-tile" href="#"><span class="species-tile-media"><img class="species-tile-art" src="assets/placeholders/default.svg" alt="Tuna"></span><strong>Tuna</strong></a>
+      <a class="species-tile" href="#"><span class="species-tile-media"><img class="species-tile-art" src="assets/placeholders/catfish.svg" alt="Catfish"></span><strong>Catfish</strong></a>
+      <a class="species-tile" href="#"><span class="species-tile-media"><img class="species-tile-art" src="assets/placeholders/sea-bass.svg" alt="Sea Bass"></span><strong>Sea Bass</strong></a>
+      <a class="species-tile" href="#"><span class="species-tile-media"><img class="species-tile-art" src="assets/placeholders/carp.svg" alt="Carp"></span><strong>Carp</strong></a>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head"><h2>How It Works</h2></div>
+    <div class="steps">
+      <div class="card step"><span>1</span><h3>Register</h3><p>Buyers and sellers create verified marketplace accounts.</p></div>
+      <div class="card step"><span>2</span><h3>Order &amp; Pay</h3><p>Buyers place orders and pay through PayMongo Checkout.</p></div>
+      <div class="card step"><span>3</span><h3>LGU Oversight</h3><p>LGU admins verify sellers and approve local listings.</p></div>
+      <div class="card step"><span>4</span><h3>Release</h3><p>Super Admin releases held seller funds after completion.</p></div>
+    </div>
+  </section>
+
+  <footer>AbaiMarket - LGU, Sellers, and Fish Farmers working together for local aquaculture.</footer>
+</main>
+</div>
+</body>
+</html>

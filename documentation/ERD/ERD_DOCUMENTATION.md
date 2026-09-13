@@ -195,7 +195,7 @@ Mirrors seller payouts but scoped to a municipality (shared municipal revenue). 
 | rejection_reason | text | nullable |
 | reviewed_at, paid_at | timestamp | nullable |
 
-### 2.5 Feedback (both directions)
+### 2.5 Feedback, reports & notices
 
 #### `reviews` — buyer → seller, one per order
 | Column | Type | Notes |
@@ -217,6 +217,42 @@ Mirrors seller payouts but scoped to a municipality (shared municipal revenue). 
 | buyer_id | bigint | FK → users (**cascade**) |
 | rating | tinyint | 1–5 |
 | comment | text | nullable |
+
+#### `user_reports` — buyer ↔ seller complaints, reviewed by LGU / Super Admin
+| Column | Type | Notes |
+|---|---|---|
+| id | bigint | PK |
+| reporter_id | bigint | FK → users (**cascade**) |
+| reported_user_id | bigint | FK → users (**cascade**) |
+| reporter_role | string | role snapshot, so a row reads "Buyer → Seller" without joining `users` twice |
+| reported_role | string | role snapshot |
+| municipality_id | bigint | nullable, FK → municipalities (**nullOnDelete**) — LGU scoping |
+| order_id | bigint | nullable, FK → orders (**nullOnDelete**) — optional transaction context |
+| reason | string | |
+| description | text | |
+| status | string | default `pending`; `pending → under_review → resolved\|dismissed` |
+| resolution_notes | text | nullable |
+| reviewed_by | bigint | nullable, FK → users (**nullOnDelete**) |
+| reviewed_at | timestamp | nullable |
+| — | — | INDEX(municipality_id, status), INDEX(reported_user_id, status), INDEX(reporter_id, created_at) |
+
+#### `seller_notices` — Notice to Explain raised on a seller (never an auto-suspension)
+| Column | Type | Notes |
+|---|---|---|
+| id | bigint | PK |
+| seller_profile_id | bigint | FK → seller_profiles (**cascade**) |
+| municipality_id | bigint | nullable, FK → municipalities (**nullOnDelete**) |
+| type | string | default `low_rating`; a column, not a hardcoded assumption, so a future trigger needs no new table |
+| average_rating | decimal(3,2) | nullable — the rating at the time the notice was raised |
+| ratings_count | uint | default 0 |
+| details | text | nullable |
+| status | string | default `open`; `open → under_review → resolved\|dismissed` |
+| seller_response | text | nullable — the seller's explanation, the point of the notice |
+| responded_at | timestamp | nullable |
+| lgu_notes | text | nullable |
+| reviewed_by | bigint | nullable, FK → users (**nullOnDelete**) |
+| reviewed_at | timestamp | nullable |
+| — | — | INDEX(municipality_id, status), INDEX(seller_profile_id, status) |
 
 ### 2.6 Cart, messaging, notifications
 
@@ -301,6 +337,34 @@ Mirrors seller payouts but scoped to a municipality (shared municipal revenue). 
 | was_fallback | boolean | default false |
 | response_time_ms | int | nullable |
 
+> **The two tables below are reserved, not live.** Both have a migration and an
+> Eloquent model (`AiDiseaseReport`, `AiGrowthLog`), but no controller, route,
+> test or frontend screen reads or writes either one — verified by searching the
+> whole application. They are documented here because they exist in the schema;
+> they do **not** back a working feature, and no use case in
+> `USE_CASE_DOCUMENTATION.md` maps to them. Treat the columns as provisional.
+
+#### `ai_disease_reports` — AI fish-health assessments *(reserved; no code path yet)*
+| Column | Type | Notes |
+|---|---|---|
+| id | bigint | PK |
+| user_id | bigint | FK → users (**cascade**) |
+| listing_id | bigint | nullable, FK → listings (**nullOnDelete**) |
+| symptoms | text | what the farmer described |
+| image_path | string | nullable — optional uploaded photo |
+| diagnosis | text | nullable — the AI's assessment |
+| status | string | default `pending` |
+
+#### `ai_growth_logs` — farmer-recorded growth entries against an order *(reserved; no code path yet)*
+| Column | Type | Notes |
+|---|---|---|
+| id | bigint | PK |
+| order_id | bigint | FK → orders (**cascade**) |
+| buyer_id | bigint | FK → users (**cascade**) |
+| stage | string | nullable |
+| notes | text | nullable |
+| logged_at | timestamp | defaults to the current timestamp |
+
 #### `announcements` — platform-wide broadcasts
 | Column | Type | Notes |
 |---|---|---|
@@ -342,7 +406,7 @@ Notation: **1** = exactly one, **0..1** = optional one, **\*** = many.
 
 | Parent | | Child | Meaning |
 |---|---|---|---|
-| municipalities | 1 — \* | users* / buyer_profiles / seller_profiles / listings / settlements / lgu_withdrawal_requests / activity_logs | location & scoping |
+| municipalities | 1 — \* | users* / buyer_profiles / seller_profiles / listings / settlements / lgu_withdrawal_requests / activity_logs / user_reports / seller_notices | location & scoping |
 | users | 1 — 0..1 | buyer_profiles | a buyer's profile |
 | users | 1 — 0..1 | seller_profiles | a seller's hatchery |
 | users | 1 — \* | orders (as buyer) | purchases |
@@ -352,11 +416,14 @@ Notation: **1** = exactly one, **0..1** = optional one, **\*** = many.
 | users | 1 — \* | announcements (created_by) / settlements (approved_by) / lgu_withdrawal_requests (requested_by) | authored/approved records |
 | users | 1 — \* | seller_post_likes / seller_post_comments | engagement |
 | users | 1 — \* | moderation_logs (user_id) / moderation_logs (moderator_id) | subject vs. moderator |
+| users | 1 — \* | user_reports (reporter_id) / user_reports (reported_user_id) / user_reports (reviewed_by) | reporter vs. subject vs. reviewer |
+| users | 1 — \* | ai_disease_reports (user_id) / ai_growth_logs (buyer_id) / seller_notices (reviewed_by) | AI records & notice review |
 | users | 1 — \* | activity_logs (actor_id) / activity_logs (target_user_id) | actor vs. target |
-| seller_profiles | 1 — \* | listings / orders / reviews / buyer_ratings / withdrawal_requests / settlements / seller_posts | seller-owned records |
-| listings | 1 — \* | listing_media / orders / cart_items | catalog usage |
+| seller_profiles | 1 — \* | listings / orders / reviews / buyer_ratings / withdrawal_requests / settlements / seller_posts / seller_notices | seller-owned records |
+| listings | 1 — \* | listing_media / orders / cart_items / ai_disease_reports | catalog usage |
 | orders | 1 — 1 | payments | escrow payment |
 | orders | 1 — 0..1 | reviews / buyer_ratings / settlements | post-completion records |
+| orders | 1 — \* | ai_growth_logs / user_reports | growth entries & optional report context |
 | payments | 1 — \* | payment_logs | provider events |
 | payments | 1 — 0..1 | settlements | split source |
 | seller_posts | 1 — \* | seller_post_media / seller_post_likes / seller_post_comments | feed content |

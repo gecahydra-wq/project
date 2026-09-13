@@ -151,19 +151,23 @@
   --chart-grid: var(--color-gray-200);
   --chart-axis: var(--color-text-muted);
 
-  /* Elevation -- deliberately NONE. The system is flat: surfaces are separated
-     by a 1px Hairline and by the White-on-Sea-mist contrast, never by a drop
-     shadow or a glow. These four tokens are kept (rather than deleted) so the
-     ~40 rules that reference them keep resolving; setting them here is what
-     makes "no shadows" a one-line, reversible decision.
+  /* Elevation -- whisper-soft, not flat and not glossy. The system still leads
+     with the 1px Hairline and White-on-Sea-mist contrast; these shadows only
+     add the small amount of depth that reads as "modern" rather than "unstyled",
+     so every alpha stays under 0.10 and offsets stay tiny. Two layers on the
+     upper steps (a tight contact shadow plus a wider diffuse one) is what keeps
+     them soft instead of muddy at low opacity.
 
-     --shadow-float is the single exception: the modal and lightbox sit over a
-     dimmed backdrop where a hairline alone cannot separate them from the page
-     behind. */
-  --shadow-xs: none;
-  --shadow-sm: none;
-  --shadow-md: none;
-  --shadow-lg: none;
+     All tinted with the same Navy as --shadow-float rather than neutral black,
+     so elevation belongs to the palette instead of greying the surface under it.
+     Previously all four were `none`; reverting is still a one-line change.
+
+     --shadow-float stays the heaviest step: the modal and lightbox sit over a
+     dimmed backdrop where a hairline alone cannot separate them from the page. */
+  --shadow-xs: 0 1px 1px rgba(11, 46, 79, 0.04);
+  --shadow-sm: 0 1px 2px rgba(11, 46, 79, 0.05);
+  --shadow-md: 0 2px 6px rgba(11, 46, 79, 0.07), 0 1px 2px rgba(11, 46, 79, 0.04);
+  --shadow-lg: 0 8px 24px rgba(11, 46, 79, 0.10), 0 2px 6px rgba(11, 46, 79, 0.05);
   --shadow-float: 0 12px 32px rgba(11, 46, 79, 0.18);
 
   /* Focus ring, shared by every interactive element so focus looks like one
@@ -171,10 +175,14 @@
   --ring: 0 0 0 3px rgba(14, 124, 134, 0.22);
   --ring-danger: 0 0 0 3px rgba(140, 35, 32, 0.18);
 
-  /* Radius -- cards 12px, buttons and inputs 8px, per the design system. */
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 20px;
+  /* Radius -- cards 14px, buttons and inputs 10px. Nudged up from 12/8: with
+     the hairline borders kept, slightly rounder corners are most of what
+     separates a current-looking surface from a 2015-looking one, and the step
+     is small enough that no fixed-height control (pills, avatars, badges) has
+     to change. */
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 24px;
   --radius-full: 999px;
 
   /* Spacing rhythm -- one 4px-based scale so section, card, and grid gaps
@@ -183,9 +191,12 @@
   --space-2: 0.5rem;
   --space-3: 0.75rem;
   --space-4: 1rem;
-  --space-5: 1.25rem;
-  --space-6: 1.5rem;
-  --space-8: 2rem;
+  /* --space-5 is the card's inner padding; 1.5rem gives every card surface in
+     the app more breathing room, which is the cheapest way to look less dense
+     without moving any markup. */
+  --space-5: 1.5rem;
+  --space-6: 1.75rem;
+  --space-8: 2.5rem;
 
   /* Type scale */
   --fs-xs: 0.75rem;
@@ -308,7 +319,10 @@ button,
   align-items: center;
   background: var(--color-primary);
   border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  /* Fully rounded. A pill is the clearest single signal of a current
+     storefront UI, and it costs nothing: every button already has a
+     42px min-height, so no layout moves. */
+  border-radius: var(--radius-full);
   color: white;
   cursor: pointer;
   display: inline-flex;
@@ -2442,6 +2456,110 @@ a.activity-log-item:hover {
   margin: 0.35rem 0 0;
 }
 
+/* Seller-profile review summary -- the score's shape (average + spread) ahead
+   of the individual write-ups. Two columns on desktop, stacking on narrow
+   screens; the divider between them is a hairline so it reads as one card. */
+.review-summary {
+  align-items: center;
+  display: grid;
+  gap: var(--space-5);
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  margin-bottom: 0.75rem;
+}
+
+.review-summary-score {
+  display: grid;
+  gap: 0.25rem;
+  justify-items: center;
+  padding-right: var(--space-5);
+  border-right: 1px solid var(--color-border);
+  text-align: center;
+}
+
+.review-summary-score .stars {
+  font-size: 1.15rem;
+}
+
+.review-summary-average {
+  color: var(--color-text);
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.review-summary-average span {
+  color: var(--color-text-muted);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium);
+}
+
+/* Rating distribution -- one series of counts, so a single hue with the count
+   printed on every row. The number beside each bar IS the data table, which is
+   what keeps the chart readable without relying on the fill colour. */
+.review-distribution {
+  display: grid;
+  gap: 0.35rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.review-distribution li {
+  align-items: center;
+  display: grid;
+  gap: 0.6rem;
+  grid-template-columns: 2.5rem minmax(0, 1fr) 1.75rem;
+}
+
+.review-distribution-label {
+  align-items: center;
+  color: var(--color-text-muted);
+  display: inline-flex;
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  gap: 0.15rem;
+  justify-content: flex-end;
+}
+
+/* Recessive track, thin mark, rounded data-end anchored to the left baseline. */
+.review-distribution-track {
+  background: var(--color-gray-100);
+  border-radius: var(--radius-full);
+  display: block;
+  height: 8px;
+  overflow: hidden;
+}
+
+.review-distribution-bar {
+  background: var(--color-teal);
+  border-radius: var(--radius-full);
+  display: block;
+  height: 100%;
+  min-width: 0;
+  transition: width var(--transition-base);
+}
+
+.review-distribution-count {
+  color: var(--color-text-muted);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+@media (max-width: 640px) {
+  .review-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .review-summary-score {
+    border-bottom: 1px solid var(--color-border);
+    border-right: 0;
+    padding-bottom: var(--space-4);
+    padding-right: 0;
+  }
+}
+
 /* Reviews & Ratings cards -- one prominent, scannable card per entry, with a
    colour accent by direction (buyer review vs seller rating). */
 .review-card {
@@ -3688,4 +3806,275 @@ body.modal-open {
   .modal-panel {
     max-height: calc(100vh - 1.5rem);
   }
+}
+
+/* ==========================================================================
+   PUBLIC STOREFRONT LAYER
+   --------------------------------------------------------------------------
+   Everything in this block is scoped to .public-shell (the wrapper around the
+   public routes in PublicLayout), so the four role dashboards are untouched --
+   storefront spacing on an approval queue just means more scrolling.
+
+   The direction is current e-commerce minimalism: whitespace does the
+   separating instead of borders and shadows, section titles carry real display
+   scale, product photography is the loudest thing on the page, and colour is
+   spent only on things you can act on. The palette, the type tokens and every
+   contrast-checked value above are reused unchanged -- this layer only changes
+   rhythm, scale and restraint. Delete the block to revert.
+   ========================================================================== */
+
+/* Centre the content on wide screens rather than letting a 1920px monitor
+   stretch a 3-up grid into letterboxes. */
+.public-shell main {
+  margin-inline: auto;
+  max-width: 1320px;
+}
+
+/* main already supplies the horizontal gutter, so sections contribute vertical
+   rhythm only -- this is the single biggest change in the whole layer. */
+.public-shell .section {
+  padding: clamp(2.5rem, 6vw, 5rem) 0;
+}
+
+/* Section titles at display scale, with the tight tracking large type needs. */
+.public-shell .section-head {
+  margin-bottom: clamp(1.25rem, 3vw, 2rem);
+}
+
+.public-shell .section-head h2 {
+  font-size: clamp(1.5rem, 3.2vw, 2.125rem);
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+}
+
+/* Larger, responsive product cards: auto-fill means the grid reflows instead
+   of forcing exactly three columns at every width. */
+.public-shell .listing-grid,
+.public-shell .seller-grid {
+  gap: clamp(1rem, 2.5vw, 1.75rem);
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+}
+
+/* At rest a product card is a hairline and its photo -- no shadow competing
+   with the image. The lift is saved for hover, so the grid reads as flat until
+   you reach for something. */
+.public-shell .listing,
+.public-shell .seller {
+  box-shadow: none;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
+}
+
+.public-shell .listing:hover,
+.public-shell .seller:hover {
+  border-color: var(--brand-teal);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+/* Hero: more air around the headline, and a panel that sits on the navy
+   instead of floating off it. */
+.public-shell .hero {
+  border-radius: var(--radius-lg);
+  gap: clamp(2rem, 5vw, 4rem);
+  min-height: 0;
+  padding: clamp(2.5rem, 7vw, 5.5rem) clamp(1.5rem, 5vw, 4rem);
+}
+
+.public-shell .hero .lead {
+  font-size: clamp(1.0625rem, 1.6vw, 1.25rem);
+  max-width: 56ch;
+}
+
+.public-shell .market-panel {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: none;
+  gap: clamp(1rem, 2vw, 1.5rem);
+  padding: clamp(1.5rem, 3vw, 2rem);
+}
+
+.public-shell .hero-actions {
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+/* Storefront CTAs are physically bigger than in-app buttons. */
+.public-shell .hero-actions .button,
+.public-shell .hero-actions .ghost {
+  font-size: var(--fs-md);
+  padding: 0.85rem 1.5rem;
+}
+
+.public-shell footer {
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  margin-top: clamp(2rem, 5vw, 4rem);
+  padding: clamp(2rem, 5vw, 3.5rem) 0;
+  text-align: center;
+}
+
+@media (max-width: 900px) {
+  .public-shell .hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Storefront product card -- borderless, photo-led.
+
+   The reference treatment is: photo on a light tile with all four corners
+   rounded, then the text sitting directly on the page underneath. No card
+   border, no shadow, nothing drawn around the group -- the image IS the card.
+   So inside .public-shell the card chrome is removed and the media's negative
+   bleed (which exists to reach the card's padding edge) is cancelled with it,
+   since there is no longer any padding to escape.
+   -------------------------------------------------------------------------- */
+.public-shell .listing {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  gap: 0.5rem;
+  padding: 0;
+}
+
+.public-shell .listing .listing-media {
+  background: var(--color-gray-100);
+  border-radius: var(--radius-md);
+  margin: 0;
+  overflow: hidden;
+}
+
+.public-shell .listing .listing-image {
+  border: 0;
+  border-radius: var(--radius-md);
+  transition: transform var(--transition-base);
+}
+
+/* With no border to darken, hover answers on the photo and the title instead. */
+.public-shell .listing:hover {
+  border-color: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
+.public-shell .listing:hover .listing-image {
+  transform: scale(1.03);
+}
+
+.public-shell .listing:hover h3 {
+  color: var(--brand-teal-text);
+}
+
+.public-shell .listing h3 {
+  transition: color var(--transition-fast);
+}
+
+/* Seller cards stay grouped (an avatar and a name need a container to read as
+   one unit) but go flat, so they sit quietly beside the photo-led listings. */
+.public-shell .seller {
+  box-shadow: none;
+}
+
+.public-shell .seller:hover {
+  border-color: var(--brand-teal);
+  box-shadow: var(--shadow-sm);
+  transform: none;
+}
+
+/* --------------------------------------------------------------------------
+   Shop by Species -- the reference's category row: artwork above a bold,
+   centred label, no card around it.
+   -------------------------------------------------------------------------- */
+.species-row {
+  display: grid;
+  gap: clamp(0.75rem, 2vw, 1.5rem);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 130px), 1fr));
+}
+
+.species-tile {
+  color: var(--color-text);
+  display: grid;
+  gap: 0.6rem;
+  justify-items: center;
+  text-align: center;
+}
+
+.species-tile-media {
+  align-items: center;
+  aspect-ratio: 1;
+  background: var(--color-gray-100);
+  border-radius: var(--radius-full);
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+  transition: background-color var(--transition-fast), transform var(--transition-base);
+  width: 100%;
+}
+
+/* A photograph fills the tile; the fallback line artwork needs air around it. */
+.species-tile-photo {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.species-tile-art {
+  height: 72%;
+  object-fit: contain;
+  width: 72%;
+}
+
+.species-tile strong {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+}
+
+.species-tile:hover .species-tile-media {
+  background: var(--brand-seafoam-tint);
+  transform: translateY(-3px);
+}
+
+.species-tile:hover strong {
+  color: var(--brand-teal-text);
+}
+
+/* --------------------------------------------------------------------------
+   Public filters as pills, matching the reference's filter row.
+   -------------------------------------------------------------------------- */
+.public-shell .filter-card {
+  box-shadow: none;
+}
+
+.public-shell .filter-card input,
+.public-shell .filter-card select {
+  border-radius: var(--radius-full);
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+/* --------------------------------------------------------------------------
+   Hero CTA -- the reference's primary action is a white pill on the dark
+   scene, with the secondary reduced to a quiet outline beside it.
+   -------------------------------------------------------------------------- */
+.public-shell .hero-actions .button {
+  background: var(--neutral-white);
+  border-color: var(--neutral-white);
+  color: var(--brand-navy);
+}
+
+.public-shell .hero-actions .button:hover {
+  background: var(--neutral-seamist);
+  border-color: var(--neutral-seamist);
+  color: var(--brand-navy-deep);
+}
+
+.public-shell .hero-actions .ghost {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.45);
+  color: var(--neutral-white);
+}
+
+.public-shell .hero-actions .ghost:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: var(--neutral-white);
+  color: var(--neutral-white);
 }
