@@ -110,12 +110,39 @@ changing anything:
 orders and payouts are never rolled back because an email failed. Inspect the
 Laravel/Railway logs for `Transactional email failed to send.` after a test.
 
-For Gmail SMTP, use a verified Gmail/Workspace account with 2-Step Verification
-and a Gmail App Password. The `MAIL_FROM_ADDRESS` must be an address the SMTP
-account is allowed to send as. If Railway or the chosen provider blocks SMTP,
-do not attempt a workaround: configure an HTTPS transactional provider such as
-Resend and set `MAIL_MAILER=resend` plus `RESEND_API_KEY` after installing its
-official PHP transport dependency in an approved follow-up.
+**Railway blocks outbound SMTP on this plan.** Verified 2026-09-13: from inside
+the API container, `smtp.gmail.com` ports 587 and 465 both time out, and
+`storage/logs/laravel.log` shows `Connection could not be established with host
+"smtp.gmail.com:587"`. Gmail SMTP therefore only works locally. Production sends
+through **Resend over HTTPS** (the `resend/resend-php` package is installed):
+
+1. Create a Resend account and add the domain `teamabai.website`
+   (Resend → Domains). Add the DNS records it shows (SPF/DKIM, optional DMARC)
+   at the domain's DNS provider and wait until Resend marks the domain Verified.
+2. Create an API key (Resend → API Keys, "Sending access").
+3. In Railway → `capstone-project` → Variables, set:
+   ```dotenv
+   MAIL_MAILER=resend
+   RESEND_API_KEY=<the re_... key>
+   MAIL_FROM_ADDRESS=no-reply@teamabai.website
+   MAIL_FROM_NAME=AbaiMarket
+   ```
+   Leave the `MAIL_HOST`/`MAIL_PORT`/`MAIL_USERNAME`/`MAIL_PASSWORD` variables
+   in place or remove them — the Resend mailer ignores them. Railway redeploys
+   and `start.sh` rebuilds the config cache.
+4. Keep the local `.env` on Gmail SMTP (`MAIL_MAILER=smtp`); nothing changes
+   offline.
+
+Until the domain is verified, Resend only delivers to the account owner's own
+address (sender `onboarding@resend.dev`), which is enough for a smoke test but
+not for real users.
+
+`MAIL_TIMEOUT` (default 10 seconds) caps how long an SMTP connection may hang,
+so a blocked mail server can no longer stall a request for a minute.
+
+For Gmail SMTP locally, use a verified Gmail/Workspace account with 2-Step
+Verification and a Gmail App Password. The `MAIL_FROM_ADDRESS` must be an address
+the SMTP account is allowed to send as.
 
 ## Provider-console configuration
 
