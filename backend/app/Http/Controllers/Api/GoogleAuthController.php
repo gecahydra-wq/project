@@ -11,6 +11,7 @@ use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Laravel\Socialite\Facades\Socialite;
@@ -60,7 +61,11 @@ class GoogleAuthController extends Controller
             $params['state'] = Crypt::encryptString(json_encode([
                 'role' => $data['role'],
                 'municipality_id' => $data['role'] === 'seller' ? $data['municipality_id'] : null,
-                'expires_at' => now()->addMinutes(10)->timestamp,
+                // Generous window: the user still has to pick a Google
+                // account, type a password and possibly clear 2FA before
+                // they come back, and an expired intent silently costs them
+                // their role choice (they land back on /register).
+                'expires_at' => now()->addMinutes(30)->timestamp,
             ]));
         }
 
@@ -102,7 +107,16 @@ class GoogleAuthController extends Controller
                 $user->update(['google_id' => $googleUser->getId()]);
             }
         } else {
-            $intent = $this->registrationIntent($request) ?? ['role' => 'buyer', 'municipality_id' => null];
+            // No account for this address yet, so this is a registration --
+            // never a login. Without a role chosen up front we cannot guess
+            // one (a buyer default would silently deny a hatchery its LGU
+            // approval workflow), so send them to the register page to pick
+            // Buyer or Seller and come back through the same button.
+            $intent = $this->registrationIntent($request);
+
+            if (! $intent) {
+                return redirect($frontend.'/register?google_role_required=1&email='.urlencode($email));
+            }
 
             $user = User::create([
                 'name' => $googleUser->getName() ?: $googleUser->getNickname() ?: 'AbaiMarket Buyer',
@@ -158,19 +172,37 @@ class GoogleAuthController extends Controller
         return redirect($frontend.'/auth/google/callback?token='.urlencode($token));
     }
 
+    /**
+     * Every null return here costs the user the role they picked and bounces
+     * them back to /register, which is indistinguishable from "you have no
+     * account yet" in the browser -- so each rejection says why in the log.
+     */
     private function registrationIntent(Request $request): ?array
     {
         if (! $request->filled('state')) {
+            Log::warning('Google registration intent lost: no state came back from Google.', [
+                'callback_query_keys' => array_keys($request->query()),
+            ]);
+
             return null;
         }
 
         try {
             $payload = json_decode(Crypt::decryptString($request->query('state')), true, flags: JSON_THROW_ON_ERROR);
-        } catch (DecryptException|\JsonException) {
+        } catch (DecryptException|\JsonException $e) {
+            Log::warning('Google registration intent unreadable: state came back but could not be decoded.', [
+                'reason' => class_basename($e),
+                'state_length' => strlen((string) $request->query('state')),
+            ]);
+
             return null;
         }
 
         if (($payload['expires_at'] ?? 0) < now()->timestamp) {
+            Log::warning('Google registration intent expired before the user finished signing in.', [
+                'expired_seconds_ago' => now()->timestamp - (int) ($payload['expires_at'] ?? 0),
+            ]);
+
             return null;
         }
 
@@ -179,6 +211,8 @@ class GoogleAuthController extends Controller
         }
 
         if (! isset($payload['municipality_id'])) {
+            Log::warning('Google seller registration intent arrived without a municipality.');
+
             return null;
         }
 

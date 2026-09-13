@@ -3070,7 +3070,7 @@ class FishMarketApiTest extends TestCase
         Notification::assertNothingSent();
     }
 
-    public function test_google_login_creates_a_new_verified_buyer_account(): void
+    public function test_google_registration_creates_a_new_verified_buyer_account(): void
     {
         Socialite::fake('google', SocialiteUser::fake([
             'id' => 'google-new-1',
@@ -3078,7 +3078,13 @@ class FishMarketApiTest extends TestCase
             'name' => 'New Google User',
         ]));
 
-        $response = $this->get('/api/auth/google/callback');
+        $state = Crypt::encryptString(json_encode([
+            'role' => 'buyer',
+            'municipality_id' => null,
+            'expires_at' => now()->addMinutes(10)->timestamp,
+        ]));
+
+        $response = $this->get('/api/auth/google/callback?state='.urlencode($state));
 
         $response->assertRedirect();
         $this->assertStringStartsWith(rtrim(config('app.frontend_url'), '/').'/auth/google/callback?token=', $response->headers->get('Location'));
@@ -3088,6 +3094,30 @@ class FishMarketApiTest extends TestCase
         $this->assertSame('google-new-1', $user->google_id);
         $this->assertNotNull($user->email_verified_at);
         $this->assertDatabaseHas('buyer_profiles', ['user_id' => $user->id]);
+    }
+
+    public function test_google_sign_in_for_an_unknown_email_asks_for_a_role_instead_of_defaulting_to_buyer(): void
+    {
+        Socialite::fake('google', SocialiteUser::fake([
+            'id' => 'google-no-intent-1',
+            'email' => 'no-intent@fishmarket.test',
+            'name' => 'No Intent',
+        ]));
+
+        $response = $this->get('/api/auth/google/callback');
+
+        $response->assertRedirect(
+            rtrim(config('app.frontend_url'), '/').'/register?google_role_required=1&email='.urlencode('no-intent@fishmarket.test')
+        );
+        $this->assertDatabaseMissing('users', ['email' => 'no-intent@fishmarket.test']);
+    }
+
+    public function test_google_registration_rejects_a_seller_without_a_municipality(): void
+    {
+        $response = $this->get('/api/auth/google/redirect?registration=1&role=seller');
+
+        $response->assertSessionHasErrors('municipality_id');
+        $this->assertDatabaseMissing('users', ['email' => 'new-google-seller@fishmarket.test']);
     }
 
     public function test_google_registration_creates_a_pending_seller_in_the_selected_municipality(): void

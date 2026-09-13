@@ -176,6 +176,26 @@ function mapListing(item) {
   }
 }
 
+/**
+ * Display shape for a seller row from GET /sellers. LandingPage and
+ * SellersPage share the ['sellers'] query cache, so they MUST cache the same
+ * shape: whichever mounts first decides what the other reads. Mapping inside
+ * both queryFns (rather than after the query, per page) is what keeps them
+ * agreeing -- note `municipality` collapses to a string here, and handing
+ * SellerGrid the raw object instead crashes the render.
+ */
+function mapSeller(seller) {
+  return {
+    id: seller.id,
+    name: seller.hatchery_name,
+    municipality: seller.municipality?.name || 'Unknown',
+    rating: seller.rating,
+    verified: seller.verified,
+    listings: seller.listings_count ?? 0,
+    profile_picture: seller.profile_picture,
+  }
+}
+
 function renderStars(rating) {
   const rounded = Math.max(0, Math.min(5, Math.round(Number(rating) || 0)))
   return <span className="stars">{'★'.repeat(rounded)}{'☆'.repeat(5 - rounded)}</span>
@@ -362,7 +382,7 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route element={<PublicLayout />}>
-            <Route path="/" element={<LandingPage />} />
+            <Route path="/" element={<RedirectIfSignedIn><LandingPage /></RedirectIfSignedIn>} />
             <Route path="/browse" element={<BrowsePage />} />
             <Route path="/sellers" element={<SellersPage />} />
             <Route path="/about" element={<AboutPage />} />
@@ -407,7 +427,14 @@ function PublicLayout() {
           <Link to="/sellers">Sellers</Link>
           <Link to="/about">About</Link>
         </nav>
-        {!session && (
+        {session ? (
+          // Browse/Sellers/About stay reachable while signed in, so without
+          // this the header offers a signed-in visitor no way back into the
+          // app -- Login/Register are hidden and nothing replaces them.
+          <div className="nav-actions">
+            <Link className="button" to={homeRoute}>Go to Dashboard</Link>
+          </div>
+        ) : (
           <div className="nav-actions">
             <Link className="ghost" to="/login">Login</Link>
             <Link className="button" to="/register">Register</Link>
@@ -418,6 +445,22 @@ function PublicLayout() {
       <FloatingAi />
     </>
   )
+}
+
+/**
+ * Keeps a signed-in user off the public marketing landing page. The header
+ * hides Login/Register once a session exists, so an already-signed-in visitor
+ * who opens "/" in a new tab (or just never logged out) would otherwise land
+ * on a page with no way forward. Sent to their own dashboard instead.
+ *
+ * Deliberately NOT applied to /login or /register: reaching those while
+ * signed in is how you switch accounts, and a stale session is cleared by the
+ * 401 interceptor the moment any request fails.
+ */
+function RedirectIfSignedIn({ children }) {
+  const session = getSession()
+  if (session) return <Navigate to={getHomeRoute()} replace />
+  return children
 }
 
 function Protected({ allowed, children }) {
@@ -489,20 +532,12 @@ function LandingPage() {
   })
   const sellersQuery = useQuery({
     queryKey: ['sellers'],
-    queryFn: async () => (await api.get('/sellers')).data,
+    queryFn: async () => (await api.get('/sellers')).data.map(mapSeller),
     retry: false,
     placeholderData: [],
   })
   const featured = listingsQuery.data || []
-  const featuredSellers = (sellersQuery.data || []).map((seller) => ({
-    id: seller.id,
-    name: seller.hatchery_name,
-    municipality: seller.municipality?.name || 'Unknown',
-    rating: seller.rating,
-    verified: seller.verified,
-    listings: seller.listings_count ?? 0,
-    profile_picture: seller.profile_picture,
-  }))
+  const featuredSellers = sellersQuery.data || []
   const verifiedSellerCount = featuredSellers.filter((seller) => seller.verified).length
 
   return (
@@ -1412,6 +1447,12 @@ function validateEmail(value) {
 }
 
 function RegisterPage() {
+  const [searchParams] = useSearchParams()
+  // Set when someone used the Google button on the login page with an email
+  // we have no account for: the backend can't guess Buyer vs Seller, so it
+  // sends them here to choose before the account is created.
+  const googleRoleRequired = searchParams.get('google_role_required')
+  const googleEmail = searchParams.get('email')
   const { register, handleSubmit, watch, getValues, setError, clearErrors, formState: { errors } } = useForm({ defaultValues: { role: 'buyer', municipality_id: '' } })
   const role = watch('role')
   const isSeller = role === 'seller'
@@ -1467,6 +1508,14 @@ function RegisterPage() {
 
   return (
     <AuthCard title="Register" subtitle="Registration is available only for buyers and sellers.">
+      {googleRoleRequired && (
+        <p className="helper-text">
+          <strong>Almost there — one more step.</strong>{' '}
+          {googleEmail ? `There's no AbaiMarket account for ${googleEmail} yet. ` : "You don't have an AbaiMarket account yet. "}
+          Pick <strong>Buyer / Fish Farmer</strong> or <strong>Seller / Hatchery</strong> below, then press
+          {' '}<strong>Continue with Google</strong> again to finish creating your account.
+        </p>
+      )}
       <form onSubmit={handleSubmit((v) => registerUser.mutate(v))} className="form">
         <input {...register('name')} placeholder="Full name / Hatchery name" />
         <input {...register('email', { validate: (value) => validateEmail(value) || true })} placeholder="Email" />
@@ -6577,18 +6626,7 @@ function PaymentCancelledPage() {
 function SellersPage() {
   const { data = [] } = useQuery({
     queryKey: ['sellers'],
-    queryFn: async () => {
-      const response = await api.get('/sellers')
-      return response.data.map((seller) => ({
-        id: seller.id,
-        name: seller.hatchery_name,
-        municipality: seller.municipality?.name || 'Unknown',
-        rating: seller.rating,
-        verified: seller.verified,
-        listings: seller.listings_count ?? 0,
-        profile_picture: seller.profile_picture,
-      }))
-    },
+    queryFn: async () => (await api.get('/sellers')).data.map(mapSeller),
     retry: false,
     placeholderData: [],
   })
