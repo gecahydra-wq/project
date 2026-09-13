@@ -9,3 +9,5 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('announcements:publish')->everyFiveMinutes();
+Schedule::command('orders:expire-unpaid')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('sanctum:prune-expired --hours=24')->daily();

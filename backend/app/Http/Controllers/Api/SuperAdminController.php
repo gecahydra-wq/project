@@ -7,6 +7,7 @@ use App\Mail\ListingApprovedMail;
 use App\Mail\ListingRejectedMail;
 use App\Mail\LguWithdrawalApprovedMail;
 use App\Mail\LguWithdrawalReleasedMail;
+use App\Mail\SellerWithdrawalApprovedMail;
 use App\Mail\WithdrawalReleasedMail;
 use App\Models\AppNotification;
 use App\Models\BuyerRating;
@@ -15,6 +16,7 @@ use App\Models\LguWithdrawalRequest;
 use App\Models\MockPayment;
 use App\Models\ModerationLog;
 use App\Models\Order;
+use App\Models\PaymentLog;
 use App\Models\SellerProfile;
 use App\Models\Municipality;
 use App\Models\Review;
@@ -25,6 +27,7 @@ use App\Support\AccountModeration;
 use App\Support\ActivityLog;
 use App\Support\AuthValidation;
 use App\Support\ListingModeration;
+use App\Support\OrderCancellation;
 use App\Support\ImageUploader;
 use App\Support\OrderTransactionPresenter;
 use App\Support\ReviewModeration;
@@ -303,7 +306,54 @@ class SuperAdminController extends Controller
             ),
         ]);
 
+        // Accepted, not yet paid -- WithdrawalReleasedMail follows at markWithdrawalPaid.
+        $withdrawal->loadMissing('sellerProfile.user');
+        SafeMailer::send($withdrawal->sellerProfile->user?->email, new SellerWithdrawalApprovedMail($withdrawal));
+
         return response()->json($withdrawal->fresh());
+    }
+
+    /**
+     * Refund queue: payments captured for orders that were then cancelled or
+     * expired (see App\Support\OrderCancellation). Pending first.
+     */
+    public function refunds()
+    {
+        $payments = MockPayment::with(['order.buyer', 'order.listing', 'order.sellerProfile'])
+            ->whereIn('status', [OrderCancellation::REFUND_PENDING, OrderCancellation::REFUNDED])
+            ->orderByRaw("case when status = 'refund_pending' then 0 else 1 end")
+            ->latest('updated_at')
+            ->get();
+
+        $logs = PaymentLog::whereIn('payment_id', $payments->pluck('id'))
+            ->whereIn('event', ['order.cancelled', 'order.paid_after_close', 'refund.completed'])
+            ->latest('id')
+            ->get()
+            ->groupBy('payment_id');
+
+        return response()->json($payments->map(fn (MockPayment $payment) => [
+            'id' => $payment->id,
+            'status' => $payment->status,
+            'amount' => (float) $payment->amount,
+            'provider_reference' => $payment->provider_reference,
+            'order_number' => $payment->order?->order_number,
+            'buyer' => $payment->order?->buyer?->only(['id', 'name', 'email']),
+            'hatchery_name' => $payment->order?->sellerProfile?->hatchery_name,
+            'listing_title' => $payment->order?->listing?->title,
+            'reason' => $logs->get($payment->id)?->firstWhere('event', '!=', 'refund.completed')?->payload['reason'] ?? null,
+            'refund_reference' => $logs->get($payment->id)?->firstWhere('event', 'refund.completed')?->payload['reference'] ?? null,
+            'updated_at' => $payment->updated_at,
+        ]));
+    }
+
+    public function markRefunded(Request $request, MockPayment $payment)
+    {
+        $data = $request->validate([
+            'reference' => ['nullable', 'string', 'max:255'],
+            'notes' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        return response()->json(OrderCancellation::markRefunded($payment, $request->user(), $data['reference'] ?? null, $data['notes'] ?? null));
     }
 
     public function rejectWithdrawal(Request $request, WithdrawalRequest $withdrawal)

@@ -18,9 +18,9 @@ This ERD was reverse-engineered from the codebase, not from a design intent:
 | `app/Models/*` (Eloquent relations) | Relationship direction and cardinality (`hasOne`, `hasMany`, `belongsTo`) |
 | `routes/api.php` + `app/Http/Middleware/EnsureRole.php` | Which roles own/scope which data (informs the Use Case model) |
 
-**Framework-only tables are intentionally excluded** from the domain ERD because they are not part of the business model: `password_reset_tokens`, `sessions`, `cache`, `cache_locks`, `jobs`, `job_batches`, `failed_jobs`, `personal_access_tokens` (Sanctum). They exist in the database but carry no domain relationships.
+**Framework plumbing tables are excluded** because they are not part of the business model: `sessions`, `cache`, `cache_locks`, `jobs`, `job_batches`, `failed_jobs`. Two framework tables **are** included because user-facing features depend on them: `password_reset_tokens` (Forgot Password) and `personal_access_tokens` (Sanctum login tokens, which expire after 7 days) — see §2.9.
 
-The domain model contains **26 entities**.
+The model contains **32 tables**: 30 domain tables (including the 2 reserved AI tables) plus the 2 authentication tables.
 
 ---
 
@@ -137,10 +137,12 @@ The single account table for all four roles.
 | id | bigint | PK |
 | order_id | bigint | FK → orders (**cascade**) |
 | amount | decimal | |
-| status | string | `pending` \| `checkout_created` \| `paid_held` \| `released` \| `failed` |
+| status | string | `pending` \| `checkout_created` \| `paid_held` \| `released` \| `failed` \| `cancelled` \| `refund_pending` \| `refunded` |
 | provider | string | default `paymongo` |
 | provider_reference, checkout_url | string | nullable |
 | released_at | timestamp | nullable |
+
+> **Payment status lifecycle:** `pending` → `checkout_created` (PayMongo session opened) → `paid_held` (captured, held in escrow) → `released` (LGU approved earnings). Unpaid orders end as `failed` (buyer cancelled at PayMongo, or expired by `orders:expire-unpaid`) or `cancelled` (seller cancelled). A paid order that is cancelled — or money that arrives after an order already closed — becomes `refund_pending`, then `refunded` once the Super Admin confirms the refund. No new column was added; refund references are stored in `payment_logs.payload`.
 
 #### `payment_logs` — provider event audit for a payment
 | Column | Type | Notes |
@@ -398,6 +400,29 @@ Mirrors seller payouts but scoped to a municipality (shared municipal revenue). 
 | municipality_id | bigint | nullable, FK → municipalities (**nullOnDelete**) |
 | reference_type, reference_number, description | string/text | nullable |
 
+### 2.9 Authentication support tables (Laravel framework)
+
+#### `password_reset_tokens` — Forgot Password
+| Column | Type | Notes |
+|---|---|---|
+| email | string | PK — matches `users.email` (no DB foreign key) |
+| token | string | hashed; single-use |
+| created_at | timestamp | nullable; the emailed link is valid for 60 minutes |
+
+Written by `POST /auth/forgot-password`, consumed by `POST /auth/reset-password` (Laravel password broker). Works for Google-registered accounts too — resetting gives them a usable password.
+
+#### `personal_access_tokens` — Sanctum login tokens
+| Column | Type | Notes |
+|---|---|---|
+| id | bigint | PK |
+| tokenable_type, tokenable_id | string, bigint | polymorphic reference → `users` (no DB FK) |
+| name | string | `fishmarket` |
+| token | string(64) | **UK**, hashed |
+| abilities | text | nullable |
+| last_used_at, expires_at | timestamp | nullable |
+
+Created at login / Google sign-in; deleted on logout, suspension, password reset, and account removal. Tokens expire **7 days** after `created_at` (`config/sanctum.php`, `SANCTUM_EXPIRATION`), and expired rows are pruned daily by the scheduler.
+
 ---
 
 ## 3. Relationship summary (cardinality)
@@ -427,6 +452,8 @@ Notation: **1** = exactly one, **0..1** = optional one, **\*** = many.
 | payments | 1 — \* | payment_logs | provider events |
 | payments | 1 — 0..1 | settlements | split source |
 | seller_posts | 1 — \* | seller_post_media / seller_post_likes / seller_post_comments | feed content |
+| users | 1 — \* | personal_access_tokens (tokenable) | login sessions (polymorphic, no DB FK) |
+| users | 1 — 0..1 | password_reset_tokens (by email) | pending password reset (no DB FK) |
 
 **Users→Orders appears twice** because an order references a user through two different columns: `buyer_id` (the purchaser) and `lgu_reviewed_by` (the LGU admin who held/rejected it). Likewise `messages`, `moderation_logs`, and `activity_logs` each reference `users` through two roles.
 
@@ -456,6 +483,8 @@ This is why account **removal** is blocked for accounts with order history — d
 ### 4.4 Escrow / revenue flow reflected in the schema
 `payments.status = paid_held` (funds captured, not released) → LGU approval creates the immutable `settlements` row and flips the payment to `released` → seller's `settlements.seller_share` becomes withdrawable via `withdrawal_requests`; the municipality's `settlements.lgu_share` becomes withdrawable via `lgu_withdrawal_requests`. A rejected order keeps `payment.status = paid_held` but has no settlement, which is why rejected earnings are excluded from a seller's projected balance.
 
+**Cancellation, expiry and refunds.** Stock is decremented when an order is placed. Cancelling (seller) or expiring (scheduler, unpaid after 60 minutes) always adds that quantity back to `listings.quantity`. If the payment was already `paid_held`, it becomes `refund_pending` instead of being settled — so it automatically drops out of the seller's pending balance and the LGU approval queue — and the Super Admin moves it to `refunded` after refunding the buyer through PayMongo.
+
 ---
 
 ## 5. Files in this folder
@@ -467,6 +496,10 @@ This is why account **removal** is blocked for accounts with order history — d
 | `AbaiMarket_ERD.puml` | PlantUML | Renders with `plantuml.jar` or the PlantUML server |
 | `AbaiMarket_ERD.png` | Raster image (rendered from the Mermaid source) | Presentation / defense slides |
 | `AbaiMarket_ERD.pdf` | PDF (rendered from the Mermaid source) | Print / appendix |
+| `AbaiMarket_ERD_clean.png` | Raster image — Graphviz layout with colour-coded domain clusters, key badges and a legend | Presentation / defense slides (most readable version) |
+| `AbaiMarket_ERD_clean.pdf` | Single-page vector PDF of the clustered layout | Print / appendix |
 | `ERD_DOCUMENTATION.md` | This document | Written reference |
 
-> The `.drawio`, `.mmd`, and `.puml` are three independent, editable sources of the **same** model; the `.png`/`.pdf` are the presentation renders (Mermaid). All were generated from the verified schema, so they agree.
+> The `.drawio`, `.mmd`, and `.puml` are three independent, editable sources of the **same** model; the `.png`/`.pdf` are the presentation renders. All were generated from the verified schema, so they agree — 30 domain tables (including the two reserved AI tables, which the clustered render draws with a **grey header**) plus the 2 authentication tables.
+>
+> **Regenerating the renders.** `AbaiMarket_ERD.png`/`.pdf` come from `AbaiMarket_ERD.mmd` via Mermaid CLI (`mmdc`). The `_clean` pair is built from the same `.mmd` with Graphviz `dot` (entities grouped into domain clusters) and exported to PNG/PDF through headless Chrome. When the schema changes, edit the `.mmd` first and regenerate both, so the renders never disagree with the text.

@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\ListingController;
 use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\PlatformController;
 use App\Http\Controllers\Api\OrderController;
+use App\Http\Controllers\Api\PasswordResetController;
 use App\Http\Controllers\Api\ReviewController;
 use App\Http\Controllers\Api\SellerController;
 use App\Http\Controllers\Api\SellerPostController;
@@ -23,7 +24,8 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('auth')->group(function () {
     Route::post('register', [AuthController::class, 'register']);
-    Route::post('login', [AuthController::class, 'login']);
+    // Brute-force guard: 5 attempts a minute per email + IP (AppServiceProvider).
+    Route::post('login', [AuthController::class, 'login'])->middleware('throttle:login');
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('me', [AuthController::class, 'me']);
         Route::post('logout', [AuthController::class, 'logout']);
@@ -43,6 +45,12 @@ Route::get('email/verify/{id}/{hash}', [EmailVerificationController::class, 'ver
 Route::post('email/resend', [EmailVerificationController::class, 'resend'])
     ->middleware('throttle:6,1')
     ->name('verification.send');
+
+// Forgot password -- unauthenticated by design; see PasswordResetController.
+Route::post('auth/forgot-password', [PasswordResetController::class, 'sendLink'])
+    ->middleware('throttle:6,1');
+Route::post('auth/reset-password', [PasswordResetController::class, 'reset'])
+    ->middleware('throttle:6,1');
 
 // Safety net only: the 'verified' middleware falls back to this named route
 // when a request doesn't look like an API/JSON call (real SPA/API traffic
@@ -158,7 +166,8 @@ Route::prefix('lgu')->middleware(['auth:sanctum', 'verified', 'role:lgu_admin'])
     Route::patch('listings/{listing}/archive', [LguController::class, 'archiveListing']);
     Route::delete('listings/{listing}', [LguController::class, 'destroyListing']);
     Route::get('sellers', [LguController::class, 'sellers']);
-    // Seller Registration Approval, stage 1 (App\Support\SellerApproval).
+    // Seller Registration Approval -- the LGU Admin is the normal reviewer for
+    // their own municipality; one approval is enough (App\Support\SellerApproval).
     // 'verify' is kept as a backwards-compatible alias of 'approve'.
     Route::get('seller-registrations', [LguController::class, 'sellerRegistrations']);
     Route::patch('sellers/{seller}/approve-registration', [LguController::class, 'approveSellerRegistration']);
@@ -211,8 +220,9 @@ Route::prefix('super-admin')->middleware(['auth:sanctum', 'verified', 'role:supe
     Route::patch('lgu-admins/{admin}/disable', [SuperAdminController::class, 'disableLguAdmin']);
     Route::patch('lgu-admins/{admin}/enable', [SuperAdminController::class, 'enableLguAdmin']);
     Route::get('sellers', [PlatformController::class, 'sellers']);
-    // Seller Registration Approval, stage 2 -- the final approval that makes a
-    // seller verified and able to list (App\Support\SellerApproval).
+    // Seller Registration Approval -- the Super Admin is the platform-wide
+    // fallback reviewer; one approval (theirs or the LGU's) makes a seller
+    // verified and able to list (App\Support\SellerApproval).
     Route::get('seller-registrations', [SuperAdminController::class, 'sellerRegistrations']);
     Route::patch('sellers/{seller}/approve-registration', [SuperAdminController::class, 'approveSellerRegistration']);
     Route::patch('sellers/{seller}/reject-registration', [SuperAdminController::class, 'rejectSellerRegistration']);
@@ -236,6 +246,9 @@ Route::prefix('super-admin')->middleware(['auth:sanctum', 'verified', 'role:supe
     Route::patch('withdrawals/{withdrawal}/approve', [SuperAdminController::class, 'approveWithdrawal']);
     Route::patch('withdrawals/{withdrawal}/reject', [SuperAdminController::class, 'rejectWithdrawal']);
     Route::patch('withdrawals/{withdrawal}/paid', [SuperAdminController::class, 'markWithdrawalPaid']);
+    // Refund queue for paid orders that were cancelled or expired (App\Support\OrderCancellation).
+    Route::get('refunds', [SuperAdminController::class, 'refunds']);
+    Route::patch('refunds/{payment}/refunded', [SuperAdminController::class, 'markRefunded']);
     Route::get('lgu-withdrawals', [SuperAdminController::class, 'lguWithdrawals']);
     Route::patch('lgu-withdrawals/{withdrawal}/approve', [SuperAdminController::class, 'approveLguWithdrawal']);
     Route::patch('lgu-withdrawals/{withdrawal}/reject', [SuperAdminController::class, 'rejectLguWithdrawal']);

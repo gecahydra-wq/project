@@ -15,9 +15,11 @@ use App\Models\PaymentLog;
 use App\Models\SellerProfile;
 use App\Models\User;
 use App\Services\PayMongoService;
+use App\Support\OrderCancellation;
 use App\Support\OrderTransactionPresenter;
 use App\Support\SafeMailer;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 /**
@@ -172,6 +174,13 @@ class OrderController extends Controller
 
         abort_if(request()->user()->status === 'suspended', 403, 'Your account has been suspended and cannot make payments. Contact support for assistance.');
 
+        // A cancelled/expired order has already given its stock back.
+        abort_unless(
+            $order->status === 'placed' && in_array($order->payment?->status, OrderCancellation::UNPAID_PAYMENT_STATUSES, true),
+            422,
+            'This order can no longer be paid. Please place a new order.'
+        );
+
         $checkout = $payMongo->createCheckoutSession($order->load('listing'));
         $order->payment()->update([
             'provider_reference' => $checkout['id'],
@@ -207,8 +216,22 @@ class OrderController extends Controller
         ]);
 
         $previousStatus = $order->status;
-        $order->update($data);
         $statusChanged = $previousStatus !== $data['status'];
+
+        // Cancelled/failed orders already released their stock (and any
+        // payment went to the refund queue), and a completed order is in the
+        // LGU earnings flow -- none of them may be moved again.
+        if ($statusChanged && in_array($previousStatus, ['cancelled', 'failed', 'completed'], true)) {
+            return response()->json(['message' => "This order is already {$previousStatus} and can no longer be changed."], 422);
+        }
+
+        if ($statusChanged && $data['status'] === 'cancelled') {
+            OrderCancellation::cancel($order);
+
+            return response()->json($order->fresh()->load('payment'));
+        }
+
+        $order->update($data);
 
         if ($statusChanged && $data['status'] === 'confirmed') {
             $order->loadMissing('buyer');
@@ -269,19 +292,31 @@ class OrderController extends Controller
 
     /**
      * PayMongo server-to-server payment confirmation. Unauthenticated by design
-     * (it's called by PayMongo, not the SPA). Resolves the payment from the
-     * provider reference and, if found, runs the idempotent markOrderPaid().
-     * Always returns 200 so PayMongo doesn't retry a payload we simply don't
-     * recognise.
+     * (it's called by PayMongo, not the SPA), so the Paymongo-Signature header
+     * is verified against PAYMONGO_WEBHOOK_SECRET first -- a forged or unsigned
+     * request gets 401 and changes nothing. Only a
+     * checkout_session.payment.paid event marks an order paid. Other signed
+     * events and unknown references get 200 so PayMongo doesn't retry them.
      */
-    public function paymongoWebhook(Request $request)
+    public function paymongoWebhook(Request $request, PayMongoService $payMongo)
     {
-        $payload = $request->all();
-        $reference = data_get($payload, 'data.attributes.data.id')
-            ?: data_get($payload, 'data.id')
-            ?: data_get($payload, 'checkout_session_id');
+        if (! config('services.paymongo.webhook_secret')) {
+            Log::warning('PayMongo webhook ignored: PAYMONGO_WEBHOOK_SECRET is not configured.');
 
-        $payment = MockPayment::where('provider_reference', $reference)->first();
+            return response()->json(['received' => false, 'message' => 'Webhook secret not configured.'], 503);
+        }
+
+        if (! $payMongo->webhookSignatureIsValid($request->getContent(), $request->header('Paymongo-Signature'))) {
+            return response()->json(['message' => 'Invalid webhook signature.'], 401);
+        }
+
+        $payload = $request->all();
+
+        if (data_get($payload, 'data.attributes.type') !== 'checkout_session.payment.paid') {
+            return response()->json(['received' => true]);
+        }
+
+        $payment = MockPayment::where('provider_reference', data_get($payload, 'data.attributes.data.id'))->first();
 
         if ($payment) {
             $this->markOrderPaid($payment->order, 'paymongo.webhook', $payload);
@@ -295,13 +330,26 @@ class OrderController extends Controller
      * hosted page. Runs the same idempotent markOrderPaid() as the webhook, so
      * whichever arrives first wins and the other is a no-op (no double receipts).
      */
-    public function markPaymentSuccess(Request $request, Order $order)
+    public function markPaymentSuccess(Request $request, Order $order, PayMongoService $payMongo)
     {
         if ($order->buyer_id !== $request->user()->id) {
             return response()->json(['message' => 'You can only confirm your own orders.'], 403);
         }
 
         abort_if($request->user()->status === 'suspended', 403, 'Your account has been suspended and cannot make payments. Contact support for assistance.');
+
+        // Anyone can open the success URL, so for a real PayMongo checkout ask
+        // PayMongo whether it was actually paid. Demo mode (no secret key) has
+        // no session to check and keeps working as before.
+        $payment = $order->payment;
+        if (config('services.paymongo.secret_key') && $payment?->status === 'checkout_created'
+            && $payMongo->checkoutSessionIsPaid($payment->provider_reference) !== true) {
+            return response()->json([
+                'order' => $order->fresh('payment'),
+                'status' => 'processing',
+                'message' => "We haven't received confirmation from PayMongo yet. Your order will update automatically once the payment is confirmed.",
+            ]);
+        }
 
         $this->markOrderPaid($order, 'paymongo.success', ['order_number' => $order->order_number]);
 
@@ -324,7 +372,9 @@ class OrderController extends Controller
         }
 
         $payment = $order->payment;
-        if ($payment && ! in_array($payment->status, ['failed', 'cancelled'], true) && $order->status !== 'failed') {
+        // Only an order still waiting for payment -- never one that was paid
+        // (money captured) or already cancelled/failed (stock already back).
+        if ($payment && in_array($payment->status, OrderCancellation::UNPAID_PAYMENT_STATUSES, true) && $order->status === 'placed') {
             $payment->update(['status' => 'failed']);
             $order->update(['status' => 'failed']);
             $order->listing()->increment('quantity', $order->quantity);
@@ -358,12 +408,24 @@ class OrderController extends Controller
     {
         $payment = $order->payment;
 
+        // Money arrived for an order that was already cancelled or expired --
+        // its stock is gone, so it can't become 'paid'. Queue a refund instead.
+        if ($payment && in_array($order->status, ['cancelled', 'failed'], true)) {
+            if (! in_array($payment->status, [OrderCancellation::REFUND_PENDING, OrderCancellation::REFUNDED], true)) {
+                PaymentLog::create(['payment_id' => $payment->id, 'event' => $event, 'payload' => $payload]);
+                OrderCancellation::queueRefund($payment, $order, 'order.paid_after_close',
+                    "Payment was received after the order had already {$order->status}.");
+            }
+
+            return;
+        }
+
         // The webhook and the frontend's post-redirect call can both reach
         // here for the same order -- only the call that actually performs
         // the pending -> paid_held transition should trigger receipt
         // emails, or a buyer/seller could get duplicate "payment received"
         // emails for a single payment.
-        $isNewlyPaid = $payment && ! in_array($payment->status, ['paid_held', 'released'], true);
+        $isNewlyPaid = $payment && ! in_array($payment->status, ['paid_held', 'released', OrderCancellation::REFUND_PENDING, OrderCancellation::REFUNDED], true);
 
         if ($isNewlyPaid) {
             $payment->update(['status' => 'paid_held']);

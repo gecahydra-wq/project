@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Mail\SellerRegistrationReviewedMail;
 use App\Models\AppNotification;
 use App\Models\SellerProfile;
 use App\Models\User;
@@ -102,6 +103,7 @@ class SellerApproval
         );
 
         self::record($seller, $reviewer, 'seller_registration_approved', "Approved seller registration for {$seller->hatchery_name}. Seller is now verified.");
+        self::email($seller->fresh(), $reviewer, $role);
 
         return $seller->fresh();
     }
@@ -135,8 +137,16 @@ class SellerApproval
         );
 
         self::record($seller, $reviewer, 'seller_registration_rejected', "Rejected seller registration for {$seller->hatchery_name} -- {$reason}");
+        self::email($seller->fresh(), $reviewer, $role);
 
         return $seller->fresh();
+    }
+
+    /** Emails the decision too -- a seller who can't list yet may not be checking in-app notifications. */
+    private static function email(SellerProfile $seller, User $reviewer, string $role): void
+    {
+        $seller->loadMissing('user');
+        SafeMailer::send($seller->user?->email, new SellerRegistrationReviewedMail($seller, $reviewer, $role));
     }
 
     /**

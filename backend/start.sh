@@ -39,4 +39,9 @@ if ! php artisan storage:link --force --no-interaction; then
     echo "Warning: unable to create public/storage link; continuing startup." >&2
 fi
 
+# Laravel's scheduler (routes/console.php: scheduled announcements, unpaid
+# order expiry, expired-token pruning) runs as a background worker in the same
+# container. If it ever dies, the web server keeps serving normally.
+php artisan schedule:work --no-interaction > storage/logs/scheduler.log 2>&1 &
+
 exec php artisan serve --host=0.0.0.0 --port="${PORT:-8080}"

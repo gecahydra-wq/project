@@ -14,6 +14,8 @@ use App\Mail\OrderConfirmedMail;
 use App\Mail\OrderDeliveredMail;
 use App\Mail\PaymentReceiptMail;
 use App\Mail\SellerEarningsApprovedMail;
+use App\Mail\SellerRegistrationReviewedMail;
+use App\Mail\SellerWithdrawalApprovedMail;
 use App\Mail\WithdrawalReleasedMail;
 use App\Models\ActivityLogEntry;
 use App\Models\AppNotification;
@@ -35,6 +37,7 @@ use App\Support\CommissionCalculator;
 use App\Support\SellerApproval;
 use App\Support\SellerReputation;
 use Database\Seeders\DatabaseSeeder;
+use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -43,6 +46,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
@@ -2951,6 +2955,366 @@ class FishMarketApiTest extends TestCase
         $response->assertOk();
     }
 
+    public function test_forgot_password_emails_a_link_to_the_frontend_reset_page(): void
+    {
+        Notification::fake();
+        $user = $this->makeBuyer();
+
+        $response = $this->postJson('/api/auth/forgot-password', ['email' => $user->email]);
+
+        $response->assertOk();
+        Notification::assertSentTo($user, ResetPassword::class, function (ResetPassword $notification) use ($user) {
+            $mail = $notification->toMail($user);
+
+            return str_starts_with($mail->actionUrl, rtrim(config('app.frontend_url'), '/').'/reset-password?token=')
+                && str_contains($mail->actionUrl, 'email='.urlencode($user->email));
+        });
+    }
+
+    public function test_forgot_password_does_not_reveal_whether_an_email_is_registered(): void
+    {
+        Notification::fake();
+        $user = $this->makeBuyer();
+
+        $registered = $this->postJson('/api/auth/forgot-password', ['email' => $user->email]);
+        $unregistered = $this->postJson('/api/auth/forgot-password', ['email' => 'nobody@fishmarket.test']);
+
+        $registered->assertOk();
+        $unregistered->assertOk();
+        $this->assertSame($registered->json('message'), $unregistered->json('message'));
+    }
+
+    public function test_forgot_password_still_succeeds_when_the_email_transport_fails(): void
+    {
+        $user = $this->makeBuyer();
+        Mail::shouldReceive('to')->andThrow(new \RuntimeException('SMTP unreachable'));
+
+        $this->postJson('/api/auth/forgot-password', ['email' => $user->email])->assertOk();
+    }
+
+    public function test_password_reset_sets_the_new_password_and_revokes_existing_tokens(): void
+    {
+        $user = $this->makeBuyer();
+        $user->createToken('fishmarket');
+        $token = Password::createToken($user);
+
+        $response = $this->postJson('/api/auth/reset-password', [
+            'token' => $token,
+            'email' => $user->email,
+            'password' => 'NewPassword123!',
+            'password_confirmation' => 'NewPassword123!',
+        ]);
+
+        $response->assertOk();
+        $this->assertSame(0, $user->tokens()->count());
+        $this->postJson('/api/auth/login', ['email' => $user->email, 'password' => 'password'])->assertStatus(422);
+        $this->postJson('/api/auth/login', ['email' => $user->email, 'password' => 'NewPassword123!'])->assertOk();
+
+        // The token is single-use.
+        $this->postJson('/api/auth/reset-password', [
+            'token' => $token,
+            'email' => $user->email,
+            'password' => 'Another123!',
+            'password_confirmation' => 'Another123!',
+        ])->assertStatus(422);
+    }
+
+    public function test_google_registered_account_can_reset_and_log_in_with_a_password(): void
+    {
+        $user = $this->makeBuyer(['google_id' => 'google-123', 'password' => Hash::make(Str::random(40))]);
+
+        $this->postJson('/api/auth/reset-password', [
+            'token' => Password::createToken($user),
+            'email' => $user->email,
+            'password' => 'GooglePass123!',
+            'password_confirmation' => 'GooglePass123!',
+        ])->assertOk();
+
+        $this->postJson('/api/auth/login', ['email' => $user->email, 'password' => 'GooglePass123!'])->assertOk();
+        $this->assertSame('google-123', $user->fresh()->google_id);
+    }
+
+    public function test_password_reset_rejects_invalid_tokens_and_weak_or_mismatched_passwords(): void
+    {
+        $user = $this->makeBuyer();
+
+        $this->postJson('/api/auth/reset-password', [
+            'token' => 'not-a-real-token',
+            'email' => $user->email,
+            'password' => 'NewPassword123!',
+            'password_confirmation' => 'NewPassword123!',
+        ])->assertStatus(422)->assertJsonFragment(['message' => 'This password reset link is invalid or has expired. Please request a new one.']);
+
+        $token = Password::createToken($user);
+        $this->postJson('/api/auth/reset-password', [
+            'token' => $token, 'email' => $user->email,
+            'password' => 'weak', 'password_confirmation' => 'weak',
+        ])->assertStatus(422)->assertJsonValidationErrors('password');
+        $this->postJson('/api/auth/reset-password', [
+            'token' => $token, 'email' => $user->email,
+            'password' => 'NewPassword123!', 'password_confirmation' => 'Different123!',
+        ])->assertStatus(422)->assertJsonValidationErrors('password');
+
+        $this->postJson('/api/auth/login', ['email' => $user->email, 'password' => 'password'])->assertOk();
+    }
+
+    public function test_password_reset_verifies_an_unverified_account(): void
+    {
+        $user = $this->makeBuyer(['email_verified_at' => null]);
+
+        $this->postJson('/api/auth/reset-password', [
+            'token' => Password::createToken($user),
+            'email' => $user->email,
+            'password' => 'NewPassword123!',
+            'password_confirmation' => 'NewPassword123!',
+        ])->assertOk();
+
+        $this->assertNotNull($user->fresh()->email_verified_at);
+    }
+
+    private function signedWebhook(array $payload, string $secret = 'whsk_test_secret'): \Illuminate\Testing\TestResponse
+    {
+        $body = json_encode($payload);
+        $timestamp = (string) time();
+        $signature = hash_hmac('sha256', "{$timestamp}.{$body}", $secret);
+
+        return $this->call('POST', '/api/paymongo/webhook', [], [], [], [
+            'CONTENT_TYPE' => 'application/json',
+            'HTTP_ACCEPT' => 'application/json',
+            'HTTP_PAYMONGO_SIGNATURE' => "t={$timestamp},te={$signature},li=",
+        ], $body);
+    }
+
+    private function paidWebhookPayload(string $checkoutSessionId): array
+    {
+        return ['data' => ['id' => 'evt_1', 'type' => 'event', 'attributes' => [
+            'type' => 'checkout_session.payment.paid',
+            'livemode' => false,
+            'data' => ['id' => $checkoutSessionId, 'type' => 'checkout_session'],
+        ]]];
+    }
+
+    public function test_paymongo_webhook_requires_a_valid_signature(): void
+    {
+        config(['services.paymongo.webhook_secret' => 'whsk_test_secret']);
+        $order = $this->makeOrder($this->makeBuyer(), $this->makeListing($this->makeSeller()));
+        $payment = $this->makePayment($order, ['status' => 'checkout_created', 'provider_reference' => 'cs_real_1']);
+
+        // Forged: unsigned, and signed with the wrong secret.
+        $this->postJson('/api/paymongo/webhook', $this->paidWebhookPayload('cs_real_1'))->assertStatus(401);
+        $this->signedWebhook($this->paidWebhookPayload('cs_real_1'), 'wrong-secret')->assertStatus(401);
+        $this->assertSame('checkout_created', $payment->fresh()->status);
+
+        // A signed event that isn't a payment changes nothing.
+        $other = $this->paidWebhookPayload('cs_real_1');
+        $other['data']['attributes']['type'] = 'payment.failed';
+        $this->signedWebhook($other)->assertOk();
+        $this->assertSame('checkout_created', $payment->fresh()->status);
+
+        $this->signedWebhook($this->paidWebhookPayload('cs_real_1'))->assertOk();
+        $this->assertSame('paid_held', $payment->fresh()->status);
+        $this->assertSame('paid', $order->fresh()->status);
+    }
+
+    public function test_paymongo_webhook_is_refused_when_no_secret_is_configured(): void
+    {
+        config(['services.paymongo.webhook_secret' => null]);
+        $order = $this->makeOrder($this->makeBuyer(), $this->makeListing($this->makeSeller()));
+        $payment = $this->makePayment($order, ['status' => 'checkout_created', 'provider_reference' => 'cs_real_2']);
+
+        $this->postJson('/api/paymongo/webhook', $this->paidWebhookPayload('cs_real_2'))->assertStatus(503);
+        $this->assertSame('checkout_created', $payment->fresh()->status);
+    }
+
+    public function test_payment_success_redirect_is_verified_with_paymongo_before_marking_paid(): void
+    {
+        config(['services.paymongo.secret_key' => 'sk_test_fake']);
+        $buyer = $this->makeBuyer();
+        $order = $this->makeOrder($buyer, $this->makeListing($this->makeSeller()));
+        $payment = $this->makePayment($order, ['status' => 'checkout_created', 'provider_reference' => 'cs_real_3']);
+        Sanctum::actingAs($buyer);
+
+        // First check: not paid yet. Second check: paid.
+        Http::fake(['api.paymongo.com/v1/checkout_sessions/cs_real_3' => Http::sequence()
+            ->push(['data' => ['attributes' => ['payments' => []]]])
+            ->push(['data' => ['attributes' => ['payments' => [['attributes' => ['status' => 'paid']]]]]]),
+        ]);
+        $this->postJson("/api/orders/{$order->order_number}/payment-success")->assertOk()->assertJsonPath('status', 'processing');
+        $this->assertSame('checkout_created', $payment->fresh()->status);
+
+        $this->postJson("/api/orders/{$order->order_number}/payment-success")->assertOk()->assertJsonPath('status', 'success');
+        $this->assertSame('paid_held', $payment->fresh()->status);
+    }
+
+    public function test_seller_cancelling_an_unpaid_order_restores_stock(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 900]);
+        $order = $this->makeOrder($this->makeBuyer(), $listing, ['quantity' => 100]);
+        $payment = $this->makePayment($order);
+        Sanctum::actingAs($seller->user);
+
+        $this->patchJson("/api/orders/{$order->id}/status", ['status' => 'cancelled'])->assertOk()->assertJsonPath('status', 'cancelled');
+
+        $this->assertSame(1000, (int) $listing->fresh()->quantity);
+        $this->assertSame('cancelled', $payment->fresh()->status);
+
+        // Cancelling again, or reviving it, never restocks twice.
+        $this->patchJson("/api/orders/{$order->id}/status", ['status' => 'cancelled'])->assertOk();
+        $this->patchJson("/api/orders/{$order->id}/status", ['status' => 'confirmed'])->assertStatus(422);
+        $this->assertSame(1000, (int) $listing->fresh()->quantity);
+    }
+
+    public function test_seller_cancelling_a_paid_order_queues_a_refund_the_super_admin_completes(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 900]);
+        $buyer = $this->makeBuyer();
+        $order = $this->makeOrder($buyer, $listing, ['quantity' => 100, 'status' => 'paid']);
+        $payment = $this->makePayment($order, ['status' => 'paid_held']);
+
+        Sanctum::actingAs($seller->user);
+        $this->patchJson("/api/orders/{$order->id}/status", ['status' => 'cancelled'])->assertOk();
+
+        $this->assertSame(1000, (int) $listing->fresh()->quantity);
+        $this->assertSame('refund_pending', $payment->fresh()->status);
+        $this->assertDatabaseHas('notifications', ['user_id' => $buyer->id, 'title' => 'Refund pending']);
+        $this->assertSame(0.0, (float) \App\Support\SellerWallet::summary($seller)['pending_balance']);
+
+        $superAdmin = User::where('role', 'super_admin')->firstOrFail();
+        $this->assertDatabaseHas('notifications', ['user_id' => $superAdmin->id, 'type' => "refund_pending:{$payment->id}"]);
+
+        Sanctum::actingAs($superAdmin);
+        $this->getJson('/api/super-admin/refunds')->assertOk()
+            ->assertJsonPath('0.order_number', $order->order_number)
+            ->assertJsonPath('0.status', 'refund_pending');
+
+        $this->patchJson("/api/super-admin/refunds/{$payment->id}/refunded", ['reference' => 'RF-123'])->assertOk();
+        $this->assertSame('refunded', $payment->fresh()->status);
+        $this->assertDatabaseHas('notifications', ['user_id' => $buyer->id, 'title' => 'Refund sent']);
+        $this->assertDatabaseHas('activity_logs', ['action' => 'order_refunded']);
+        $this->getJson('/api/super-admin/refunds')->assertJsonPath('0.refund_reference', 'RF-123');
+
+        $this->patchJson("/api/super-admin/refunds/{$payment->id}/refunded")->assertStatus(422);
+    }
+
+    public function test_a_completed_order_cannot_be_cancelled(): void
+    {
+        $seller = $this->makeSeller();
+        $order = $this->makeOrder($this->makeBuyer(), $this->makeListing($seller), ['status' => 'completed']);
+        $this->makePayment($order, ['status' => 'paid_held']);
+        Sanctum::actingAs($seller->user);
+
+        $this->patchJson("/api/orders/{$order->id}/status", ['status' => 'cancelled'])->assertStatus(422);
+        $this->assertSame('completed', $order->fresh()->status);
+    }
+
+    public function test_unpaid_orders_expire_and_release_their_stock(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 800]);
+        $buyer = $this->makeBuyer();
+
+        $stale = $this->makeOrder($buyer, $listing, ['quantity' => 100]);
+        $this->makePayment($stale);
+        $stale->forceFill(['created_at' => now()->subMinutes(90)])->save();
+
+        $fresh = $this->makeOrder($buyer, $listing, ['quantity' => 100]);
+        $this->makePayment($fresh);
+
+        $paid = $this->makeOrder($buyer, $listing, ['quantity' => 100]);
+        $this->makePayment($paid, ['status' => 'paid_held']);
+        $paid->forceFill(['created_at' => now()->subMinutes(90)])->save();
+
+        $this->artisan('orders:expire-unpaid')->assertSuccessful();
+
+        $this->assertSame('failed', $stale->fresh()->status);
+        $this->assertSame('failed', $stale->payment->fresh()->status);
+        $this->assertSame('placed', $fresh->fresh()->status);
+        $this->assertSame('placed', $paid->fresh()->status);
+        $this->assertSame(900, (int) $listing->fresh()->quantity);
+        $this->assertDatabaseHas('notifications', ['user_id' => $buyer->id, 'title' => 'Order expired']);
+
+        // A payment that still lands afterwards is refunded, not revived.
+        $buyerPaysLate = $stale->fresh();
+        Sanctum::actingAs($buyer);
+        $this->postJson("/api/orders/{$buyerPaysLate->order_number}/payment-success")->assertOk();
+        $this->assertSame('failed', $buyerPaysLate->fresh()->status);
+        $this->assertSame('refund_pending', $buyerPaysLate->payment->fresh()->status);
+        $this->assertSame(900, (int) $listing->fresh()->quantity);
+
+        // And it can't be checked out again.
+        $this->postJson("/api/orders/{$buyerPaysLate->id}/checkout")->assertStatus(422);
+    }
+
+    public function test_payment_cancelled_redirect_cannot_undo_a_paid_order(): void
+    {
+        $buyer = $this->makeBuyer();
+        $listing = $this->makeListing($this->makeSeller(), ['quantity' => 900]);
+        $order = $this->makeOrder($buyer, $listing, ['status' => 'paid']);
+        $payment = $this->makePayment($order, ['status' => 'paid_held']);
+        Sanctum::actingAs($buyer);
+
+        $this->postJson("/api/orders/{$order->order_number}/payment-cancelled")->assertOk();
+
+        $this->assertSame('paid', $order->fresh()->status);
+        $this->assertSame('paid_held', $payment->fresh()->status);
+        $this->assertSame(900, (int) $listing->fresh()->quantity);
+    }
+
+    public function test_login_is_rate_limited_per_email(): void
+    {
+        $user = $this->makeBuyer();
+
+        foreach (range(1, 5) as $attempt) {
+            $this->postJson('/api/auth/login', ['email' => $user->email, 'password' => 'wrong'])->assertStatus(422);
+        }
+
+        $this->postJson('/api/auth/login', ['email' => $user->email, 'password' => 'password'])
+            ->assertStatus(429)
+            ->assertJsonFragment(['message' => 'Too many login attempts. Please wait a minute and try again.']);
+    }
+
+    public function test_login_tokens_expire_after_the_configured_period(): void
+    {
+        $this->assertSame(10080, config('sanctum.expiration'));
+        $user = $this->makeBuyer();
+        $token = $user->createToken('fishmarket')->plainTextToken;
+
+        $this->travel(8)->days();
+
+        $this->withHeader('Authorization', "Bearer {$token}")->getJson('/api/auth/me')->assertStatus(401);
+    }
+
+    public function test_seller_registration_decisions_are_emailed(): void
+    {
+        Mail::fake();
+        $lgu = $this->makeLguAdmin();
+        $approved = $this->makeSeller([], ['approval_status' => 'pending', 'verified' => false, 'status' => 'pending']);
+        $rejected = $this->makeSeller([], ['approval_status' => 'pending', 'verified' => false, 'status' => 'pending']);
+        Sanctum::actingAs($lgu);
+
+        $this->patchJson("/api/lgu/sellers/{$approved->id}/approve-registration")->assertOk();
+        $this->patchJson("/api/lgu/sellers/{$rejected->id}/reject-registration", ['reason' => 'Missing permit.'])->assertOk();
+
+        Mail::assertSent(SellerRegistrationReviewedMail::class, fn ($mail) => $mail->hasTo($approved->user->email)
+            && str_contains($mail->envelope()->subject, 'Approved'));
+        Mail::assertSent(SellerRegistrationReviewedMail::class, fn ($mail) => $mail->hasTo($rejected->user->email)
+            && str_contains($mail->envelope()->subject, 'Not Approved'));
+    }
+
+    public function test_seller_withdrawal_approval_is_emailed(): void
+    {
+        Mail::fake();
+        $seller = $this->makeSeller();
+        $withdrawal = $this->makeWithdrawal($seller);
+        Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
+
+        $this->patchJson("/api/super-admin/withdrawals/{$withdrawal->id}/approve")->assertOk();
+
+        Mail::assertSent(SellerWithdrawalApprovedMail::class, fn ($mail) => $mail->hasTo($seller->user->email));
+    }
+
     public function test_google_login_redirect_requests_the_account_chooser(): void
     {
         $response = $this->get('/api/auth/google/redirect');
@@ -4009,7 +4373,7 @@ class FishMarketApiTest extends TestCase
         $this->assertStringNotContainsString('₱20.00', $html); // LGU Share (4% of ₱500).
     }
 
-    public function test_withdrawal_email_is_not_sent_on_request_or_approval_only_after_payout(): void
+    public function test_withdrawal_released_email_is_sent_only_after_payout(): void
     {
         Mail::fake();
 
@@ -4033,8 +4397,10 @@ class FishMarketApiTest extends TestCase
         Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
         $this->patchJson("/api/super-admin/withdrawals/{$withdrawal['id']}/approve")->assertOk();
 
-        // Still nothing sent -- "approved" only means the Super Admin is processing it, not paid yet.
-        Mail::assertNothingSent();
+        // "Approved" only means the Super Admin is processing it -- the seller
+        // gets the approval email, but never a "funds released" one yet.
+        Mail::assertSent(SellerWithdrawalApprovedMail::class, fn ($mail) => $mail->hasTo($seller->user->email));
+        Mail::assertNotSent(WithdrawalReleasedMail::class);
 
         $this->patchJson("/api/super-admin/withdrawals/{$withdrawal['id']}/paid")->assertOk();
 

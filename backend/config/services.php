@@ -40,6 +40,10 @@ return [
         'secret_key' => env('PAYMONGO_SECRET_KEY'),
         'webhook_secret' => env('PAYMONGO_WEBHOOK_SECRET'),
 
+        // Minutes an order may stay unpaid before orders:expire-unpaid fails
+        // it and releases its reserved stock.
+        'unpaid_order_timeout_minutes' => (int) env('ORDER_PAYMENT_TIMEOUT_MINUTES', 60),
+
         // Public HTTPS origin for listing photos shown on PayMongo's hosted
         // checkout page, e.g. https://your-app.ngrok-free.app or your deployed
         // domain. Optional -- when unset, APP_URL is used.

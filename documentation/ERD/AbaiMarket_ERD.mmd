@@ -1,7 +1,8 @@
 %% AbaiMarket -- Entity Relationship Diagram
 %% Generated from the actual Laravel implementation (migrations, models, foreign keys).
-%% Framework-only tables (password_reset_tokens, sessions, cache, jobs,
-%% personal_access_tokens) are intentionally omitted -- they are not domain entities.
+%% Framework plumbing (sessions, cache, jobs) is omitted. Two framework tables ARE
+%% shown because user-facing features depend on them: password_reset_tokens
+%% (Forgot Password) and personal_access_tokens (Sanctum login tokens, 7-day expiry).
 %% Renders in Mermaid Live Editor and GitHub.
 erDiagram
     MUNICIPALITIES ||--o{ USERS : "locates (app-level, no DB FK)"
@@ -69,6 +70,9 @@ erDiagram
     SELLER_POSTS ||--o{ SELLER_POST_MEDIA : "has"
     SELLER_POSTS ||--o{ SELLER_POST_LIKES : "receives"
     SELLER_POSTS ||--o{ SELLER_POST_COMMENTS : "receives"
+
+    USERS ||--o| PASSWORD_RESET_TOKENS : "resets password (by email, no DB FK)"
+    USERS ||--o{ PERSONAL_ACCESS_TOKENS : "authenticates (tokenable, polymorphic)"
 
     USERS {
         bigint id PK
@@ -179,7 +183,7 @@ erDiagram
         bigint id PK
         bigint order_id FK "cascade"
         decimal amount
-        string status "pending|checkout_created|paid_held|released|failed"
+        string status "pending|checkout_created|paid_held|released|failed|cancelled|refund_pending|refunded"
         string provider "default paymongo"
         string provider_reference "nullable"
         string checkout_url "nullable"
@@ -435,5 +439,23 @@ erDiagram
         string stage "nullable"
         text notes "nullable"
         timestamp logged_at "defaults to now"
+        timestamps created_updated
+    }
+
+    PASSWORD_RESET_TOKENS {
+        string email PK "matches users.email, no DB FK"
+        string token "hashed, single-use"
+        timestamp created_at "nullable, link valid 60 min"
+    }
+
+    PERSONAL_ACCESS_TOKENS {
+        bigint id PK
+        string tokenable_type "polymorphic model class"
+        bigint tokenable_id FK "polymorphic -> users"
+        string name
+        string token UK "hashed"
+        text abilities "nullable"
+        timestamp last_used_at "nullable"
+        timestamp expires_at "nullable, expiry uses created_at plus 7 days"
         timestamps created_updated
     }

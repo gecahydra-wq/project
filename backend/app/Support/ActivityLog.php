@@ -68,6 +68,7 @@ class ActivityLog
             'actions' => [
                 'seller_earnings_approved', 'seller_payout_requested', 'seller_payout_approved',
                 'seller_payout_completed', 'lgu_payout_requested', 'lgu_payout_approved', 'lgu_payout_completed',
+                'order_refunded',
             ],
         ],
         'reviews' => [

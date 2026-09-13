@@ -1,8 +1,9 @@
 @startuml AbaiMarket_ERD
 ' AbaiMarket -- Entity Relationship Diagram
 ' Generated from the actual Laravel implementation (migrations, models, foreign keys).
-' Framework-only tables (password_reset_tokens, sessions, cache, jobs,
-' personal_access_tokens) are intentionally omitted -- they are not domain entities.
+' Framework plumbing (sessions, cache, jobs) is omitted. Two framework tables ARE
+' shown because user-facing features depend on them: password_reset_tokens
+' (Forgot Password) and personal_access_tokens (Sanctum login tokens, 7-day expiry).
 ' Renders with the official PlantUML (plantuml.jar / plantuml.com server).
 
 hide circle
@@ -462,5 +463,27 @@ seller_profiles ||--o{ seller_notices
 listings ||--o{ ai_disease_reports
 orders ||--o{ ai_growth_logs
 orders ||--o{ user_reports : "context"
+
+entity "password_reset_tokens" as password_reset_tokens {
+  * email : string <<PK>>
+  --
+  token : string
+  created_at : timestamp
+}
+
+entity "personal_access_tokens" as personal_access_tokens {
+  * id : bigint <<PK>>
+  --
+  tokenable_type : string
+  * tokenable_id : bigint <<FK polymorphic>>
+  name : string
+  token : string <<UK>>
+  abilities : text
+  last_used_at : timestamp
+  expires_at : timestamp
+}
+
+users ||--o| password_reset_tokens : "by email (no DB FK)"
+users ||--o{ personal_access_tokens : "tokenable"
 
 @enduml

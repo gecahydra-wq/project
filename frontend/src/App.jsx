@@ -289,6 +289,8 @@ const BADGE_TONES = {
   placed: 'warning',
   pending: 'warning',
   on_hold: 'warning',
+  refund_pending: 'warning',
+  refunded: 'neutral',
   rejected: 'danger',
   cancelled: 'danger',
   failed: 'danger',
@@ -313,6 +315,7 @@ function badgeTone(status) {
  */
 const STATUS_LABELS = {
   in_transit: 'Out for Delivery',
+  refund_pending: 'Refund Pending',
 }
 
 function Badge({ status, tone, children }) {
@@ -396,6 +399,8 @@ function App() {
             <Route path="/about" element={<AboutPage />} />
             <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/auth/google/callback" element={<GoogleCallbackPage />} />
           <Route path="/listing/:id" element={<ListingDetailPage />} />
           <Route path="/sellers/:id" element={<SellerProfilePage />} />
@@ -1476,6 +1481,7 @@ function LoginPage() {
           onChange={(e) => { e.target.value = stripSpaces(e.target.value); passwordField.onChange(e) }}
         />
         {errors.email && <p className="error">{errors.email.message}</p>}
+        <p className="helper-text"><Link to="/forgot-password">Forgot password?</Link></p>
         <button type="submit" disabled={login.isPending}>{login.isPending ? 'Logging in...' : 'Login'}</button>
         {login.error && <p className="error">{login.error.message}</p>}
         {searchParams.get('google_error') && <p className="error">Google sign-in didn't go through. Please try again or use your email and password.</p>}
@@ -1484,6 +1490,123 @@ function LoginPage() {
       <a className="ghost full google-button" href={`${API_URL}/auth/google/redirect`}>
         <GoogleIcon /> Continue with Google
       </a>
+    </AuthCard>
+  )
+}
+
+// Step 1 of "forgot password": request the emailed link. Works for every role,
+// including accounts created with Google (the reset gives them a password).
+// The backend answers identically for unknown emails, so this page always
+// shows the same confirmation.
+function ForgotPasswordPage() {
+  const { register, handleSubmit, formState: { errors } } = useForm({ defaultValues: { email: '' } })
+  const [sentTo, setSentTo] = useState(null)
+  const sendLink = useMutation({
+    mutationFn: async (email) => {
+      try {
+        return (await api.post('/auth/forgot-password', { email })).data
+      } catch (err) {
+        throw new Error(apiErrorMessage(err, 'Could not send the reset link. Please try again.'), { cause: err })
+      }
+    },
+    onSuccess: (_data, email) => setSentTo(email),
+  })
+
+  if (sentTo) {
+    return (
+      <AuthCard title="Check Your Email" subtitle="Password reset requested.">
+        <p className="helper-text">
+          If <strong>{sentTo}</strong> has an AbaiMarket account, we sent it a link to reset your password. The link expires in 60 minutes -- check your spam folder too.
+        </p>
+        <div className="success-actions">
+          <button type="button" className="ghost" onClick={() => sendLink.mutate(sentTo)} disabled={sendLink.isPending}>
+            {sendLink.isPending ? 'Sending...' : 'Send Again'}
+          </button>
+          <Link className="button" to="/login">Back to Login</Link>
+        </div>
+        {sendLink.isError && <p className="error">{sendLink.error.message}</p>}
+      </AuthCard>
+    )
+  }
+
+  return (
+    <AuthCard title="Forgot Password" subtitle="Enter your account email and we'll send you a reset link.">
+      <form onSubmit={handleSubmit((v) => sendLink.mutate((v.email || '').trim()))} className="form">
+        <input {...register('email', { validate: (value) => validateEmail(value) || true })} placeholder="Email" />
+        {errors.email && <p className="error">{errors.email.message}</p>}
+        <p className="helper-text">Signed up with Google? You can use this to set a password as well.</p>
+        <button type="submit" disabled={sendLink.isPending}>{sendLink.isPending ? 'Sending...' : 'Send Reset Link'}</button>
+        {sendLink.error && <p className="error">{sendLink.error.message}</p>}
+      </form>
+      <p className="helper-text"><Link to="/login">Back to Login</Link></p>
+    </AuthCard>
+  )
+}
+
+// Step 2: the page the emailed link opens (?token=...&email=...).
+function ResetPasswordPage() {
+  const [searchParams] = useSearchParams()
+  const token = searchParams.get('token')
+  const email = searchParams.get('email')
+  const { register, handleSubmit, getValues, formState: { errors } } = useForm({ defaultValues: { password: '', password_confirmation: '' } })
+  const passwordField = register('password', { validate: (value) => validatePassword(value) || true })
+  const confirmField = register('password_confirmation', {
+    validate: (value) => value === getValues('password') || 'The passwords do not match.',
+  })
+  const reset = useMutation({
+    mutationFn: async (values) => {
+      try {
+        return (await api.post('/auth/reset-password', { token, email, ...values })).data
+      } catch (err) {
+        throw new Error(apiErrorMessage(err, 'Could not reset your password. Please try again.'), { cause: err })
+      }
+    },
+  })
+
+  if (!token || !email) {
+    return (
+      <AuthCard title="Invalid Link" subtitle="This password reset link is incomplete.">
+        <p className="helper-text">Open the link exactly as it appears in the email, or request a new one.</p>
+        <div className="success-actions">
+          <Link className="button" to="/forgot-password">Request a New Link</Link>
+        </div>
+      </AuthCard>
+    )
+  }
+
+  if (reset.isSuccess) {
+    return (
+      <AuthCard title="Password Reset" subtitle="You're all set.">
+        <p className="helper-text">{reset.data?.message || 'Your password has been reset.'}</p>
+        <div className="success-actions">
+          <Link className="button" to="/login">Go to Login</Link>
+        </div>
+      </AuthCard>
+    )
+  }
+
+  const passwordInputProps = (field) => ({
+    ...field,
+    type: 'password',
+    onKeyDown: blockSpaceKey,
+    onChange: (e) => { e.target.value = stripSpaces(e.target.value); field.onChange(e) },
+  })
+
+  return (
+    <AuthCard title="Reset Password" subtitle={`Choose a new password for ${email}.`}>
+      <form onSubmit={handleSubmit((v) => reset.mutate(v))} className="form">
+        <input {...passwordInputProps(passwordField)} placeholder="New password" />
+        <p className="helper-text">{PASSWORD_HELP}</p>
+        {errors.password && <p className="error">{errors.password.message}</p>}
+        <input {...passwordInputProps(confirmField)} placeholder="Confirm new password" />
+        {errors.password_confirmation && <p className="error">{errors.password_confirmation.message}</p>}
+        <button type="submit" disabled={reset.isPending}>{reset.isPending ? 'Saving...' : 'Reset Password'}</button>
+        {reset.error && (
+          <p className="error">
+            {reset.error.message} <Link to="/forgot-password">Request a new link</Link>
+          </p>
+        )}
+      </form>
     </AuthCard>
   )
 }
@@ -2792,6 +2915,46 @@ function SellerOrderLookup() {
   )
 }
 
+// One row of the Super Admin refund queue (see App\Support\OrderCancellation).
+function RefundRow({ refund, onMarkRefunded }) {
+  const [reference, setReference] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const pending = refund.status === 'refund_pending'
+
+  const submit = async () => {
+    setSaving(true)
+    setError('')
+    try {
+      await onMarkRefunded(refund.id, reference.trim() || null)
+    } catch (err) {
+      setError(err?.response?.data?.message || 'Could not mark as refunded.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="card action">
+      <div>
+        <strong>{refund.order_number}</strong>
+        <p>{refund.buyer?.name || 'Buyer'} · {refund.hatchery_name || 'Seller'} · {currency(refund.amount)}</p>
+        {refund.reason && <p className="muted">{refund.reason}</p>}
+        {refund.provider_reference && <p className="muted">PayMongo checkout: {refund.provider_reference}</p>}
+        {refund.refund_reference && <p className="muted">Refund reference: {refund.refund_reference}</p>}
+        <Badge status={refund.status}>{statusChartLabel(refund.status)}</Badge>
+        {error && <p className="error">{error}</p>}
+      </div>
+      {pending && (
+        <div className="row-actions">
+          <input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Refund reference (optional)" />
+          <button type="button" disabled={saving} onClick={submit}>{saving ? 'Saving...' : 'Mark Refunded'}</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SellerOrderTable({ rows, onUpdateStatus }) {
   if (!rows?.length) return <EmptyState message="No orders yet." />
   return <div className="item-list">{rows.map((order) => <SellerOrderRow key={order.id} order={order} onUpdateStatus={onUpdateStatus} />)}</div>
@@ -2807,6 +2970,13 @@ function SellerOrderRow({ order, onUpdateStatus }) {
   const canRateBuyer = order.status === 'completed' && !order.buyerRating
 
   const applyStatus = async (status) => {
+    if (status === 'cancelled') {
+      const paid = order.payment?.status === 'paid_held'
+      const message = paid
+        ? "Cancel this paid order? The stock goes back to your listing and the buyer's payment is sent to the Super Admin for a refund."
+        : 'Cancel this order? The stock goes back to your listing. This cannot be undone.'
+      if (!window.confirm(message)) return
+    }
     setSaving(true)
     setError('')
     try {
@@ -4470,6 +4640,16 @@ function SuperAdminDashboard() {
     mutationFn: async (id) => (await api.patch(`/super-admin/withdrawals/${id}/paid`)).data,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['super-admin-withdrawals'] }),
   })
+  const refunds = useQuery({
+    queryKey: ['super-admin-refunds'],
+    queryFn: async () => (await api.get('/super-admin/refunds')).data,
+    retry: false,
+    placeholderData: [],
+  })
+  const markRefunded = useMutation({
+    mutationFn: async ({ id, reference }) => (await api.patch(`/super-admin/refunds/${id}/refunded`, { reference })).data,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['super-admin-refunds'] }),
+  })
   const lguWithdrawals = useQuery({
     queryKey: ['super-admin-lgu-withdrawals'],
     queryFn: async () => (await api.get('/super-admin/lgu-withdrawals')).data,
@@ -4929,6 +5109,16 @@ function SuperAdminDashboard() {
               ))}
             </div>
           ) : <EmptyState message="No LGU withdrawal requests yet." />}
+        </Section>
+        <Section title="Refunds">
+          <p className="helper-text">Paid orders that were cancelled or expired. Refund the buyer in the PayMongo dashboard, then mark it refunded here.</p>
+          {(refunds.data || []).length ? (
+            <div className="item-list">
+              {refunds.data.map((refund) => (
+                <RefundRow key={refund.id} refund={refund} onMarkRefunded={(id, reference) => markRefunded.mutateAsync({ id, reference })} />
+              ))}
+            </div>
+          ) : <EmptyState message="No refunds needed." />}
         </Section>
         </>
       )}
@@ -6658,17 +6848,18 @@ function PaymentSuccessPage() {
     acknowledge.mutate()
   }, [session, orderNumber, acknowledgedKey, acknowledge])
   useEffect(() => {
-    if (acknowledge.isSuccess && orderNumber) {
+    if (acknowledge.data?.status === 'success' && orderNumber) {
       navigate(`/buyer/dashboard?tab=orders&order=${orderNumber}${listingId ? `&listing_id=${listingId}` : ''}`, { replace: true })
     }
-  }, [acknowledge.isSuccess, orderNumber, listingId, navigate])
+  }, [acknowledge.data?.status, orderNumber, listingId, navigate])
   if (!session) return <Navigate to="/login" replace />
+  const processing = acknowledge.data?.status === 'processing'
   return (
     <main className="auth-page">
       <section className="result-card success-card">
-        <p className="eyebrow">Payment Successful</p>
-        <h1>Order received</h1>
-        <p>{orderNumber ? `Payment for order #${orderNumber} was successful and is now held in escrow.` : 'Your payment returned from PayMongo and your session is still active.'}</p>
+        <p className="eyebrow">{processing ? 'Confirming Payment' : 'Payment Successful'}</p>
+        <h1>{processing ? 'Almost there' : 'Order received'}</h1>
+        <p>{processing ? acknowledge.data.message : orderNumber ? `Payment for order #${orderNumber} was successful and is now held in escrow.` : 'Your payment returned from PayMongo and your session is still active.'}</p>
         <div className="success-actions">
           <Link className="button" to={`/buyer/dashboard?tab=orders${orderNumber ? `&order=${orderNumber}` : ''}`}>View Orders</Link>
           <Link className="ghost" to="/buyer/dashboard?tab=notifications">Open Notifications</Link>

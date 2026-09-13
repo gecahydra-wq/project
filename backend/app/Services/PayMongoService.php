@@ -81,6 +81,70 @@ class PayMongoService
     }
 
     /**
+     * Checks the Paymongo-Signature header ("t=<timestamp>,te=<test sig>,li=<live sig>")
+     * against HMAC-SHA256("<timestamp>.<raw body>", webhook secret), as PayMongo
+     * documents. Without this anyone who knows the webhook URL could post a fake
+     * "payment paid" event.
+     */
+    public function webhookSignatureIsValid(string $rawBody, ?string $header): bool
+    {
+        $secret = (string) config('services.paymongo.webhook_secret');
+        if ($secret === '' || ! $header) {
+            return false;
+        }
+
+        $parts = [];
+        foreach (explode(',', $header) as $pair) {
+            [$key, $value] = array_pad(explode('=', trim($pair), 2), 2, '');
+            $parts[$key] = $value;
+        }
+
+        if (empty($parts['t'])) {
+            return false;
+        }
+
+        $expected = hash_hmac('sha256', $parts['t'].'.'.$rawBody, $secret);
+
+        foreach (['te', 'li'] as $key) {
+            if (! empty($parts[$key]) && hash_equals($expected, $parts[$key])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Asks PayMongo whether a checkout session has actually been paid, so the
+     * buyer's success redirect (which anyone can call) is never trusted on its
+     * own. Returns null when it can't tell (no key, network/API error).
+     */
+    public function checkoutSessionIsPaid(?string $checkoutSessionId): ?bool
+    {
+        $secret = config('services.paymongo.secret_key');
+        if (! $secret || ! $checkoutSessionId || Str::startsWith($checkoutSessionId, 'demo_')) {
+            return null;
+        }
+
+        try {
+            $response = Http::withBasicAuth($secret, '')->acceptJson()->timeout(15)
+                ->get("https://api.paymongo.com/v1/checkout_sessions/{$checkoutSessionId}");
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if (! $response->successful()) {
+            return null;
+        }
+
+        $attributes = $response->json('data.attributes', []);
+        $paidPayment = collect($attributes['payments'] ?? [])
+            ->contains(fn ($payment) => data_get($payment, 'attributes.status') === 'paid');
+
+        return $paidPayment || data_get($attributes, 'payment_intent.attributes.status') === 'succeeded';
+    }
+
+    /**
      * The listing's photos, as public HTTPS URLs PayMongo's checkout page can
      * actually load.
      *

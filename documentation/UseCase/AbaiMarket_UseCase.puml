@@ -33,6 +33,7 @@ actor "PayMongo" as PayMongo
 actor "Google OAuth" as Google
 actor "Gemini AI" as Gemini
 actor "Email (SMTP)" as Email
+actor "Scheduler\n(Laravel)" as Scheduler
 
 ' Role generalization: every signed-in role IS an Authenticated User.
 Buyer --|> Auth
@@ -45,7 +46,9 @@ rectangle "Public / Pre-login" {
   usecase "Register account" as UC_reg
   usecase "Log in" as UC_login
   usecase "Log in with Google" as UC_glogin
+  usecase "Register with Google\n(choose Buyer / Seller first)" as UC_greg
   usecase "Verify email" as UC_verify
+  usecase "Reset forgotten password" as UC_reset
   usecase "Browse listings" as UC_browse
   usecase "View listing details" as UC_listing
   usecase "View seller profiles & posts" as UC_vseller
@@ -54,14 +57,18 @@ rectangle "Public / Pre-login" {
 Guest --> UC_reg
 Guest --> UC_login
 Guest --> UC_glogin
+Guest --> UC_greg
 Guest --> UC_verify
+Guest --> UC_reset
 Guest --> UC_browse
 Guest --> UC_listing
 Guest --> UC_vseller
 Guest --> UC_muni
 UC_reg ..> Email : <<include>>
 UC_verify ..> Email : <<include>>
+UC_reset ..> Email : <<include>>
 UC_glogin ..> Google : <<include>>
+UC_greg ..> Google : <<include>>
 
 ' ============ SHARED BY ALL AUTHENTICATED ROLES ============
 rectangle "Common (all signed-in roles)" {
@@ -84,9 +91,10 @@ rectangle "Buyer" {
   usecase "View dashboard & analytics" as UC_bdash
   usecase "Add to cart (buy later)" as UC_cart
   usecase "Place order" as UC_place
-  usecase "Checkout & pay" as UC_pay
+  usecase "Checkout & pay\n(verified with PayMongo)" as UC_pay
   usecase "Track / look up own orders" as UC_borders
   usecase "Review seller\n(completed order)" as UC_review
+  usecase "Report a seller" as UC_breport
   usecase "Manage notifications" as UC_bnotif
 }
 Buyer --> UC_bprof
@@ -96,6 +104,7 @@ Buyer --> UC_place
 Buyer --> UC_pay
 Buyer --> UC_borders
 Buyer --> UC_review
+Buyer --> UC_breport
 Buyer --> UC_bnotif
 UC_pay ..> PayMongo : <<include>>
 UC_cart ..> UC_place : <<extend>>
@@ -105,9 +114,11 @@ rectangle "Seller (Hatchery)" {
   usecase "Manage hatchery profile\n(picture, cover)" as UC_sprof
   usecase "Manage listings & media" as UC_slist
   usecase "Publish seller posts\n(farm updates)" as UC_sposts
-  usecase "Update order delivery status" as UC_sstatus
+  usecase "Update order status /\ncancel order (restock)" as UC_sstatus
   usecase "Add seller notes to order" as UC_snotes
   usecase "Rate buyer\n(completed order)" as UC_rateb
+  usecase "Report a buyer" as UC_sreport
+  usecase "Answer a Notice to Explain" as UC_snotice
   usecase "View buyer profile" as UC_vbuyer
   usecase "View wallet & request withdrawal" as UC_swallet
   usecase "View dashboard & analytics" as UC_sdash
@@ -119,6 +130,8 @@ Seller --> UC_sposts
 Seller --> UC_sstatus
 Seller --> UC_snotes
 Seller --> UC_rateb
+Seller --> UC_sreport
+Seller --> UC_snotice
 Seller --> UC_vbuyer
 Seller --> UC_swallet
 Seller --> UC_sdash
@@ -132,6 +145,8 @@ rectangle "LGU Admin (municipality-scoped)" {
   usecase "Approve seller earnings\n(create settlement)" as UC_approve
   usecase "Hold / reject / reopen earnings" as UC_hold
   usecase "Remove unfair reviews & ratings" as UC_lrev
+  usecase "Handle user reports" as UC_lreports
+  usecase "Review Notices to Explain" as UC_lnotices
   usecase "View reports & export" as UC_lrep
   usecase "Manage LGU wallet & withdrawals" as UC_lwallet
   usecase "View activity log" as UC_llog
@@ -142,6 +157,8 @@ LGU --> UC_lsellers
 LGU --> UC_approve
 LGU --> UC_hold
 LGU --> UC_lrev
+LGU --> UC_lreports
+LGU --> UC_lnotices
 LGU --> UC_lrep
 LGU --> UC_lwallet
 LGU --> UC_llog
@@ -154,9 +171,11 @@ rectangle "Super Admin (platform-wide)" {
   usecase "Manage LGU admins" as UC_almgu
   usecase "Moderate sellers & buyers\n(suspend/reinstate/remove)" as UC_amod
   usecase "Approve seller & LGU payouts" as UC_apay
+  usecase "Process refunds\n(mark refunded)" as UC_arefund
   usecase "Manage listings (global)" as UC_alist
   usecase "Manage announcements" as UC_aann
   usecase "Remove reviews & ratings" as UC_arev
+  usecase "Handle user reports\n(platform-wide)" as UC_areports
   usecase "Reports, activity & moderation logs" as UC_alog
 }
 Admin --> UC_adash
@@ -164,12 +183,22 @@ Admin --> UC_amuni
 Admin --> UC_almgu
 Admin --> UC_amod
 Admin --> UC_apay
+Admin --> UC_arefund
 Admin --> UC_alist
 Admin --> UC_aann
 Admin --> UC_arev
+Admin --> UC_areports
 Admin --> UC_alog
 
-' PayMongo also drives the unauthenticated payment webhook that confirms payment
+' ===================== SYSTEM (AUTOMATED) =====================
+rectangle "System (automated, scheduler)" {
+  usecase "Expire unpaid orders\n(release stock)" as UC_expire
+  usecase "Publish scheduled announcements" as UC_publish
+}
+Scheduler --> UC_expire
+Scheduler --> UC_publish
+
+' PayMongo also drives the signed (signature-verified) payment webhook
 PayMongo --> UC_pay
 
 @enduml
