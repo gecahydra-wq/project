@@ -99,11 +99,11 @@ The two halves communicate only over the JSON API. The frontend never talks to t
 
 All routes live in `routes/api.php` and are organized by **middleware group**, which is the clearest map of the permission model:
 
-- **Public:** listings, seller profiles, municipalities, login/register, Google OAuth legs, email verification, PayMongo webhook.
+- **Public:** listings, seller profiles, municipalities, active announcements (the site-wide bar, shown to guests too), login/register, forgot/reset password, Google OAuth legs, email verification, PayMongo webhook.
 - **`role:buyer`:** buyer dashboard/profile/analytics, order placement, checkout, reviews.
 - **`role:seller`:** seller dashboard/analytics/profile, listing CRUD + media, order status updates, wallet, withdrawals, seller posts, rate-buyer.
 - **`role:buyer,seller`:** shared order index + order lookup by number.
-- **`role:buyer,seller,lgu_admin,super_admin`:** messaging, AI assistant, active announcements, seller-post likes/comments.
+- **`role:buyer,seller,lgu_admin,super_admin`:** messaging, AI assistant, seller-post likes/comments.
 - **`prefix('lgu') + role:lgu_admin`:** municipality-scoped governance, wallet, reports, activity log, reviews & ratings moderation.
 - **`prefix('super-admin') + role:super_admin`:** platform-wide administration, payouts, moderation, announcements, reports.
 
@@ -115,7 +115,7 @@ Controllers are intentionally thin and role-oriented:
 
 | Controller | Responsibility |
 | --- | --- |
-| `AuthController` | Register / login / logout / me / change password. Issues Sanctum tokens. |
+| `AuthController` | Register / login / logout / me / change password. Issues Sanctum tokens. The change-password endpoint stays available to every role, but only the Super Admin profile shows a form for it; other roles use `PasswordResetController` (Forgot password). |
 | `GoogleAuthController` | Google OAuth redirect + callback (Socialite). |
 | `EmailVerificationController` | Signed email-verification link + resend. |
 | `ListingController` | Public catalogue + seller-owned listing & media CRUD. |

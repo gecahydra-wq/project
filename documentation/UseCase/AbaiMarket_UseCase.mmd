@@ -34,17 +34,18 @@ flowchart LR
     P1 -. include .-> EMAIL
     P4 -. include .-> EMAIL
     P10 -. include .-> EMAIL
+    GUEST --> C5
     P3 -. include .-> GOOGLE
     P9 -. include .-> GOOGLE
 
     %% ===== Common to all signed-in roles =====
     subgraph COMMON[Common — all signed-in roles]
         direction TB
-        C1(Manage account: logout, change password)
+        C1(Manage account: logout; change password — Super Admin only)
         C2(Send / edit / delete messages)
         C3(Like & comment on seller posts)
         C4(Ask AI Assistant: EN / Tagalog / Bisaya)
-        C5(View active announcements)
+        C5(View announcements — site-wide bar)
     end
     BUYER & SELLER & LGU & ADMIN --> C1
     BUYER & SELLER & LGU & ADMIN --> C2

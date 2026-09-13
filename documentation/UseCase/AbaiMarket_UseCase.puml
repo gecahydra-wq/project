@@ -72,11 +72,11 @@ UC_greg ..> Google : <<include>>
 
 ' ============ SHARED BY ALL AUTHENTICATED ROLES ============
 rectangle "Common (all signed-in roles)" {
-  usecase "Manage account\n(logout, change password)" as UC_acct
+  usecase "Manage account\n(logout; change password:\nSuper Admin only)" as UC_acct
   usecase "Send / edit / delete messages" as UC_msg
   usecase "Like & comment on seller posts" as UC_engage
   usecase "Ask AI Assistant\n(EN / Tagalog / Bisaya)" as UC_ai
-  usecase "View active announcements" as UC_ann_view
+  usecase "View announcements\n(site-wide bar)" as UC_ann_view
 }
 Auth --> UC_acct
 Auth --> UC_msg
@@ -84,6 +84,8 @@ Auth --> UC_engage
 Auth --> UC_ai
 Auth --> UC_ann_view
 UC_ai ..> Gemini : <<include>>
+' The announcement bar is public: guests see it on the storefront too.
+Guest --> UC_ann_view
 
 ' ========================= BUYER =========================
 rectangle "Buyer" {

@@ -14,30 +14,34 @@ Everything is local and self-contained; no internet connection is needed.
 
 | File | Screen | Role |
 |---|---|---|
-| `01-login.html` | Login &amp; registration (brand panel + auth card + Google sign-in) | Public |
-| `02-buyer-dashboard.html` | Buyer dashboard — stat tiles, recent-orders table, notifications | Buyer |
+| `01-login.html` | Login &amp; registration (brand panel + auth card + Forgot password link + Google sign-in) | Public |
+| `02-buyer-dashboard.html` | Buyer dashboard — site-wide announcement bar, stat tiles, recent-orders table, notifications | Buyer |
 | `03-buyer-browse.html` | Marketplace — filters + listing card grid with ratings/prices | Buyer |
 | `04-seller-dashboard.html` | Seller dashboard — KPI tiles + order management (status actions, rate-buyer) | Seller |
 | `05-lgu-earnings.html` | LGU seller-earnings approval queue + rejected/reopen transactions | LGU Admin |
 | `06-admin-users.html` | Super Admin buyer moderation — suspend / reinstate / remove with reason | Super Admin |
-| `07-landing.html` | Public landing — storefront hero, photo-led listing cards, Shop by Species row | Public |
+| `07-landing.html` | Public landing — site-wide announcement bar (shown to guests), storefront hero, photo-led listing cards, Shop by Species row | Public |
 | `08-seller-profile.html` | Seller profile — hatchery header + detailed buyer reviews (average, rating spread, verified-purchase entries) | Public |
+| `09-profile.html` | Profile settings (Seller tab, unsaved-changes state) — profile header with cover + avatar camera button, labelled section cards, Forgot-password note, sticky save bar. Buyer, LGU Admin and Super Admin use the same pattern; only the Super Admin adds a Password &amp; security card | Seller |
+| `10-reset-password.html` | Reset Password (opened from the emailed Forgot password link) — labelled fields, live requirement checklist, show/hide passwords | Public |
 
-These eight cover the whole app's visual language: the **public storefront layer** (hero, photo-led product cards, category row, review summary), the **auth layout**, the **role dashboard shell** (fish-photo sidebar + profile chip + nav + main area), **stat tiles**, **data tables**, **listing cards**, **action cards**, **badges**, **forms**, and the **floating AI button**. Every other screen in the app is a recombination of these same components.
+These ten cover the whole app's visual language: the **public storefront layer** (hero, photo-led product cards, category row, review summary), the **site-wide announcement bar**, the **auth layout**, the **role dashboard shell** (fish-photo sidebar + profile chip + nav + main area), **stat tiles**, **data tables**, **listing cards**, **action cards**, **badges**, **forms** (labelled profile fields, password checklist, save bar), and the **floating AI button**. Every other screen in the app is a recombination of these same components.
+
+**Announcement bar categories** — `.site-announcement.announcement-maintenance` (warning tint), `announcement-policy` (danger), `announcement-holiday` (success), `announcement-update` / `announcement-general` (info). On public pages it is a full-width strip above the sticky header; inside a dashboard it is a rounded strip at the top of the main area.
 
 ## Folder contents
 
 ```
 figma/
 ├── index.html                 ← start here (visual gallery)
-├── 01-login.html … 08-seller-profile.html
+├── 01-login.html … 10-reset-password.html
 ├── README.md
 ├── assets/
 │   ├── app.css                ← the app's real stylesheet (source of truth for the design)
 │   ├── mock.css               ← thin overrides: local image path + freeze entry animations
 │   ├── sidebar-bg.jpg          ← the sidebar background photo
 │   └── placeholders/           ← avatar + species artwork (bangus, tilapia, catfish, …)
-└── previews/                   ← PNG thumbnails used by index.html (07 and 08 not captured yet)
+└── previews/                   ← PNG thumbnails used by index.html (all ten captured)
 ```
 
 ## Design system at a glance (pull these into Figma styles)
@@ -81,6 +85,6 @@ All values live in `:root` at the top of `assets/app.css`. The key tokens:
 cp frontend/src/App.css figma/assets/app.css
 ```
 
-The `previews/*.png` thumbnails are captured by hand — open a mock in a browser and screenshot it into `previews/` using the same filename as the page. `07-landing.png` and `08-seller-profile.png` have **not** been captured yet, so those two gallery tiles show a broken image until you do. The other six were captured before the current design pass, so re-shoot them too if you want the gallery to match.
+The `previews/*.png` thumbnails show each page at 1440 × 900 — after changing a mock, screenshot it into `previews/` using the same filename as the page (all ten were re-captured on 2026-09-13 after the announcement bar, profile and reset-password updates).
 
 Pages `07` and `08` wrap their content in `<div class="public-shell">`, matching `PublicLayout` in the app — the `PUBLIC STOREFRONT LAYER` rules at the end of `app.css` only apply inside that wrapper, so omitting it would render the public pages with dashboard styling instead.

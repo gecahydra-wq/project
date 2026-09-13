@@ -2,8 +2,16 @@
 
 The React frontend and Laravel API are separate deployments:
 
-- Frontend: `https://teamabai.website`
-- API: `https://capstone-project-production-aba8.up.railway.app`
+- Frontend: `https://teamabai.website` (Railway project `nurturing-liberation`)
+- API: `https://api.teamabai.website` (Railway project `shimmering-charm`, service
+  `capstone-project`). The generated `https://capstone-project-production-aba8.up.railway.app`
+  domain is kept attached: listing photos uploaded before the switch store that
+  origin in `listing_media.url`, and removing it would break them.
+
+The API lives on a subdomain of the frontend's domain so Google's sign-in screen
+shows `teamabai.website` instead of a Railway hostname. Namecheap DNS has a
+CNAME `api` → the target Railway shows under the backend's Settings → Networking
+→ Custom Domain (plus its `_railway-verify.api` TXT record if requested).
 
 Set the following variables on the **Laravel API Railway service**. Keep every
 password and API key in Railway Variables; do not commit them to Git.
@@ -13,7 +21,7 @@ APP_NAME=AbaiMarket
 APP_ENV=production
 APP_DEBUG=false
 APP_KEY=base64:<generated Laravel key>
-APP_URL=https://capstone-project-production-aba8.up.railway.app
+APP_URL=https://api.teamabai.website
 FRONTEND_URL=https://teamabai.website
 
 DB_CONNECTION=mysql
@@ -31,12 +39,12 @@ MAIL_FROM_NAME=AbaiMarket
 
 GOOGLE_CLIENT_ID=<Google OAuth client ID>
 GOOGLE_CLIENT_SECRET=<Google OAuth client secret>
-GOOGLE_REDIRECT_URI=https://capstone-project-production-aba8.up.railway.app/api/auth/google/callback
+GOOGLE_REDIRECT_URI=https://api.teamabai.website/api/auth/google/callback
 
 PAYMONGO_PUBLIC_KEY=<PayMongo public key>
 PAYMONGO_SECRET_KEY=<PayMongo secret key>
 PAYMONGO_WEBHOOK_SECRET=<PayMongo webhook secret>
-PAYMONGO_ASSET_BASE_URL=https://capstone-project-production-aba8.up.railway.app
+PAYMONGO_ASSET_BASE_URL=https://api.teamabai.website
 
 GEMINI_API_KEY=<Gemini API key>
 GEMINI_MODEL=gemini-2.5-flash
@@ -45,7 +53,7 @@ GEMINI_MODEL=gemini-2.5-flash
 Set the following variable when building the **frontend** service:
 
 ```dotenv
-VITE_API_URL=https://capstone-project-production-aba8.up.railway.app/api
+VITE_API_URL=https://api.teamabai.website/api
 ```
 
 ## Railway service settings
@@ -177,7 +185,13 @@ the SMTP account is allowed to send as.
   variant, which Google treats as a distinct entry) so the same OAuth client
   serves both environments; replacing one with the other is what produces
   `Error 400: redirect_uri_mismatch`.
-- PayMongo: register `POST https://capstone-project-production-aba8.up.railway.app/api/paymongo/webhook`.
+- Google Cloud: also add `teamabai.website` under OAuth consent screen →
+  Branding → Authorized domains, with home page `https://teamabai.website`.
+- PayMongo: the webhook may stay on
+  `POST https://capstone-project-production-aba8.up.railway.app/api/paymongo/webhook`
+  (that domain remains attached) or move to
+  `POST https://api.teamabai.website/api/paymongo/webhook`. A new PayMongo
+  webhook has a new secret — update `PAYMONGO_WEBHOOK_SECRET` if you move it.
   The webhook secret is reserved in configuration, but signature validation is
   a separate security improvement and must be implemented before treating the
   webhook as authenticated.

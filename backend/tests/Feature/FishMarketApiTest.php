@@ -5849,6 +5849,25 @@ class FishMarketApiTest extends TestCase
         $this->assertSame($active['id'], collect($visible)->firstWhere('title', 'Active One')['id']);
     }
 
+    public function test_guests_can_see_active_announcements_without_internal_fields(): void
+    {
+        \App\Models\Announcement::create([
+            'title' => 'Scheduled Maintenance',
+            'body' => 'The marketplace will be down briefly tonight.',
+            'category' => 'maintenance',
+            'created_by' => User::where('role', 'super_admin')->firstOrFail()->id,
+        ]);
+
+        // No Sanctum::actingAs -- this request is an anonymous guest.
+        $response = $this->getJson('/api/announcements/active')->assertOk();
+
+        $response->assertJsonPath('0.title', 'Scheduled Maintenance')
+            ->assertJsonPath('0.category', 'maintenance');
+        $this->assertArrayHasKey('updated_at', $response->json('0'));
+        $this->assertArrayNotHasKey('created_by', $response->json('0'));
+        $this->assertArrayNotHasKey('notified_at', $response->json('0'));
+    }
+
     public function test_super_admin_can_update_and_delete_an_announcement(): void
     {
         $superAdmin = User::where('role', 'super_admin')->firstOrFail();

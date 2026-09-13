@@ -35,7 +35,7 @@ Some endpoints additionally require `verified` (a verified email). Public catalo
 | **LGU Admin** | Local Government Unit officer; all actions are **scoped to their own municipality**. | `role:lgu_admin` |
 | **Super Admin** | Platform operator; **platform-wide** authority. | `role:super_admin` |
 
-**Actor generalization.** Buyer, Seller, LGU Admin, and Super Admin are all specializations of an **Authenticated User**. The "Common" use cases (messaging, seller-post engagement, AI Assistant, viewing active announcements, account management) belong to the Authenticated User and are therefore available to all four roles — this matches the shared `role:buyer,seller,lgu_admin,super_admin` route group in the code.
+**Actor generalization.** Buyer, Seller, LGU Admin, and Super Admin are all specializations of an **Authenticated User**. The "Common" use cases (messaging, seller-post engagement, AI Assistant, viewing announcements, account management) belong to the Authenticated User and are therefore available to all four roles — this matches the shared `role:buyer,seller,lgu_admin,super_admin` route group in the code. *View announcements* is additionally associated with the **Guest**, because its endpoint is public (the site-wide announcement bar is shown on the public storefront too).
 
 ### 2.2 Secondary (external) actors
 
@@ -67,6 +67,7 @@ Each row is a use case and the concrete endpoint(s) that implement it. `✔ veri
 | View listing details | `GET /listings/{listing}` |
 | View seller profiles & posts | `GET /sellers`, `GET /sellers/{seller}` |
 | View municipalities | `GET /municipalities` |
+| View announcements (site-wide bar) | `GET /announcements/active` — public; the bar is shown at the top of every page for guests and signed-in roles alike |
 
 *«include»* Register, Verify email and Reset forgotten password → **Email (Resend / SMTP)**; Log in with Google → **Google OAuth**.
 
@@ -78,11 +79,11 @@ Each row is a use case and the concrete endpoint(s) that implement it. `✔ veri
 
 | Use case | Endpoint(s) |
 |---|---|
-| Manage account | `GET /auth/me`, `POST /auth/logout`, `PATCH /auth/password` (login tokens expire after 7 days) |
+| Manage account | `GET /auth/me`, `POST /auth/logout`, `PATCH /auth/password` (login tokens expire after 7 days). The Change Password form appears only on the Super Admin profile; Buyers, Sellers and LGU Admins change their password through *Reset forgotten password* (§3.1). |
 | Send / edit / delete messages | `GET /messages/threads`, `GET /messages/thread/{user}`, `POST /messages`, `PATCH /messages/{message}`, `DELETE /messages/{message}`, `PATCH /messages/thread/{user}/read` |
 | Like & comment on seller posts | `POST /seller-posts/{post}/like`, `POST /seller-posts/{post}/comments`, `DELETE /seller-posts/comments/{comment}` |
 | Ask AI Assistant (EN/Tagalog/Bisaya) | `POST /ai-assistant/ask`, `GET /ai-assistant/history` |
-| View active announcements | `GET /announcements/active` |
+| View announcements (site-wide bar) | `GET /announcements/active` (public — see §3.1) |
 
 *«include»* Ask AI Assistant → **Gemini AI** (with the app's scripted fallback when Gemini is unreachable).
 
@@ -194,6 +195,8 @@ Each row is a use case and the concrete endpoint(s) that implement it. `✔ veri
 - **Refunds are a manual, tracked queue.** A cancelled paid order (or a payment that arrives after the order closed) is never settled to the seller; it waits as `refund_pending` until the Super Admin refunds the buyer in PayMongo and marks it refunded.
 - **Payments are verified, not trusted.** The PayMongo webhook must carry a valid signature, and the buyer's success redirect is confirmed with PayMongo before an order is marked paid.
 - **Account security.** Login is limited to 5 attempts per minute per email + IP, tokens expire after 7 days, and a password reset signs the account out everywhere.
+- **One way to change a password for most roles.** Buyers, Sellers and LGU Admins change their password through the emailed Forgot password link; only the Super Admin keeps an in-profile Change Password form.
+- **Announcements are public.** The Super Admin's active announcements appear as a bar across the top of every page — guests on the storefront and every signed-in role — in addition to the in-app notification each user receives.
 
 ---
 

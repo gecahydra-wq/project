@@ -1,6 +1,6 @@
 import axios from 'axios'
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import {
   BrowserRouter,
   Link,
@@ -34,7 +34,15 @@ import {
   PlayCircle,
   Search,
   CalendarDays,
+  Camera,
+  Check,
+  Eye,
+  EyeOff,
   Flag,
+  KeyRound,
+  Mail,
+  Sprout,
+  UserRound,
   ShieldAlert,
   ShieldCheck,
   ShoppingBag,
@@ -432,6 +440,7 @@ function PublicLayout() {
   const session = getSession()
   return (
     <>
+      <SiteAnnouncementBar />
       <header className="site-header">
         <Link className="brand" to={homeRoute}><span><Fish size={22} /></span>AbaiMarket</Link>
         <nav>
@@ -532,7 +541,10 @@ function AppShell({ user, children }) {
         </nav>
         <button className="ghost full" onClick={logout} type="button"><LogOut size={18} />Logout</button>
       </aside>
-      <main className="app-main">{children}</main>
+      <main className="app-main">
+        <SiteAnnouncementBar />
+        {children}
+      </main>
       <FloatingAi />
     </div>
   )
@@ -1148,36 +1160,6 @@ function Avatar({ src, alt, className = '' }) {
   return <img className={`avatar ${className}`} src={src || DEFAULT_AVATAR_IMAGE} alt={alt} />
 }
 
-function ImageUploadControl({ src, placeholder, alt, label, shape = 'circle', uploading, onUpload, onRemove, error }) {
-  const inputRef = useRef(null)
-  const [preview, setPreview] = useState(null)
-  const displaySrc = (uploading && preview) || src || placeholder
-
-  const handleChange = (e) => {
-    const file = e.target.files?.[0]
-    e.target.value = ''
-    if (!file) return
-    setPreview(URL.createObjectURL(file))
-    onUpload(file)
-  }
-
-  return (
-    <div className={`image-upload image-upload-${shape}`}>
-      <img className={`image-upload-preview image-upload-preview-${shape}`} src={displaySrc} alt={alt} />
-      <div className="image-upload-actions">
-        <button type="button" className="ghost" onClick={() => inputRef.current?.click()} disabled={uploading}>
-          {uploading ? 'Uploading...' : src ? `Replace ${label}` : `Upload ${label}`}
-        </button>
-        {src && onRemove && (
-          <button type="button" className="ghost" onClick={onRemove} disabled={uploading}>Remove</button>
-        )}
-      </div>
-      <input ref={inputRef} type="file" accept={IMAGE_UPLOAD_ACCEPT} hidden onChange={handleChange} />
-      {error && <p className="error">{error}</p>}
-    </div>
-  )
-}
-
 function ListingImageManager({ listingId, media, onChange }) {
   const inputRef = useRef(null)
   const items = media || []
@@ -1548,7 +1530,10 @@ function ResetPasswordPage() {
   const [searchParams] = useSearchParams()
   const token = searchParams.get('token')
   const email = searchParams.get('email')
-  const { register, handleSubmit, getValues, formState: { errors } } = useForm({ defaultValues: { password: '', password_confirmation: '' } })
+  const { register, handleSubmit, getValues, control, formState: { errors } } = useForm({ defaultValues: { password: '', password_confirmation: '' } })
+  // Live values drive the requirement checklist as the user types.
+  const [password, confirmation] = useWatch({ control, name: ['password', 'password_confirmation'] })
+  const [showPasswords, setShowPasswords] = useState(false)
   const passwordField = register('password', { validate: (value) => validatePassword(value) || true })
   const confirmField = register('password_confirmation', {
     validate: (value) => value === getValues('password') || 'The passwords do not match.',
@@ -1587,7 +1572,8 @@ function ResetPasswordPage() {
 
   const passwordInputProps = (field) => ({
     ...field,
-    type: 'password',
+    type: showPasswords ? 'text' : 'password',
+    autoComplete: 'new-password',
     onKeyDown: blockSpaceKey,
     onChange: (e) => { e.target.value = stripSpaces(e.target.value); field.onChange(e) },
   })
@@ -1595,11 +1581,16 @@ function ResetPasswordPage() {
   return (
     <AuthCard title="Reset Password" subtitle={`Choose a new password for ${email}.`}>
       <form onSubmit={handleSubmit((v) => reset.mutate(v))} className="form">
-        <input {...passwordInputProps(passwordField)} placeholder="New password" />
-        <p className="helper-text">{PASSWORD_HELP}</p>
+        <ProfileField label="New password">
+          <input {...passwordInputProps(passwordField)} />
+        </ProfileField>
         {errors.password && <p className="error">{errors.password.message}</p>}
-        <input {...passwordInputProps(confirmField)} placeholder="Confirm new password" />
+        <ProfileField label="Confirm new password">
+          <input {...passwordInputProps(confirmField)} />
+        </ProfileField>
         {errors.password_confirmation && <p className="error">{errors.password_confirmation.message}</p>}
+        <PasswordChecklist password={password} confirmation={confirmation} />
+        <PasswordVisibilityToggle shown={showPasswords} onToggle={() => setShowPasswords(!showPasswords)} />
         <button type="submit" disabled={reset.isPending}>{reset.isPending ? 'Saving...' : 'Reset Password'}</button>
         {reset.error && (
           <p className="error">
@@ -2088,7 +2079,6 @@ function BuyerDashboard() {
     >
       {tab === 'overview' && (
         <>
-          <AnnouncementBanner />
           <StatsRow items={[['Active Orders', data?.active_orders ?? 0], ['Completed Orders', data?.completed_orders ?? 0], ['Unread Messages', data?.unread_messages ?? 0]]} />
           <Section title="Recent Orders"><OrderTable rows={orders} onReview={handleReview} showPaymentStatus={false} showOrderDate /></Section>
           <Section title="Notifications"><NotificationStack notifications={notifications.slice(0, 3)} onMarkRead={handleMarkRead} /></Section>
@@ -2189,37 +2179,167 @@ function BuyerDashboard() {
         </Section>
       )}
       {tab === 'settings' && (
-        <>
-          <Section title="Profile Settings">
-            {!data?.profile || isPlaceholderData ? (
-              <LoadingState label="Loading profile..." />
-            ) : (
-              <BuyerSettingsForm
-                key={data.profile.id}
-                user={data.profile}
-                buyerProfile={data.buyer_profile}
-                saving={updateBuyerProfile.isPending}
-                success={updateBuyerProfile.isSuccess}
-                error={updateBuyerProfile.error?.response?.data?.message}
-                onSave={(values) => updateBuyerProfile.mutate(values)}
-              />
-            )}
-          </Section>
-          <Section title="Change Password"><ChangePasswordForm /></Section>
-        </>
+        !data?.profile || isPlaceholderData ? (
+          <LoadingState label="Loading profile..." />
+        ) : (
+          <BuyerSettingsForm
+            key={data.profile.id}
+            user={data.profile}
+            buyerProfile={data.buyer_profile}
+            saving={updateBuyerProfile.isPending}
+            success={updateBuyerProfile.isSuccess}
+            error={updateBuyerProfile.error?.response?.data?.message}
+            onSave={(values, options) => updateBuyerProfile.mutate(values, options)}
+          />
+        )
       )}
     </Dashboard>
   )
 }
 
+/* ---------------------------------------------------------------------------
+   Profile page building blocks, shared by all four roles' profile tabs:
+   a header card (avatar you click to change, optional cover banner), titled
+   section cards, labelled fields, and a sticky save bar that only appears
+   when something actually changed.
+   ------------------------------------------------------------------------- */
+
+function formatMonthYear(value) {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('en-PH', { month: 'long', year: 'numeric' })
+}
+
+function ProfileHeader({
+  name, email, badges, meta = [], actions,
+  picture, pictureUploading, onPictureUpload, onPictureRemove, pictureError,
+  cover, coverUploading, onCoverUpload, onCoverRemove, coverError,
+}) {
+  const pictureInput = useRef(null)
+  const coverInput = useRef(null)
+  const [picturePreview, setPicturePreview] = useState(null)
+  const [coverPreview, setCoverPreview] = useState(null)
+  const hasCover = Boolean(onCoverUpload)
+
+  // Shows the chosen file immediately while it uploads.
+  const pickFile = (setPreview, upload) => (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setPreview(URL.createObjectURL(file))
+    upload(file)
+  }
+
+  return (
+    <section className={`card profile-hero${hasCover ? ' profile-hero-with-cover' : ''}`}>
+      {hasCover && (
+        <div className="profile-hero-cover">
+          <img src={(coverUploading && coverPreview) || cover || DEFAULT_COVER_IMAGE} alt="Farm cover photo" />
+          <div className="profile-hero-cover-actions">
+            <button type="button" className="profile-pill-button" onClick={() => coverInput.current?.click()} disabled={coverUploading}>
+              <Camera size={15} aria-hidden="true" />
+              {coverUploading ? 'Uploading...' : cover ? 'Change cover' : 'Add cover photo'}
+            </button>
+            {cover && onCoverRemove && (
+              <button type="button" className="profile-pill-button" onClick={onCoverRemove} disabled={coverUploading}>Remove</button>
+            )}
+          </div>
+          <input ref={coverInput} type="file" accept={IMAGE_UPLOAD_ACCEPT} hidden onChange={pickFile(setCoverPreview, onCoverUpload)} />
+        </div>
+      )}
+      <div className="profile-hero-body">
+        <div className="profile-hero-avatar">
+          <img src={(pictureUploading && picturePreview) || picture || DEFAULT_AVATAR_IMAGE} alt="Your profile picture" />
+          {onPictureUpload && (
+            <>
+              <button type="button" className="profile-avatar-button" onClick={() => pictureInput.current?.click()} disabled={pictureUploading} aria-label="Change profile picture">
+                <Camera size={16} aria-hidden="true" />
+              </button>
+              <input ref={pictureInput} type="file" accept={IMAGE_UPLOAD_ACCEPT} hidden onChange={pickFile(setPicturePreview, onPictureUpload)} />
+            </>
+          )}
+        </div>
+        <div className="profile-hero-info">
+          <div className="profile-hero-name">
+            <h2>{name}</h2>
+            {badges}
+          </div>
+          <p className="profile-hero-meta">
+            {email && <span><Mail size={14} aria-hidden="true" />{email}</span>}
+            {meta.filter(Boolean).map(([Icon, text]) => <span key={text}><Icon size={14} aria-hidden="true" />{text}</span>)}
+          </p>
+          {onPictureUpload && (
+            <div className="profile-hero-photo-links">
+              <button type="button" className="profile-link-button" onClick={() => pictureInput.current?.click()} disabled={pictureUploading}>
+                {pictureUploading ? 'Uploading...' : picture ? 'Change photo' : 'Add a profile photo'}
+              </button>
+              {picture && onPictureRemove && (
+                <button type="button" className="profile-link-button profile-link-muted" onClick={onPictureRemove} disabled={pictureUploading}>Remove photo</button>
+              )}
+            </div>
+          )}
+          {(pictureError || coverError) && <p className="error">{pictureError || coverError}</p>}
+        </div>
+        {actions && <div className="profile-hero-actions">{actions}</div>}
+      </div>
+    </section>
+  )
+}
+
+function ProfileCard({ icon: Icon, title, description, children }) {
+  return (
+    <section className="card profile-card">
+      <header className="profile-card-head">
+        {Icon && <span className="profile-card-icon"><Icon size={18} aria-hidden="true" /></span>}
+        <div>
+          <h3>{title}</h3>
+          {description && <p className="helper-text">{description}</p>}
+        </div>
+      </header>
+      {children}
+    </section>
+  )
+}
+
+function ProfileField({ label, hint, wide = false, children }) {
+  return (
+    <label className={`profile-field${wide ? ' profile-field-wide' : ''}`}>
+      <span className="profile-field-label">{label}</span>
+      {children}
+      {hint && <span className="profile-field-hint">{hint}</span>}
+    </label>
+  )
+}
+
+function ProfileSaveBar({ dirty, saving, success, error, onSave, onDiscard }) {
+  if (!dirty && !saving && !error) {
+    return success
+      ? <div className="profile-save-bar profile-save-bar-saved" role="status"><Check size={16} aria-hidden="true" />Your profile is saved.</div>
+      : null
+  }
+  return (
+    <div className="profile-save-bar" role="region" aria-label="Unsaved changes">
+      <p>{error ? <span className="profile-save-error">{error}</span> : saving ? 'Saving your changes...' : 'You have unsaved changes.'}</p>
+      <div className="profile-save-bar-actions">
+        <button type="button" className="ghost" onClick={onDiscard} disabled={saving}>Discard</button>
+        <button type="button" onClick={onSave} disabled={saving}>{saving ? 'Saving...' : 'Save changes'}</button>
+      </div>
+    </div>
+  )
+}
+
 function BuyerSettingsForm({ user, buyerProfile, onSave, saving, success, error }) {
-  const [form, setForm] = useState({
+  const initialValues = {
     name: user.name || '',
     email: user.email || '',
     phone: user.phone || '',
     address: buyerProfile?.address || '',
     bio: buyerProfile?.bio || '',
-  })
+  }
+  // `saved` is the last known server state; the save bar compares against it.
+  const [saved, setSaved] = useState(initialValues)
+  const [form, setForm] = useState(initialValues)
+  const dirty = JSON.stringify(form) !== JSON.stringify(saved)
+  const setField = (key) => (e) => setForm({ ...form, [key]: e.target.value })
 
   const uploadPicture = useMutation({
     mutationFn: async (file) => {
@@ -2241,38 +2361,113 @@ function BuyerSettingsForm({ user, buyerProfile, onSave, saving, success, error 
   })
 
   return (
-    <>
-      <ImageUploadControl
-        src={user.profile_picture}
-        placeholder={DEFAULT_AVATAR_IMAGE}
-        alt="Your profile picture"
-        label="Profile Picture"
-        shape="circle"
-        uploading={uploadPicture.isPending || removePicture.isPending}
-        onUpload={(file) => uploadPicture.mutate(file)}
-        onRemove={user.profile_picture ? () => removePicture.mutate() : null}
-        error={uploadPicture.error?.response?.data?.message}
+    <div className="profile-page">
+      <ProfileHeader
+        name={saved.name || 'Your profile'}
+        email={saved.email}
+        badges={<RoleBadge role="buyer" />}
+        meta={[
+          user.municipality?.name && [MapPin, user.municipality.name],
+          user.created_at && [CalendarDays, `Member since ${formatMonthYear(user.created_at)}`],
+        ]}
+        picture={user.profile_picture}
+        pictureUploading={uploadPicture.isPending || removePicture.isPending}
+        onPictureUpload={(file) => uploadPicture.mutate(file)}
+        onPictureRemove={() => removePicture.mutate()}
+        pictureError={uploadPicture.error?.response?.data?.message || removePicture.error?.response?.data?.message}
       />
-      <div className="form grid-form">
-        <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Full name" />
-        <input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Email" />
-        <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="Phone number" />
-        <input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Address" />
-        <textarea value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} placeholder="About me / bio (optional)" />
-      </div>
-      <p className="helper-text">Municipality: {user.municipality?.name || 'Not set'}. This is assigned at registration and can&apos;t be changed here.</p>
-      <button type="button" onClick={() => onSave(form)} disabled={saving}>{saving ? 'Saving...' : 'Save Profile'}</button>
-      {success && <p className="helper-text">Profile updated.</p>}
-      {error && <p className="error">{error}</p>}
-    </>
+
+      <ProfileCard icon={UserRound} title="Personal information" description="Your name and contact details, shared with sellers you order from.">
+        <div className="profile-fields">
+          <ProfileField label="Full name">
+            <input value={form.name} onChange={setField('name')} autoComplete="name" />
+          </ProfileField>
+          <ProfileField label="Email address" hint="Used to log in and to receive receipts and updates.">
+            <input type="email" value={form.email} onChange={setField('email')} autoComplete="email" />
+          </ProfileField>
+          <ProfileField label="Phone number" hint="Optional. Helps sellers coordinate delivery.">
+            <input type="tel" value={form.phone} onChange={setField('phone')} autoComplete="tel" placeholder="e.g. 0917 123 4567" />
+          </ProfileField>
+          <ProfileField label="Municipality" hint="Set when you registered.">
+            <input value={user.municipality?.name || 'Not set'} disabled />
+          </ProfileField>
+        </div>
+        <PasswordResetNote />
+      </ProfileCard>
+
+      <ProfileCard icon={MapPin} title="Farm & delivery" description="Where your fingerlings go, and a little about your farm.">
+        <div className="profile-fields">
+          <ProfileField label="Address" wide>
+            <input value={form.address} onChange={setField('address')} autoComplete="street-address" placeholder="Barangay, municipality, province" />
+          </ProfileField>
+          <ProfileField label="About you" hint="Optional. What you farm, your pond size, or anything sellers should know." wide>
+            <textarea value={form.bio} onChange={setField('bio')} rows={4} />
+          </ProfileField>
+        </div>
+      </ProfileCard>
+
+      <ProfileSaveBar
+        dirty={dirty}
+        saving={saving}
+        success={success}
+        error={error}
+        onDiscard={() => setForm(saved)}
+        onSave={() => onSave(form, { onSuccess: () => setSaved(form) })}
+      />
+    </div>
   )
 }
+
+/**
+ * Buyers, Sellers and LGU Admins change their password through the public
+ * Forgot password flow (emailed link -> /reset-password), not from their
+ * profile; only the Super Admin keeps an in-profile Change Password form.
+ */
+function PasswordResetNote() {
+  return (
+    <p className="helper-text profile-password-note">
+      <KeyRound size={14} aria-hidden="true" />
+      Need a new password? Log out and choose <strong>Forgot password?</strong> on the login page, and we&apos;ll email you a reset link.
+    </p>
+  )
+}
+
+/** Live password requirement checklist, shared by Reset Password and the Super Admin form. */
+function PasswordChecklist({ password = '', confirmation = '' }) {
+  return (
+    <ul className="password-checklist" aria-label="Password requirements">
+      {PASSWORD_RULES.map(([label, test]) => (
+        <li key={label} className={test(password || '') ? 'met' : ''}><Check size={14} aria-hidden="true" />{label}</li>
+      ))}
+      <li className={confirmation && password === confirmation ? 'met' : ''}><Check size={14} aria-hidden="true" />Passwords match</li>
+    </ul>
+  )
+}
+
+function PasswordVisibilityToggle({ shown, onToggle }) {
+  return (
+    <button type="button" className="profile-link-button password-visibility-toggle" onClick={onToggle}>
+      {shown ? <EyeOff size={15} aria-hidden="true" /> : <Eye size={15} aria-hidden="true" />}
+      {shown ? 'Hide passwords' : 'Show passwords'}
+    </button>
+  )
+}
+
+const PASSWORD_RULES = [
+  ['8 to 64 characters', (v) => v.length >= 8 && v.length <= 64],
+  ['An uppercase letter', (v) => /[A-Z]/.test(v)],
+  ['A lowercase letter', (v) => /[a-z]/.test(v)],
+  ['A number', (v) => /[0-9]/.test(v)],
+  ['A special character', (v) => /[^A-Za-z0-9]/.test(v)],
+]
 
 function ChangePasswordForm() {
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [localError, setLocalError] = useState('')
+  const [showPasswords, setShowPasswords] = useState(false)
+  const inputType = showPasswords ? 'text' : 'password'
 
   const changePassword = useMutation({
     mutationFn: async () => (await api.patch('/auth/password', { current_password: currentPassword, password: newPassword })).data,
@@ -2299,28 +2494,50 @@ function ChangePasswordForm() {
   }
 
   return (
-    <div className="form grid-form">
-      <input type="password" placeholder="Current password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} />
-      <input type="password" placeholder="New password" value={newPassword} onChange={(e) => setNewPassword(stripSpaces(e.target.value))} onKeyDown={blockSpaceKey} />
-      <input type="password" placeholder="Confirm new password" value={confirmPassword} onChange={(e) => setConfirmPassword(stripSpaces(e.target.value))} onKeyDown={blockSpaceKey} />
-      <p className="helper-text">{PASSWORD_HELP}</p>
-      <button type="button" onClick={submit} disabled={changePassword.isPending || !currentPassword || !newPassword}>{changePassword.isPending ? 'Saving...' : 'Change Password'}</button>
+    <div className="profile-password">
+      <div className="profile-fields">
+        <ProfileField label="Current password" hint="Forgot it? Log out and use Forgot password on the login page." wide>
+          <input type={inputType} value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} autoComplete="current-password" />
+        </ProfileField>
+        <ProfileField label="New password">
+          <input type={inputType} value={newPassword} onChange={(e) => setNewPassword(stripSpaces(e.target.value))} onKeyDown={blockSpaceKey} autoComplete="new-password" />
+        </ProfileField>
+        <ProfileField label="Confirm new password">
+          <input type={inputType} value={confirmPassword} onChange={(e) => setConfirmPassword(stripSpaces(e.target.value))} onKeyDown={blockSpaceKey} autoComplete="new-password" />
+        </ProfileField>
+      </div>
+      <PasswordChecklist password={newPassword} confirmation={confirmPassword} />
+      <div className="profile-actions">
+        <PasswordVisibilityToggle shown={showPasswords} onToggle={() => setShowPasswords(!showPasswords)} />
+        <button type="button" onClick={submit} disabled={changePassword.isPending || !currentPassword || !newPassword}>
+          {changePassword.isPending ? 'Updating...' : 'Update password'}
+        </button>
+      </div>
       {localError && <p className="error">{localError}</p>}
-      {changePassword.isSuccess && <p className="helper-text">Password updated.</p>}
+      {changePassword.isSuccess && <p className="profile-saved" role="status"><Check size={15} aria-hidden="true" />Password updated.</p>}
       {changePassword.error && <p className="error">{changePassword.error.response?.data?.message || 'Could not update password.'}</p>}
     </div>
   )
 }
 
 /**
- * Profile section for LGU Admins and the Super Admin -- picture-only, since
- * (unlike sellers) they have no public profile info to maintain. Reuses the
- * shared ImageUploadControl and the same /profile/picture endpoints exposed
- * per role (endpointBase is '/lgu' or '/super-admin'). Also offers Change
- * Password, for parity with the Buyer/Seller profile tabs.
+ * Profile tab for LGU Admins and the Super Admin. They have no public profile
+ * and no endpoint to edit their own name or email, so this is the profile
+ * header (photo via the per-role /profile/picture endpoints; endpointBase is
+ * '/lgu' or '/super-admin'), a read-only account summary, and Change Password.
  */
 function AdminProfilePanel({ endpointBase }) {
   const session = getSession()
+  // The stored session only carries municipality_id, so resolve the name from
+  // the public municipality list (the same cached query registration uses).
+  const municipalitiesQuery = useQuery({
+    queryKey: ['municipalities'],
+    queryFn: async () => (await api.get('/municipalities')).data,
+    enabled: session?.role === 'lgu_admin',
+    retry: false,
+    placeholderData: [],
+  })
+  const municipalityName = (municipalitiesQuery.data || []).find((m) => m.id === session?.municipality_id)?.name
   const [picture, setPicture] = useState(session?.profile_picture || null)
 
   const uploadPicture = useMutation({
@@ -2342,31 +2559,49 @@ function AdminProfilePanel({ endpointBase }) {
     },
   })
 
+  const isLgu = session?.role === 'lgu_admin'
+  const municipality = municipalityName
+    || (typeof session?.municipality === 'string' ? session.municipality : session?.municipality?.name)
+
   return (
-    <>
-      <Section title="Profile">
-        <p className="helper-text">Update the profile picture shown across AbaiMarket -- in the sidebar, messages, and anywhere your account appears.</p>
-        <div className="admin-profile-card">
-          <ImageUploadControl
-            src={picture}
-            placeholder={DEFAULT_AVATAR_IMAGE}
-            alt="Your profile picture"
-            label="Profile Picture"
-            shape="circle"
-            uploading={uploadPicture.isPending || removePicture.isPending}
-            onUpload={(file) => uploadPicture.mutate(file)}
-            onRemove={picture ? () => removePicture.mutate() : null}
-            error={uploadPicture.error?.response?.data?.message || removePicture.error?.response?.data?.message}
-          />
-          <div className="admin-profile-meta">
-            <div className="card-row"><h3>{session?.name}</h3><RoleBadge role={session?.role} /></div>
-            {session?.email && <p className="muted">{session.email}</p>}
-            {session?.municipality && <p className="muted">{session.municipality}</p>}
-          </div>
-        </div>
-      </Section>
-      <Section title="Change Password"><ChangePasswordForm /></Section>
-    </>
+    <div className="profile-page">
+      <ProfileHeader
+        name={session?.name || 'Your profile'}
+        email={session?.email}
+        badges={<RoleBadge role={session?.role} />}
+        meta={[
+          isLgu && municipality && [MapPin, municipality],
+          !isLgu && [ShieldCheck, 'Platform-wide access'],
+        ]}
+        picture={picture}
+        pictureUploading={uploadPicture.isPending || removePicture.isPending}
+        onPictureUpload={(file) => uploadPicture.mutate(file)}
+        onPictureRemove={() => removePicture.mutate()}
+        pictureError={uploadPicture.error?.response?.data?.message || removePicture.error?.response?.data?.message}
+      />
+
+      <ProfileCard
+        icon={UserRound}
+        title="Account details"
+        description={isLgu
+          ? 'Your name and email are managed by the Super Admin. Ask them if something needs to change.'
+          : 'This administrator account is managed at the platform level.'}
+      >
+        <dl className="profile-details">
+          <div><dt>Full name</dt><dd>{session?.name || '-'}</dd></div>
+          <div><dt>Email address</dt><dd>{session?.email || '-'}</dd></div>
+          <div><dt>Role</dt><dd>{roleLabel(session?.role) || '-'}</dd></div>
+          <div><dt>{isLgu ? 'Municipality' : 'Scope'}</dt><dd>{isLgu ? (municipality || '-') : 'All municipalities'}</dd></div>
+        </dl>
+        {isLgu && <PasswordResetNote />}
+      </ProfileCard>
+
+      {session?.role === 'super_admin' && (
+        <ProfileCard icon={KeyRound} title="Password & security" description="Change the password you use to log in.">
+          <ChangePasswordForm />
+        </ProfileCard>
+      )}
+    </div>
   )
 }
 
@@ -2543,7 +2778,6 @@ function SellerDashboard() {
     >
       {tab === 'overview' && (
         <>
-          <AnnouncementBanner />
           <SellerApprovalNotice seller={dashboard.data?.seller} />
           {(dashboard.data?.open_notices || []).length > 0 && (
             <div className="card approval-notice approval-notice-danger">
@@ -2736,30 +2970,31 @@ function SellerDashboard() {
         </Section>
       )}
       {tab === 'profile' && (
-        <>
-          <Section title="Seller Profile" actions={dashboard.data?.seller?.id && !dashboard.isPlaceholderData ? <Link className="ghost" to={`/seller/sellers/${dashboard.data.seller.id}`}><Store size={16} /> View & Manage Public Profile</Link> : null}>
-            {!dashboard.data?.seller || dashboard.isPlaceholderData ? (
-              <LoadingState label="Loading profile..." />
-            ) : (
-              <SellerProfileForm
-                key={dashboard.data.seller.id}
-                seller={dashboard.data.seller}
-                saving={updateProfile.isPending}
-                success={updateProfile.isSuccess}
-                error={updateProfile.error?.response?.data?.message}
-                onSave={(values) => updateProfile.mutate(values)}
-              />
-            )}
-          </Section>
-          <Section title="Change Password"><ChangePasswordForm /></Section>
-        </>
+        !dashboard.data?.seller || dashboard.isPlaceholderData ? (
+          <LoadingState label="Loading profile..." />
+        ) : (
+          <SellerProfileForm
+            key={dashboard.data.seller.id}
+            seller={dashboard.data.seller}
+            saving={updateProfile.isPending}
+            success={updateProfile.isSuccess}
+            error={updateProfile.error?.response?.data?.message}
+            onSave={(values, options) => updateProfile.mutate(values, options)}
+          />
+        )
       )}
     </Dashboard>
   )
 }
 
+const SELLER_APPROVAL_BADGES = {
+  approved: ['approved', 'Approved seller'],
+  pending: ['pending', 'Pending approval'],
+  rejected: ['rejected', 'Registration rejected'],
+}
+
 function SellerProfileForm({ seller, onSave, saving, success, error }) {
-  const [form, setForm] = useState({
+  const initialValues = {
     name: seller.user?.name || '',
     email: seller.user?.email || '',
     hatchery_name: seller.hatchery_name || '',
@@ -2773,7 +3008,13 @@ function SellerProfileForm({ seller, onSave, saving, success, error }) {
     certifications: seller.certifications || '',
     address: seller.address || '',
     phone: seller.user?.phone || '',
-  })
+  }
+  // `saved` is the last known server state; the save bar compares against it.
+  const [saved, setSaved] = useState(initialValues)
+  const [form, setForm] = useState(initialValues)
+  const dirty = JSON.stringify(form) !== JSON.stringify(saved)
+  const setField = (key) => (e) => setForm({ ...form, [key]: e.target.value })
+  const [approvalTone, approvalLabel] = SELLER_APPROVAL_BADGES[seller.approval_status] || SELLER_APPROVAL_BADGES.pending
 
   const uploadPicture = useMutation({
     mutationFn: async (file) => {
@@ -2807,50 +3048,101 @@ function SellerProfileForm({ seller, onSave, saving, success, error }) {
   })
 
   return (
-    <>
-      <div className="profile-image-uploads">
-        <ImageUploadControl
-          src={seller.profile_picture}
-          placeholder={DEFAULT_AVATAR_IMAGE}
-          alt="Your profile picture"
-          label="Profile Picture"
-          shape="circle"
-          uploading={uploadPicture.isPending || removePicture.isPending}
-          onUpload={(file) => uploadPicture.mutate(file)}
-          onRemove={seller.profile_picture ? () => removePicture.mutate() : null}
-          error={uploadPicture.error?.response?.data?.message}
-        />
-        <ImageUploadControl
-          src={seller.cover_photo}
-          placeholder={DEFAULT_COVER_IMAGE}
-          alt="Farm cover photo"
-          label="Cover Photo"
-          shape="wide"
-          uploading={uploadCover.isPending || removeCover.isPending}
-          onUpload={(file) => uploadCover.mutate(file)}
-          onRemove={seller.cover_photo ? () => removeCover.mutate() : null}
-          error={uploadCover.error?.response?.data?.message}
-        />
-      </div>
-      <div className="form grid-form">
-        <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Full name" />
-        <input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Email" />
-        <input value={form.hatchery_name} onChange={(e) => setForm({ ...form, hatchery_name: e.target.value })} placeholder="Hatchery / Farm name" />
-        <input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Farm address / location" />
-        <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="Contact phone" />
-        <input value={form.years_experience} onChange={(e) => setForm({ ...form, years_experience: e.target.value })} placeholder="Years of experience" type="number" min="0" />
-        <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="About the farm" />
-        <textarea value={form.farming_methods} onChange={(e) => setForm({ ...form, farming_methods: e.target.value })} placeholder="Farming methods" />
-        <textarea value={form.fish_raising_practices} onChange={(e) => setForm({ ...form, fish_raising_practices: e.target.value })} placeholder="Fish raising practices" />
-        <textarea value={form.water_source} onChange={(e) => setForm({ ...form, water_source: e.target.value })} placeholder="Water source" />
-        <textarea value={form.feeding_practices} onChange={(e) => setForm({ ...form, feeding_practices: e.target.value })} placeholder="Feeding practices" />
-        <textarea value={form.certifications} onChange={(e) => setForm({ ...form, certifications: e.target.value })} placeholder="Certifications (optional)" />
-        <textarea value={form.farm_history} onChange={(e) => setForm({ ...form, farm_history: e.target.value })} placeholder="Farm history" />
-      </div>
-      <button type="button" onClick={() => onSave(form)} disabled={saving}>{saving ? 'Saving...' : 'Save Profile'}</button>
-      {success && <p className="helper-text">Profile updated.</p>}
-      {error && <p className="error">{error}</p>}
-    </>
+    <div className="profile-page">
+      <ProfileHeader
+        name={saved.hatchery_name || saved.name || 'Your hatchery'}
+        email={saved.email}
+        badges={<><RoleBadge role="seller" /><Badge status={approvalTone}>{approvalLabel}</Badge></>}
+        meta={[
+          saved.name && saved.hatchery_name && [UserRound, saved.name],
+          seller.municipality?.name && [MapPin, seller.municipality.name],
+          saved.years_experience !== '' && [CalendarDays, `${saved.years_experience} ${saved.years_experience === '1' ? 'year' : 'years'} of experience`],
+        ]}
+        actions={<Link className="ghost" to={`/seller/sellers/${seller.id}`}><Store size={16} aria-hidden="true" /> View public profile</Link>}
+        picture={seller.profile_picture}
+        pictureUploading={uploadPicture.isPending || removePicture.isPending}
+        onPictureUpload={(file) => uploadPicture.mutate(file)}
+        onPictureRemove={() => removePicture.mutate()}
+        pictureError={uploadPicture.error?.response?.data?.message || removePicture.error?.response?.data?.message}
+        cover={seller.cover_photo}
+        coverUploading={uploadCover.isPending || removeCover.isPending}
+        onCoverUpload={(file) => uploadCover.mutate(file)}
+        onCoverRemove={() => removeCover.mutate()}
+        coverError={uploadCover.error?.response?.data?.message || removeCover.error?.response?.data?.message}
+      />
+
+      <ProfileCard icon={UserRound} title="Account" description="The person behind the hatchery, and how buyers and your LGU reach you.">
+        <div className="profile-fields">
+          <ProfileField label="Owner's full name">
+            <input value={form.name} onChange={setField('name')} autoComplete="name" />
+          </ProfileField>
+          <ProfileField label="Email address" hint="Used to log in and to receive order and payout emails.">
+            <input type="email" value={form.email} onChange={setField('email')} autoComplete="email" />
+          </ProfileField>
+          <ProfileField label="Contact phone" hint="Shown to buyers so they can coordinate pickup or delivery.">
+            <input type="tel" value={form.phone} onChange={setField('phone')} autoComplete="tel" placeholder="e.g. 0917 123 4567" />
+          </ProfileField>
+          <ProfileField label="Municipality" hint="Set at registration. Your LGU is based on it.">
+            <input value={seller.municipality?.name || 'Not set'} disabled />
+          </ProfileField>
+        </div>
+        <PasswordResetNote />
+      </ProfileCard>
+
+      <ProfileCard icon={Store} title="Hatchery" description="What buyers see first on your public profile.">
+        <div className="profile-fields">
+          <ProfileField label="Hatchery / farm name">
+            <input value={form.hatchery_name} onChange={setField('hatchery_name')} />
+          </ProfileField>
+          <ProfileField label="Years of experience">
+            <input type="number" min="0" max="200" value={form.years_experience} onChange={setField('years_experience')} placeholder="e.g. 5" />
+          </ProfileField>
+          <ProfileField label="Farm address" wide>
+            <input value={form.address} onChange={setField('address')} autoComplete="street-address" placeholder="Barangay, municipality, province" />
+          </ProfileField>
+          <ProfileField label="About the farm" hint="A short introduction: what you raise and what makes your fingerlings good." wide>
+            <textarea value={form.description} onChange={setField('description')} rows={4} />
+          </ProfileField>
+        </div>
+      </ProfileCard>
+
+      <ProfileCard icon={Sprout} title="Farming practices" description="Helps buyers trust the quality of your stock. Short, plain answers are fine.">
+        <div className="profile-fields">
+          <ProfileField label="Farming methods">
+            <textarea value={form.farming_methods} onChange={setField('farming_methods')} rows={3} placeholder="e.g. Earthen ponds with partial water exchange" />
+          </ProfileField>
+          <ProfileField label="Fish raising practices">
+            <textarea value={form.fish_raising_practices} onChange={setField('fish_raising_practices')} rows={3} placeholder="e.g. Graded by size before sale" />
+          </ProfileField>
+          <ProfileField label="Water source">
+            <textarea value={form.water_source} onChange={setField('water_source')} rows={3} placeholder="e.g. Deep well and river water, filtered" />
+          </ProfileField>
+          <ProfileField label="Feeding practices">
+            <textarea value={form.feeding_practices} onChange={setField('feeding_practices')} rows={3} placeholder="e.g. Commercial starter feed, three times a day" />
+          </ProfileField>
+        </div>
+      </ProfileCard>
+
+      <ProfileCard icon={ShieldCheck} title="Credentials & history" description="Optional, but certifications and a track record help you stand out.">
+        <div className="profile-fields">
+          <ProfileField label="Certifications" hint="Optional. e.g. BFAR accreditation.">
+            <textarea value={form.certifications} onChange={setField('certifications')} rows={3} />
+          </ProfileField>
+          <ProfileField label="Farm history">
+            <textarea value={form.farm_history} onChange={setField('farm_history')} rows={3} placeholder="How and when the hatchery started" />
+          </ProfileField>
+        </div>
+      </ProfileCard>
+
+      <ProfileSaveBar
+        dirty={dirty}
+        saving={saving}
+        success={success}
+        error={error}
+        onDiscard={() => setForm(saved)}
+        onSave={() => onSave(form, { onSuccess: () => setSaved(form) })}
+      />
+    </div>
   )
 }
 
@@ -3625,31 +3917,60 @@ function ReportExportControls({ typeOptions, exportEndpoint, period }) {
   )
 }
 
+const DISMISSED_ANNOUNCEMENTS_KEY = 'abaimarket_dismissed_announcements'
+
+function readDismissedAnnouncements() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(DISMISSED_ANNOUNCEMENTS_KEY) || '[]')
+    return Array.isArray(stored) ? stored : []
+  } catch {
+    return []
+  }
+}
+
 /**
- * Announcement banner shown at the top of the Buyer/Seller/LGU Overview tab
- * -- one shared component, three call sites. Backed by GET
- * /announcements/active (see App\Models\Announcement::scopeActive), which
- * only ever returns announcements currently within their display window.
+ * Site-wide announcement bar: the Super Admin's active announcements across
+ * the top of every page -- the public storefront (guests included) and all
+ * four dashboards, on every tab. Backed by the public GET /announcements/active
+ * (see App\Models\Announcement::scopeActive), so it only ever shows
+ * announcements inside their display window. The in-app notification each
+ * user receives is unchanged; this is the always-visible counterpart.
+ *
+ * A viewer can dismiss an announcement; that is remembered in this browser
+ * only, keyed by id + updated_at, so editing an announcement shows it again.
  */
-function AnnouncementBanner() {
+function SiteAnnouncementBar() {
+  const [dismissed, setDismissed] = useState(readDismissedAnnouncements)
   const { data } = useQuery({
     queryKey: ['announcements-active'],
     queryFn: async () => (await api.get('/announcements/active')).data,
     retry: false,
     placeholderData: [],
+    refetchInterval: 5 * 60 * 1000,
   })
 
-  if (!data?.length) return null
+  const visible = (data || []).filter((a) => !dismissed.includes(`${a.id}:${a.updated_at}`))
+  if (!visible.length) return null
+
+  const dismiss = (announcement) => {
+    const next = [...dismissed, `${announcement.id}:${announcement.updated_at}`].slice(-50)
+    setDismissed(next)
+    try {
+      localStorage.setItem(DISMISSED_ANNOUNCEMENTS_KEY, JSON.stringify(next))
+    } catch {
+      // Storage unavailable (private mode): dismissal just lasts this page view.
+    }
+  }
 
   return (
-    <div className="announcement-banner-stack">
-      {data.map((a) => (
-        <div className={`announcement-banner announcement-${a.category}`} key={a.id}>
-          <Megaphone size={16} />
-          <div>
-            <strong>{a.title}</strong>
-            <p>{a.body}</p>
-          </div>
+    <div className="site-announcements" role="region" aria-label="Announcements">
+      {visible.map((a) => (
+        <div className={`site-announcement announcement-${a.category}`} key={a.id}>
+          <Megaphone size={16} aria-hidden="true" />
+          <p><strong>{a.title}</strong> {a.body}</p>
+          <button type="button" className="site-announcement-dismiss" onClick={() => dismiss(a)} aria-label={`Dismiss announcement: ${a.title}`}>
+            ×
+          </button>
         </div>
       ))}
     </div>
@@ -3819,7 +4140,6 @@ function LguDashboard() {
     >
       {tab === 'overview' && (
         <>
-          <AnnouncementBanner />
           <StatsRow items={[
             ['Registered Sellers', reports.data?.registered_sellers ?? 0],
             ['Listings', reports.data?.listings ?? 0],
@@ -4801,7 +5121,6 @@ function SuperAdminDashboard() {
     >
       {tab === 'overview' && (
         <>
-          <AnnouncementBanner />
           {/* Executive at-a-glance -- today's pulse and GROSS marketplace
               revenue (today / month / all-time). These are the full buyer-paid
               value, NOT the platform's own income; the Super Admin's actual

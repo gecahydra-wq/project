@@ -20,6 +20,7 @@
   <symbol id="bot" viewBox="0 0 24 24"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></symbol>
   <symbol id="shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1Z"/><path d="m9 12 2 2 4-4"/></symbol>
   <symbol id="logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></symbol>
+  <symbol id="megaphone" viewBox="0 0 24 24"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></symbol>
 </svg>
 
 <div class="mock-banner"><strong>DESIGN MOCK</strong> · AbaiMarket — Buyer Dashboard (Overview tab) · static HTML reference for Figma</div>
@@ -52,6 +53,16 @@
   </aside>
 
   <main class="app-main">
+    <!-- Site-wide announcement bar (SiteAnnouncementBar): the Super Admin's
+         active announcements, at the top of every dashboard tab. Colour by
+         category; × dismisses it for this browser. -->
+    <div class="site-announcements" role="region" aria-label="Announcements">
+      <div class="site-announcement announcement-maintenance">
+        <svg class="ic" width="16" height="16" aria-hidden="true"><use href="#megaphone"/></svg>
+        <p><strong>Scheduled maintenance tonight</strong> AbaiMarket will be unavailable from 11:00 PM to 12:00 AM while we upgrade the servers.</p>
+        <button type="button" class="site-announcement-dismiss" aria-label="Dismiss announcement">×</button>
+      </div>
+    </div>
     <div class="dashboard">
       <div class="dashboard-head">
         <div>

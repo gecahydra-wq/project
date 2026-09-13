@@ -69,6 +69,10 @@ Route::get('sellers/{seller}', [SellerProfileController::class, 'show']);
 
 Route::get('municipalities', [PlatformController::class, 'municipalities']);
 
+// Public: the site-wide announcement bar is shown to guests on the storefront
+// too, not only to signed-in roles. Read-only, display fields only.
+Route::get('announcements/active', [AnnouncementController::class, 'active']);
+
 Route::middleware(['auth:sanctum', 'verified', 'role:buyer'])->group(function () {
     Route::get('buyer/dashboard', [BuyerController::class, 'dashboard']);
     Route::patch('buyer/profile', [BuyerController::class, 'updateProfile']);
@@ -273,5 +277,4 @@ Route::prefix('super-admin')->middleware(['auth:sanctum', 'verified', 'role:supe
 Route::middleware(['auth:sanctum', 'verified', 'role:buyer,seller,lgu_admin,super_admin'])->group(function () {
     Route::post('ai-assistant/ask', [AiAssistantController::class, 'ask']);
     Route::get('ai-assistant/history', [AiAssistantController::class, 'history']);
-    Route::get('announcements/active', [AnnouncementController::class, 'active']);
 });

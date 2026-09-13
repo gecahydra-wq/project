@@ -16,13 +16,21 @@ class AnnouncementController extends Controller
     }
 
     /**
-     * Visible to Buyer/Seller/LGU Admin dashboards -- only ever the
-     * currently-active window (see Announcement::scopeActive), regardless of
-     * whether the scheduled notification command has run yet.
+     * Feeds the site-wide announcement bar on every page -- the public
+     * storefront (guests included) and all four dashboards -- so this route is
+     * public. Only ever the currently-active window (see
+     * Announcement::scopeActive), regardless of whether the scheduled
+     * notification command has run yet, and only the fields the bar displays:
+     * who created it and when it was notified stay internal.
      */
     public function active()
     {
-        return response()->json(Announcement::active()->latest('starts_at')->get());
+        return response()->json(
+            Announcement::active()
+                ->latest('starts_at')
+                ->latest('id')
+                ->get(['id', 'title', 'body', 'category', 'starts_at', 'expires_at', 'updated_at'])
+        );
     }
 
     public function store(Request $request)

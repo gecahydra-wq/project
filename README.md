@@ -82,7 +82,9 @@ The system emphasizes correctness of money movement, strict role permissions, a 
 - PDF and Excel report exports
 
 **Platform**
-- Global announcement system with scheduled publishing
+- **Site-wide announcement bar** — Super Admin announcements appear at the top of every page: the public storefront (guests included) and every tab of all four dashboards. Colour-coded by category (maintenance, update, policy, holiday, general), shown only between their start and expiry dates, dismissible per browser (an edited announcement shows again), and also delivered as an in-app notification. Scheduled announcements publish automatically.
+- **Password changes through Forgot password** — Buyers, Sellers and LGU Admins set a new password with the emailed reset link (`/reset-password`, with a live requirement checklist); only the Super Admin has an in-profile Change Password form.
+- **Profile pages for every role** — profile header with photo (and a cover photo for sellers), grouped, labelled sections, and a save bar that appears only when there are unsaved changes
 - Role-aware, database-driven Gemini AI assistant (English / Filipino / Cebuano) with auto-detection **and a manual language selector**
 
 ---
