@@ -449,6 +449,7 @@ abaimarket/
 - **Environment:** set `APP_ENV=production`, `APP_DEBUG=false`, a strong `APP_KEY`, and correct `APP_URL` / `FRONTEND_URL`.
 - **Database:** use MySQL in production; run `php artisan migrate --force` (never `migrate:fresh` against production data).
 - **Storage:** run `php artisan storage:link` so uploaded media (`storage/app/public`) is served from `public/storage`. For scale, switch `FILESYSTEM_DISK` to S3.
+- **Media upload limits:** photos and videos are both capped at **25 MB** (`ImageUploader::MAX_IMAGE_KB` / `MAX_VIDEO_KB`); the same rule covers profile and cover pictures. PHP's own defaults (`upload_max_filesize=2M`, `post_max_size=8M`) are lower than that and reject the request *before* Laravel runs — PHP then discards the body, so the app reports a missing-file error rather than a size error. The Dockerfile therefore writes `/etc/php/8.3/cli/conf.d/99-uploads.ini` with `upload_max_filesize=30M`, `post_max_size=60M` and `memory_limit=256M`. Any other host needs the same `php.ini` values, kept above the 25 MB ceiling so the application returns its own message.
 - **Caching:** `php artisan config:cache` and `route:cache` after each deploy.
 - **Scheduler & queues:** add `schedule:run` to cron (for announcements). `QUEUE_CONNECTION` defaults to `database`; run `php artisan queue:work` if you move mail/notifications onto the queue.
 - **CORS / Sanctum:** ensure the frontend origin is allowed and `FRONTEND_URL` is correct for OAuth and email links.
