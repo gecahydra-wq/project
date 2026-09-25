@@ -2726,12 +2726,9 @@ function SellerDashboard() {
       }
       return created
     },
-    onSuccess: (listing) => {
+    onSuccess: () => {
       clearStagedImages()
       setForm(EMPTY_LISTING_FORM)
-      // Open the new listing in the edit popup so more photos can be attached
-      // right away -- the same convenience the old inline edit view gave.
-      setEditingListingId(listing.id)
       queryClient.invalidateQueries({ queryKey: ['seller-dashboard'] })
     },
   })
