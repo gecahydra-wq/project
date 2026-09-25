@@ -12,9 +12,9 @@ class ImageUploader
 
     public const VIDEO_MIMES = ['video/mp4', 'video/quicktime', 'video/webm'];
 
-    public const MAX_IMAGE_KB = 5120;
+    public const MAX_IMAGE_KB = 25600;
 
-    public const MAX_VIDEO_KB = 102400;
+    public const MAX_VIDEO_KB = 25600;
 
     public static function store(UploadedFile $file, string $directory): string
     {
@@ -42,7 +42,7 @@ class ImageUploader
 
     public static function validationRules(): array
     {
-        return ['image', 'mimes:jpeg,jpg,png,webp', 'max:5120'];
+        return ['image', 'mimes:jpeg,jpg,png,webp', 'max:25600'];
     }
 
     /**
@@ -80,8 +80,8 @@ class ImageUploader
 
         if ($file->getSize() > $maxKb * 1024) {
             return $type === 'photo'
-                ? 'Images must be 5MB or smaller.'
-                : 'Videos must be 100MB or smaller.';
+                ? 'Images must be 25MB or smaller.'
+                : 'Videos must be 25MB or smaller.';
         }
 
         return null;

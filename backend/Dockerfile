@@ -26,6 +26,18 @@ RUN apt-get update && apt-get install -y \
     php8.3-pgsql \
     && rm -rf /var/lib/apt/lists/*
 
+# PHP ships with upload_max_filesize=2M / post_max_size=8M, which silently
+# truncates media uploads long before ImageUploader gets to validate them:
+# PHP discards the whole request body, so Laravel sees an empty form and
+# reports "a post needs some text or at least one photo" rather than a size
+# error. These sit above ImageUploader's 25MB ceiling so the application
+# returns its own clear message instead.
+RUN { \
+      echo "upload_max_filesize = 30M"; \
+      echo "post_max_size = 60M"; \
+      echo "memory_limit = 256M"; \
+    } > /etc/php/8.3/cli/conf.d/99-uploads.ini
+
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 COPY composer.json composer.lock ./

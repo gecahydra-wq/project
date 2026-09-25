@@ -2651,7 +2651,7 @@ class FishMarketApiTest extends TestCase
         ])->assertStatus(422);
 
         $this->postJson('/api/buyer/profile/picture', [
-            'photo' => UploadedFile::fake()->image('too-big.jpg')->size(6000),
+            'photo' => UploadedFile::fake()->image('too-big.jpg')->size(26000),
         ])->assertStatus(422);
     }
 

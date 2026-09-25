@@ -1107,7 +1107,7 @@ function ListingEditModal({ listing, onClose }) {
       {updateListing.error && <p className="error">{updateListing.error.response?.data?.message || 'Could not save listing.'}</p>}
       <div className="modal-section">
         <h4>Listing Photos &amp; Videos</h4>
-        <p className="helper-text">Upload up to 5 photos or videos (JPG, PNG, WEBP up to 5MB; MP4, MOV, WEBM up to 100MB). The first item is used as the primary image in the marketplace.</p>
+        <p className="helper-text">Upload up to 5 photos or videos (JPG, PNG, WEBP up to 25MB; MP4, MOV, WEBM up to 25MB). The first item is used as the primary image in the marketplace.</p>
         <ListingImageManager
           listingId={listing.id}
           media={listing.media || []}
@@ -2806,7 +2806,7 @@ function SellerDashboard() {
           {canManageListings && (
             <Section title="Create Listing">
               <ListingDetailsFields form={form} setForm={setForm} />
-              <p className="helper-text">Add up to 5 photos or videos (JPG, PNG, WEBP up to 5MB; MP4, MOV, WEBM up to 100MB). They&apos;ll be uploaded when you save the listing.</p>
+              <p className="helper-text">Add up to 5 photos or videos (JPG, PNG, WEBP up to 25MB; MP4, MOV, WEBM up to 25MB). They&apos;ll be uploaded when you save the listing.</p>
               <StagedImagePicker files={stagedImages} onAdd={addStagedImages} onRemove={removeStagedImage} />
               <p className="helper-text">Listings are posted automatically under your registered municipality, {dashboard.data?.seller?.municipality?.name || 'your account municipality'}.</p>
               <button onClick={() => saveListing.mutate()} type="button" disabled={saveListing.isPending}>{saveListing.isPending ? 'Saving...' : 'Save Listing'}</button>
