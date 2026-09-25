@@ -4998,7 +4998,8 @@ function MunicipalityCreateForm() {
 function SuperAdminDashboard() {
   const [searchParams] = useSearchParams()
   const tab = searchParams.get('tab') || 'overview'
-  const [lguForm, setLguForm] = useState({ name: '', email: '', password: '', municipality_id: '' })
+  const [lguForm, setLguForm] = useState({ name: '', email: '', password: '', password_confirmation: '', municipality_id: '' })
+  const [showLguPasswords, setShowLguPasswords] = useState(false)
   const [lguFormError, setLguFormError] = useState('')
   const [visibleNotificationIds, setVisibleNotificationIds] = useState([])
   const dashboard = useQuery({
@@ -5088,7 +5089,7 @@ function SuperAdminDashboard() {
   const createLguAdmin = useMutation({
     mutationFn: async (payload) => (await api.post('/super-admin/lgu-admins', payload)).data,
     onSuccess: () => {
-      setLguForm({ name: '', email: '', password: '', municipality_id: '' })
+      setLguForm({ name: '', email: '', password: '', password_confirmation: '', municipality_id: '' })
       setLguFormError('')
       queryClient.invalidateQueries({ queryKey: ['super-admin-lgu-admins'] })
     },
@@ -5105,8 +5106,18 @@ function SuperAdminDashboard() {
       setLguFormError(pwError)
       return
     }
+    if (lguForm.password !== lguForm.password_confirmation) {
+      setLguFormError('The passwords do not match.')
+      return
+    }
     setLguFormError('')
-    createLguAdmin.mutate({ ...lguForm, email: (lguForm.email || '').trim() })
+    // password_confirmation is a UI-only guard; the API takes just the password.
+    createLguAdmin.mutate({
+      name: lguForm.name,
+      email: (lguForm.email || '').trim(),
+      password: lguForm.password,
+      municipality_id: lguForm.municipality_id,
+    })
   }
   const updateLguAdmin = useMutation({
     mutationFn: async ({ id, payload }) => (await api.patch(`/super-admin/lgu-admins/${id}`, payload)).data,
@@ -5403,13 +5414,16 @@ function SuperAdminDashboard() {
             <div className="form grid-form">
               <input value={lguForm.name} onChange={(e) => setLguForm({ ...lguForm, name: e.target.value })} placeholder="Full name" />
               <input value={lguForm.email} onChange={(e) => setLguForm({ ...lguForm, email: e.target.value })} placeholder="Email" />
-              <input value={lguForm.password} onChange={(e) => setLguForm({ ...lguForm, password: stripSpaces(e.target.value) })} onKeyDown={blockSpaceKey} type="password" placeholder="Temporary password" />
+              <input value={lguForm.password} onChange={(e) => setLguForm({ ...lguForm, password: stripSpaces(e.target.value) })} onKeyDown={blockSpaceKey} type={showLguPasswords ? 'text' : 'password'} placeholder="Temporary password" />
+              <input value={lguForm.password_confirmation} onChange={(e) => setLguForm({ ...lguForm, password_confirmation: stripSpaces(e.target.value) })} onKeyDown={blockSpaceKey} type={showLguPasswords ? 'text' : 'password'} placeholder="Confirm temporary password" />
               <select value={lguForm.municipality_id} onChange={(e) => setLguForm({ ...lguForm, municipality_id: e.target.value })}>
                 <option value="">Select municipality</option>
                 {(municipalitiesQuery.data || []).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
               </select>
             </div>
+            <PasswordVisibilityToggle shown={showLguPasswords} onToggle={() => setShowLguPasswords(!showLguPasswords)} />
             <p className="helper-text">{PASSWORD_HELP}</p>
+            <p className="helper-text">Give this temporary password to the LGU Admin directly. It is stored as a one-way hash, so it can never be read back from this page -- if it is lost, the account has to reset it through Forgot Password.</p>
             <button type="button" onClick={submitLguAdmin}>Create LGU Admin</button>
             {lguFormError && <p className="error">{lguFormError}</p>}
             {createLguAdmin.error && <p className="error">{apiErrorMessage(createLguAdmin.error, 'Could not create LGU admin.')}</p>}
