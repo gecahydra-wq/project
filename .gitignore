@@ -3,3 +3,6 @@ documentation/
 
 # Local Claude Code settings and session data.
 .claude/
+
+# Design mockups (static HTML references for Figma). Kept locally, not published.
+figma/
