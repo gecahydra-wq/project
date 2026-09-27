@@ -225,6 +225,24 @@ class OrderController extends Controller
             return response()->json(['message' => "This order is already {$previousStatus} and can no longer be changed."], 422);
         }
 
+        // Advancing an unpaid order is a one-way trap: once it leaves 'placed',
+        // checkout() refuses it (so the buyer can never pay) and
+        // orders:expire-unpaid stops seeing it (so it never expires or
+        // restocks), leaving it to run all the way to 'completed' and into the
+        // LGU earnings flow with no money captured.
+        //
+        // The test is the PAYMENT, not the order status: money reaching escrow
+        // is what markOrderPaid records, and an order whose payment never got
+        // there has nothing to fulfil regardless of what its own status says.
+        // Cancelling stays allowed -- that is how a seller declines an order.
+        $paymentCaptured = in_array($order->payment?->status, ['paid_held', 'released'], true);
+
+        if ($statusChanged && $data['status'] !== 'cancelled' && ! $paymentCaptured) {
+            return response()->json([
+                'message' => 'This order has not been paid yet. You can only cancel it until the buyer completes payment.',
+            ], 422);
+        }
+
         if ($statusChanged && $data['status'] === 'cancelled') {
             OrderCancellation::cancel($order);
 
@@ -360,10 +378,20 @@ class OrderController extends Controller
     }
 
     /**
-     * Buyer returned from a declined/abandoned PayMongo checkout. Marks the
-     * payment and order 'failed' and restocks the reserved quantity (reversing
-     * the decrement from store()), so a failed payment never permanently eats
-     * stock. Guarded against double-processing.
+     * Buyer returned from a declined or abandoned PayMongo checkout.
+     *
+     * This deliberately does NOT fail the order. Abandoning a checkout is not
+     * the same as deciding not to buy -- a declined card, a closed tab or a
+     * lost connection all land here -- so the order stays 'placed' and
+     * payable, and the reserved stock stays reserved, until the payment window
+     * closes. orders:expire-unpaid is the single place an unpaid order is
+     * failed and its stock returned; letting this endpoint do it too was what
+     * made an abandoned checkout unrecoverable.
+     *
+     * checkout() can be called again on a 'placed' order and mints a fresh
+     * PayMongo session, so no state needs resetting here. An order whose
+     * window has already closed is left for the scheduler rather than being
+     * failed inline, so expiry keeps happening in exactly one place.
      */
     public function markPaymentCancelled(Request $request, Order $order)
     {
@@ -372,25 +400,28 @@ class OrderController extends Controller
         }
 
         $payment = $order->payment;
-        // Only an order still waiting for payment -- never one that was paid
-        // (money captured) or already cancelled/failed (stock already back).
-        if ($payment && in_array($payment->status, OrderCancellation::UNPAID_PAYMENT_STATUSES, true) && $order->status === 'placed') {
-            $payment->update(['status' => 'failed']);
-            $order->update(['status' => 'failed']);
-            $order->listing()->increment('quantity', $order->quantity);
-        }
+        $stillPayable = $payment
+            && in_array($payment->status, OrderCancellation::UNPAID_PAYMENT_STATUSES, true)
+            && $order->status === 'placed';
 
-        $buyerNotification = $this->notifyOnce(
-            $order->buyer_id,
-            'payment_failed',
-            'Card payment declined',
-            "Your payment for order #{$order->order_number} was declined or expired. No funds were captured."
-        );
+        $buyerNotification = $stillPayable
+            ? $this->notifyOnce(
+                $order->buyer_id,
+                'payment_incomplete',
+                'Payment not completed',
+                "Your payment for order #{$order->order_number} was not completed. The order is still reserved for you -- you can pay for it from My Orders until it expires. No funds were captured."
+            )
+            : $this->notifyOnce(
+                $order->buyer_id,
+                'payment_failed',
+                'Card payment declined',
+                "Your payment for order #{$order->order_number} was declined or expired. No funds were captured."
+            );
 
         return response()->json([
             'order' => $order->fresh('payment'),
             'notification' => $buyerNotification,
-            'status' => 'failed',
+            'status' => $stillPayable ? 'payable' : $order->status,
         ]);
     }
 

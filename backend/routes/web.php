@@ -71,9 +71,11 @@ Route::get('/paymongo/cancelled', function () {
 
     return view('paymongo-return', [
         'status' => 'cancelled',
-        'title' => 'Payment Declined',
-        'headline' => 'Card payment declined',
-        'message' => 'The payment did not go through. Your order was marked failed and the reservation was released.',
+        'title' => 'Payment Not Completed',
+        'headline' => 'Payment not completed',
+        // The order is NOT failed here -- see OrderController::markPaymentCancelled.
+        // It stays reserved and payable until orders:expire-unpaid closes the window.
+        'message' => 'The payment did not go through. Your order is still reserved for you and you can pay for it from My Orders until the payment window closes.',
         'primary_label' => 'Return to Merchant',
         'primary_url' => $frontend.$merchant,
         'secondary_label' => 'Go Home',

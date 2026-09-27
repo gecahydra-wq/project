@@ -34,6 +34,29 @@ class Order extends Model
         'lgu_reviewed_at' => 'datetime',
     ];
 
+    protected $appends = ['payment_expires_at'];
+
+    /**
+     * When orders:expire-unpaid will fail this order if it is still unpaid,
+     * so the buyer can be shown how long they have left to pay. Null for any
+     * order that is no longer awaiting payment.
+     *
+     * Deliberately derived from status + created_at alone: this is appended to
+     * every serialised order, and touching the payment relation here would fire
+     * a query per row in the order tables.
+     */
+    public function getPaymentExpiresAtAttribute(): ?string
+    {
+        if ($this->status !== 'placed' || ! $this->created_at) {
+            return null;
+        }
+
+        return $this->created_at
+            ->copy()
+            ->addMinutes((int) config('services.paymongo.unpaid_order_timeout_minutes', 30))
+            ->toIso8601String();
+    }
+
     public function payment()
     {
         return $this->hasOne(MockPayment::class);

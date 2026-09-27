@@ -2028,12 +2028,15 @@ class FishMarketApiTest extends TestCase
             'provider' => 'paymongo',
         ]);
 
-        $this->postJson("/api/orders/{$cancelledOrder->order_number}/payment-cancelled")->assertOk()->assertJsonPath('status', 'failed');
+        // Abandoning checkout leaves the order payable rather than failing it;
+        // orders:expire-unpaid is what eventually fails it. See the dedicated
+        // test below for the full re-payment path.
+        $this->postJson("/api/orders/{$cancelledOrder->order_number}/payment-cancelled")->assertOk()->assertJsonPath('status', 'payable');
 
         $this->assertDatabaseHas('notifications', [
             'user_id' => $buyer->id,
-            'type' => 'payment_failed',
-            'title' => 'Card payment declined',
+            'type' => 'payment_incomplete',
+            'title' => 'Payment not completed',
         ]);
     }
 
@@ -3272,6 +3275,135 @@ class FishMarketApiTest extends TestCase
         $this->assertSame(900, (int) $listing->fresh()->quantity);
     }
 
+    public function test_abandoned_checkout_stays_payable_until_the_window_closes(): void
+    {
+        $buyer = $this->makeBuyer();
+        $listing = $this->makeListing($this->makeSeller(), ['quantity' => 900]);
+        $order = $this->makeOrder($buyer, $listing, ['status' => 'placed']);
+        $payment = $this->makePayment($order, ['status' => 'checkout_created']);
+        Sanctum::actingAs($buyer);
+
+        $this->postJson("/api/orders/{$order->order_number}/payment-cancelled")
+            ->assertOk()
+            ->assertJsonPath('status', 'payable');
+
+        // Still placed, and the stock stays reserved -- releasing it here would
+        // let someone else buy the fish this order is still entitled to.
+        $this->assertSame('placed', $order->fresh()->status);
+        $this->assertSame('checkout_created', $payment->fresh()->status);
+        $this->assertSame(900, (int) $listing->fresh()->quantity);
+
+        // The buyer is told how long they have.
+        $this->assertNotNull($order->fresh()->payment_expires_at);
+    }
+
+    public function test_cancelling_a_paid_order_refunds_it_outright_on_test_keys(): void
+    {
+        // Live keys keep the manual queue; sk_test_ has nothing to send back.
+        config()->set('services.paymongo.auto_refund', true);
+
+        $sellerProfile = $this->makeSeller();
+        $listing = $this->makeListing($sellerProfile, ['quantity' => 900]);
+        $buyer = $this->makeBuyer();
+        $order = $this->makeOrder($buyer, $listing, ['status' => 'paid']);
+        $payment = $this->makePayment($order, ['status' => 'paid_held']);
+
+        Sanctum::actingAs($sellerProfile->user);
+        $this->patchJson("/api/orders/{$order->id}/status", ['status' => 'cancelled'])->assertOk();
+
+        // Settled outright -- it never passes through the Super Admin queue.
+        $this->assertSame('refunded', $payment->fresh()->status);
+        $this->assertDatabaseMissing('notifications', ['type' => "refund_pending:{$payment->id}"]);
+        $this->assertDatabaseHas('notifications', ['user_id' => $buyer->id, 'title' => 'Refund sent']);
+
+        // Stock still comes back, and the log says the refund was automatic
+        // rather than pretending an admin issued it.
+        $this->assertSame(900 + (int) $order->quantity, (int) $listing->fresh()->quantity);
+        $this->assertDatabaseHas('payment_logs', ['payment_id' => $payment->id, 'event' => 'refund.completed']);
+        $this->assertTrue(
+            (bool) \App\Models\PaymentLog::where('payment_id', $payment->id)
+                ->where('event', 'refund.completed')
+                ->value('payload')['automatic']
+        );
+    }
+
+    public function test_cancelling_a_paid_order_still_queues_a_refund_on_live_keys(): void
+    {
+        config()->set('services.paymongo.auto_refund', false);
+
+        $sellerProfile = $this->makeSeller();
+        $order = $this->makeOrder($this->makeBuyer(), $this->makeListing($sellerProfile), ['status' => 'paid']);
+        $payment = $this->makePayment($order, ['status' => 'paid_held']);
+
+        Sanctum::actingAs($sellerProfile->user);
+        $this->patchJson("/api/orders/{$order->id}/status", ['status' => 'cancelled'])->assertOk();
+
+        $this->assertSame('refund_pending', $payment->fresh()->status);
+    }
+
+    public function test_a_seller_cannot_advance_an_unpaid_order(): void
+    {
+        $sellerProfile = $this->makeSeller();
+        $listing = $this->makeListing($sellerProfile, ['quantity' => 900]);
+        $buyer = $this->makeBuyer();
+        $order = $this->makeOrder($buyer, $listing, ['status' => 'placed']);
+        $this->makePayment($order, ['status' => 'checkout_created']);
+
+        Sanctum::actingAs($sellerProfile->user);
+
+        // Confirming an unpaid order would take it out of 'placed', locking the
+        // buyer out of checkout() and hiding it from orders:expire-unpaid.
+        foreach (['confirmed', 'in_transit', 'completed'] as $status) {
+            $this->patchJson("/api/orders/{$order->id}/status", ['status' => $status])
+                ->assertStatus(422)
+                ->assertJsonPath('message', 'This order has not been paid yet. You can only cancel it until the buyer completes payment.');
+        }
+
+        $this->assertSame('placed', $order->fresh()->status);
+
+        // Declining is still allowed, and gives the reserved stock back.
+        $this->patchJson("/api/orders/{$order->id}/status", ['status' => 'cancelled'])->assertOk();
+        $this->assertSame('cancelled', $order->fresh()->status);
+        $this->assertSame(900 + (int) $order->quantity, (int) $listing->fresh()->quantity);
+    }
+
+    public function test_a_seller_can_advance_an_order_once_it_is_paid(): void
+    {
+        $sellerProfile = $this->makeSeller();
+        $listing = $this->makeListing($sellerProfile, ['quantity' => 900]);
+        $order = $this->makeOrder($this->makeBuyer(), $listing, ['status' => 'paid']);
+        $this->makePayment($order, ['status' => 'paid_held']);
+
+        Sanctum::actingAs($sellerProfile->user);
+
+        $this->patchJson("/api/orders/{$order->id}/status", ['status' => 'confirmed'])->assertOk();
+        $this->assertSame('confirmed', $order->fresh()->status);
+    }
+
+    public function test_an_abandoned_order_expires_once_its_window_closes(): void
+    {
+        $buyer = $this->makeBuyer();
+        $listing = $this->makeListing($this->makeSeller(), ['quantity' => 900]);
+        $order = $this->makeOrder($buyer, $listing, ['status' => 'placed']);
+        $this->makePayment($order, ['status' => 'pending']);
+        Sanctum::actingAs($buyer);
+
+        $this->postJson("/api/orders/{$order->order_number}/payment-cancelled")->assertOk();
+
+        // Inside the window it survives a scheduler tick untouched.
+        $this->artisan('orders:expire-unpaid')->assertSuccessful();
+        $this->assertSame('placed', $order->fresh()->status);
+
+        // Past it, the scheduler -- not the cancel redirect -- fails the order
+        // and gives the reserved stock back.
+        $order->forceFill(['created_at' => now()->subMinutes(31)])->save();
+        $this->artisan('orders:expire-unpaid')->assertSuccessful();
+
+        $this->assertSame('failed', $order->fresh()->status);
+        $this->assertSame(900 + (int) $order->quantity, (int) $listing->fresh()->quantity);
+        $this->assertNull($order->fresh()->payment_expires_at);
+    }
+
     public function test_login_is_rate_limited_per_email(): void
     {
         $user = $this->makeBuyer();
@@ -3572,6 +3704,10 @@ class FishMarketApiTest extends TestCase
         $buyer = $this->makeBuyer();
         $listing = $this->makeListing($sellerProfile);
         $order = $this->makeOrder($buyer, $listing);
+        // Only a paid order can be advanced at all -- see the unpaid-order
+        // guard in OrderController::updateStatus. This test is about who may
+        // update an order, not about whether an unpaid one can move.
+        $this->makePayment($order, ['status' => 'paid_held']);
         Sanctum::actingAs($seller);
 
         $response = $this->patchJson("/api/orders/{$order->id}/status", ['status' => 'confirmed']);
@@ -4079,6 +4215,8 @@ class FishMarketApiTest extends TestCase
         $seller = $sellerProfile->user;
         $listing = $this->makeListing($sellerProfile);
         $order = $this->makeOrder($buyer, $listing, ['status' => 'in_transit']);
+        // Advancing an order requires its payment to have reached escrow.
+        $this->makePayment($order, ['status' => 'paid_held']);
 
         Sanctum::actingAs($seller);
         $this->patchJson("/api/orders/{$order->id}/status", ['status' => 'completed'])
@@ -4256,6 +4394,8 @@ class FishMarketApiTest extends TestCase
         $buyer = $this->makeBuyer();
         $listing = $this->makeListing($seller);
         $order = $this->makeOrder($buyer, $listing, ['status' => 'paid']);
+        // Advancing an order requires its payment to have reached escrow.
+        $this->makePayment($order, ['status' => 'paid_held']);
         Sanctum::actingAs($seller->user);
 
         $this->patchJson("/api/orders/{$order->id}/status", ['status' => 'confirmed'])->assertOk();
@@ -4274,6 +4414,8 @@ class FishMarketApiTest extends TestCase
         $buyer = $this->makeBuyer();
         $listing = $this->makeListing($seller);
         $order = $this->makeOrder($buyer, $listing, ['status' => 'in_transit']);
+        // Advancing an order requires its payment to have reached escrow.
+        $this->makePayment($order, ['status' => 'paid_held']);
         Sanctum::actingAs($seller->user);
 
         $this->patchJson("/api/orders/{$order->id}/status", ['status' => 'completed'])->assertOk();

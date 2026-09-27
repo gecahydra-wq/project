@@ -40,9 +40,31 @@ return [
         'secret_key' => env('PAYMONGO_SECRET_KEY'),
         'webhook_secret' => env('PAYMONGO_WEBHOOK_SECRET'),
 
+        // Refunds are normally issued by hand in the PayMongo dashboard and
+        // then recorded here (OrderCancellation::markRefunded). On TEST keys
+        // there are no live funds to send back and no admin worth chasing, so
+        // a queued refund completes itself and the buyer sees the whole
+        // cancel-to-refunded path without anyone leaving the app.
+        //
+        // Defaults on for sk_test_ only. Never inferred for live keys: a
+        // 'refunded' row there would claim money moved when none did. It is
+        // also off when no key is set, so the test suite keeps exercising the
+        // real manual queue.
+        'auto_refund' => (bool) env(
+            'PAYMONGO_AUTO_REFUND',
+            str_starts_with((string) env('PAYMONGO_SECRET_KEY'), 'sk_test_')
+        ),
+
         // Minutes an order may stay unpaid before orders:expire-unpaid fails
-        // it and releases its reserved stock.
-        'unpaid_order_timeout_minutes' => (int) env('ORDER_PAYMENT_TIMEOUT_MINUTES', 60),
+        // it and releases its reserved stock. The clock starts when the order
+        // is placed, and abandoning a PayMongo checkout no longer shortens it
+        // -- the buyer may return and pay until the window closes. Stock stays
+        // reserved for that whole window, so raising this holds a seller's
+        // stock out of circulation for longer.
+        //
+        // The scheduler ticks every five minutes (routes/console.php), so the
+        // effective window is this value plus up to 5 minutes.
+        'unpaid_order_timeout_minutes' => (int) env('ORDER_PAYMENT_TIMEOUT_MINUTES', 30),
 
         // Public HTTPS origin for listing photos shown on PayMongo's hosted
         // checkout page, e.g. https://your-app.ngrok-free.app or your deployed

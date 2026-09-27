@@ -298,7 +298,10 @@ const BADGE_TONES = {
   pending: 'warning',
   on_hold: 'warning',
   refund_pending: 'warning',
-  refunded: 'neutral',
+  // Green, not grey: a completed refund is a resolved good outcome for the
+  // buyer, the same class of event as 'released' or 'completed'. Grey read as
+  // "nothing happened here", which is the opposite of what it means.
+  refunded: 'success',
   rejected: 'danger',
   cancelled: 'danger',
   failed: 'danger',
@@ -324,6 +327,27 @@ function badgeTone(status) {
 const STATUS_LABELS = {
   in_transit: 'Out for Delivery',
   refund_pending: 'Refund Pending',
+}
+
+/**
+ * What the BUYER is told about payment, as [label, tone].
+ *
+ * The stored payment status tracks the ESCROW lifecycle: money captured
+ * ('paid_held'), then released to the seller once their LGU approves the
+ * earnings ('released'). That is the seller's concern. A buyer who has paid
+ * should read "Paid" and keep reading "Paid" -- showing them "Paid Held" until
+ * their LGU settles the order reads like they still owe something. The seller
+ * and Super Admin keep the raw escrow status (see OrderTable's paymentView).
+ */
+const BUYER_PAYMENT_VIEW = {
+  pending: ['Unpaid', 'warning'],
+  checkout_created: ['Unpaid', 'warning'],
+  paid_held: ['Paid', 'success'],
+  released: ['Paid', 'success'],
+  refund_pending: ['Refund Pending', 'warning'],
+  refunded: ['Refunded', 'success'],
+  failed: ['Not Paid', 'danger'],
+  cancelled: ['Not Paid', 'danger'],
 }
 
 function Badge({ status, tone, children }) {
@@ -2030,6 +2054,15 @@ function BuyerDashboard() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['buyer-dashboard'] }),
   })
   const handleReview = (orderId, { rating, title, comment }) => submitReview.mutateAsync({ orderId, rating, title, comment })
+
+  // Abandoning a PayMongo checkout no longer fails the order (see
+  // OrderController::markPaymentCancelled), so the buyer needs a way back in.
+  // /checkout mints a fresh PayMongo session for any order still 'placed'.
+  const resumePayment = useMutation({
+    mutationFn: async (orderId) => (await api.post(`/orders/${orderId}/checkout`)).data,
+    onSuccess: (data) => window.location.assign(data.checkout_url),
+    onError: () => queryClient.invalidateQueries({ queryKey: ['buyer-dashboard'] }),
+  })
   const updateBuyerProfile = useMutation({
     mutationFn: async (form) => (await api.patch('/buyer/profile', {
       name: form.name,
@@ -2083,8 +2116,24 @@ function BuyerDashboard() {
     >
       {tab === 'overview' && (
         <>
-          <StatsRow items={[['Active Orders', data?.active_orders ?? 0], ['Completed Orders', data?.completed_orders ?? 0], ['Unread Messages', data?.unread_messages ?? 0]]} />
-          <Section title="Recent Orders"><OrderTable rows={orders} onReview={handleReview} showPaymentStatus={false} showOrderDate /></Section>
+          <StatsRow items={[
+            ['Active Orders', data?.active_orders ?? 0, false, '/buyer/dashboard?tab=orders'],
+            ['Completed Orders', data?.completed_orders ?? 0, false, '/buyer/dashboard?tab=orders'],
+            ['Unread Messages', data?.unread_messages ?? 0, false, '/buyer/dashboard?tab=messages'],
+          ]}
+          />
+          {/* Mirrors the Seller Dashboard's Recent Orders: the five most recent,
+              expandable, with the full list a click away. The Orders tab below
+              is still where every order lives. */}
+          <Section title="Recent Orders" actions={<Link className="ghost" to="/buyer/dashboard?tab=orders">View All Orders</Link>}>
+            <OrderTable
+              rows={(orders || []).slice(0, 5)}
+              onReview={handleReview}
+              detailsEndpoint={(orderNumber) => `/orders/${orderNumber}`}
+              paymentView="buyer"
+              showOrderDate
+            />
+          </Section>
           <Section title="Notifications"><NotificationStack notifications={notifications.slice(0, 3)} onMarkRead={handleMarkRead} /></Section>
         </>
       )}
@@ -2099,9 +2148,11 @@ function BuyerDashboard() {
           <OrderTable
             rows={orders}
             onReview={handleReview}
+            onPay={(orderId) => resumePayment.mutate(orderId)}
+            payPendingOrderId={resumePayment.isPending ? resumePayment.variables : null}
             detailsEndpoint={(orderNumber) => `/orders/${orderNumber}`}
             initialExpandedOrderNumber={searchParams.get('order')}
-            showPaymentStatus={false}
+            paymentView="buyer"
             showOrderDate
           />
         </Section>
@@ -2794,7 +2845,23 @@ function SellerDashboard() {
               </p>
             </div>
           )}
-          <StatsRow items={[['Active Listings', dashboard.data?.active_listings ?? 0], ['Pending Orders', dashboard.data?.pending_orders ?? 0], ['Total Sales', currency(dashboard.data?.total_sales ?? 0)], ['Unread Messages', dashboard.data?.unread_messages ?? 0]]} />
+          <StatsRow items={[
+            ['Active Listings', dashboard.data?.active_listings ?? 0, false, '/seller/dashboard?tab=listings'],
+            ['Pending Orders', dashboard.data?.pending_orders ?? 0, false, '/seller/dashboard?tab=orders'],
+            ['Total Sales', currency(dashboard.data?.total_sales ?? 0), false, '/seller/dashboard?tab=analytics'],
+            ['Unread Messages', dashboard.data?.unread_messages ?? 0, false, '/seller/dashboard?tab=messages'],
+          ]}
+          />
+          {/* The seller's counterpart to the Buyer Dashboard's Recent Orders:
+              the same table, told from the other side of the transaction. */}
+          <Section title="Recent Orders" actions={<Link className="ghost" to="/seller/dashboard?tab=orders">View All Orders</Link>}>
+            <OrderTable
+              rows={(dashboard.data?.orders || []).slice(0, 5)}
+              counterparty="buyer"
+              detailsEndpoint={(orderNumber) => `/orders/${orderNumber}`}
+              showOrderDate
+            />
+          </Section>
         </>
       )}
       {tab === 'marketplace' && (
@@ -3149,8 +3216,14 @@ function SellerProfileForm({ seller, onSave, saving, success, error }) {
   )
 }
 
+/* 'placed' is the UNPAID state -- an order only becomes 'paid' once money is
+   in escrow (OrderController::markOrderPaid). Confirming from here used to be
+   offered and would strand the order: it leaves 'placed', so the buyer can no
+   longer check out and orders:expire-unpaid no longer sees it, and the order
+   runs to 'completed' with nothing captured. Cancelling is the only move a
+   seller has until the buyer pays; the API enforces the same rule. */
 const ORDER_STATUS_TRANSITIONS = {
-  placed: [['confirmed', 'Confirm Order'], ['cancelled', 'Cancel Order']],
+  placed: [['cancelled', 'Cancel Order']],
   paid: [['confirmed', 'Confirm Order'], ['cancelled', 'Cancel Order']],
   confirmed: [['in_transit', 'Mark Out for Delivery'], ['cancelled', 'Cancel Order']],
   in_transit: [['completed', 'Mark Completed'], ['cancelled', 'Cancel Order']],
@@ -3259,6 +3332,7 @@ function SellerOrderRow({ order, onUpdateStatus }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [rating, setRating] = useState(false)
+  const [showDetails, setShowDetails] = useState(false)
   const transitions = ORDER_STATUS_TRANSITIONS[order.status] || []
   // Mirrors the buyer's ReviewCell rules exactly, and the server enforces the
   // same two (completed only, once per order) in SellerController::rateBuyer.
@@ -3267,8 +3341,11 @@ function SellerOrderRow({ order, onUpdateStatus }) {
   const applyStatus = async (status) => {
     if (status === 'cancelled') {
       const paid = order.payment?.status === 'paid_held'
+      // Deliberately does not name the Super Admin: on test keys the refund
+      // settles immediately (services.paymongo.auto_refund) and never reaches
+      // their queue, so the wording has to be true either way.
       const message = paid
-        ? "Cancel this paid order? The stock goes back to your listing and the buyer's payment is sent to the Super Admin for a refund."
+        ? "Cancel this paid order? The stock goes back to your listing and the buyer's payment is refunded to them."
         : 'Cancel this order? The stock goes back to your listing. This cannot be undone.'
       if (!window.confirm(message)) return
     }
@@ -3284,7 +3361,7 @@ function SellerOrderRow({ order, onUpdateStatus }) {
   }
 
   return (
-    <div className={`card action${rating ? ' action-stacked' : ''}`}>
+    <div className={`card action${rating || showDetails ? ' action-stacked' : ''}`}>
       <div>
         <strong>{order.order_number}</strong>
         <p>
@@ -3293,7 +3370,22 @@ function SellerOrderRow({ order, onUpdateStatus }) {
           {formatQuantity(order.quantity, order.listing)} · {currency(order.total_amount)}
         </p>
         <p className="muted order-date-line"><CalendarDays size={14} /> Ordered {formatOrderDate(order.created_at)}</p>
-        <Badge status={order.status}>{statusChartLabel(order.status)}</Badge>
+        <span className="seller-order-badges">
+          <Badge status={order.status}>{statusChartLabel(order.status)}</Badge>
+          {/* The escrow lifecycle -- paid_held until this seller's LGU approves
+              the earnings, then released. This is the seller's money, so this
+              is where the raw status belongs; the buyer sees a plain
+              Paid/Unpaid instead (see BUYER_PAYMENT_VIEW). */}
+          {order.payment?.status && (
+            <Badge status={order.payment.status}>{statusChartLabel(order.payment.status)}</Badge>
+          )}
+        </span>
+        {order.payment?.status === 'paid_held' && order.status === 'completed' && (
+          <p className="muted">Delivered. Waiting for your LGU to approve the earnings before the payment is released.</p>
+        )}
+        {order.status === 'placed' && (
+          <p className="muted">Waiting for the buyer's payment. You can confirm this order once the payment is held in escrow.</p>
+        )}
         {order.buyerRating && (
           <p className="review-given">You rated this buyer: {renderStars(order.buyerRating.rating)} ({order.buyerRating.rating}/5)</p>
         )}
@@ -3308,8 +3400,16 @@ function SellerOrderRow({ order, onUpdateStatus }) {
         {canRateBuyer && !rating && (
           <button type="button" className="ghost" onClick={() => setRating(true)}><Star size={15} /> Rate Buyer</button>
         )}
-        {transitions.length === 0 && !canRateBuyer && !rating && <span className="muted">No further action</span>}
+        {/* GET /orders/{order_number} is scoped to the caller in
+            OrderController::show, so a seller reads their own listings' orders
+            through the very same endpoint and panel the buyer uses. */}
+        <button type="button" className="ghost" onClick={() => setShowDetails((open) => !open)}>
+          {showDetails ? 'Hide Details' : 'View Details'}
+        </button>
       </div>
+      {showDetails && (
+        <OrderTableDetailRow orderNumber={order.order_number} detailsEndpoint={(orderNumber) => `/orders/${orderNumber}`} />
+      )}
       {rating && (
         <BuyerRateOrderForm
           order={order}
@@ -6372,12 +6472,23 @@ function Dashboard({ title, subtitle, actions, children }) {
   return <div className="dashboard"><div className="dashboard-head"><div><p className="eyebrow">{subtitle}</p><h1>{title}</h1></div>{actions}</div>{children}</div>
 }
 
+/**
+ * items are [label, value, highlight?, to?]. A fourth entry turns that tile
+ * into a link to the tab it summarises -- the number on the overview is the
+ * obvious thing to click, and before this it was the one dead end on the page.
+ * Tiles without a destination render exactly as they always have.
+ */
 function StatsRow({ items }) {
-  return <div className="stats-grid">{items.map(([label, value, highlight]) => <Stat key={label} label={label} value={value} highlight={highlight} />)}</div>
+  return <div className="stats-grid">{items.map(([label, value, highlight, to]) => <Stat key={label} label={label} value={value} highlight={highlight} to={to} />)}</div>
 }
 
-function Stat({ value, label, highlight = false }) {
-  return <div className={highlight ? 'stat-card stat-card-highlight' : 'stat-card'}><strong>{value}</strong><span>{label}</span></div>
+function Stat({ value, label, highlight = false, to }) {
+  const className = `stat-card${highlight ? ' stat-card-highlight' : ''}${to ? ' stat-card-link' : ''}`
+  const body = <><strong>{value}</strong><span>{label}</span></>
+
+  return to
+    ? <Link className={className} to={to}>{body}</Link>
+    : <div className={className}>{body}</div>
 }
 
 function TopPerformerCard({ eyebrow, icon: Icon, performer }) {
@@ -6445,7 +6556,7 @@ function UserDirectoryList({ users, messageBasePath, emptyMessage = 'No users fo
  * once expanded, and renders it with OrderDetailPanel/OrderTimelineView
  * exactly like every other role's lookup view.
  */
-function OrderTableDetailRow({ orderNumber, detailsEndpoint }) {
+function OrderTableDetailRow({ orderNumber, detailsEndpoint, paymentView = 'escrow' }) {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['order-detail', detailsEndpoint, orderNumber],
     queryFn: async () => (await api.get(detailsEndpoint(orderNumber))).data,
@@ -6456,7 +6567,7 @@ function OrderTableDetailRow({ orderNumber, detailsEndpoint }) {
     <div className="order-table-detail-row">
       {isLoading && <LoadingState label="Loading order details..." />}
       {isError && <p className="error">Could not load order details.</p>}
-      {data && <OrderDetailPanel detail={data} />}
+      {data && <OrderDetailPanel detail={data} paymentView={paymentView} />}
     </div>
   )
 }
@@ -6465,19 +6576,29 @@ function OrderTableDetailRow({ orderNumber, detailsEndpoint }) {
  * The shared order list, used by the Buyer's own orders and the Super Admin's
  * platform-wide transactions.
  *
- * showPaymentStatus is off for the Buyer: the payment column reports the
- * escrow lifecycle (paid_held -> released), which tracks when the SELLER's
- * money is verified and released, not whether the buyer paid. A buyer who has
- * paid would otherwise sit at "Paid Held" until their LGU settles the order,
- * which reads like something is still owed. Their Order Status column already
- * says where the order actually is.
+ * paymentView picks WHOSE view of the payment the column shows. 'escrow' (the
+ * default, used by the Super Admin) is the raw lifecycle: paid_held ->
+ * released, i.e. when the SELLER's money is verified and released. 'buyer'
+ * collapses that to what the buyer actually needs -- Paid / Unpaid / Refunded
+ * -- because a buyer who has paid should not sit at "Paid Held" until their
+ * LGU settles the order, which reads like something is still owed. See
+ * BUYER_PAYMENT_VIEW.
+ *
+ * counterparty names the OTHER side of the transaction: 'seller' for a buyer
+ * or admin reading the table, 'buyer' for the seller's own Recent Orders,
+ * where the useful name is who bought it rather than who sold it.
  *
  * showOrderDate adds an Order Date column to the row itself. It is on for the
  * Buyer Dashboard's Recent Orders, where the date should be readable at a
  * glance without expanding anything; the expandable View Details panel and
  * every other caller are unchanged.
+ *
+ * onPay adds the Payment column: a buyer whose checkout was abandoned or
+ * declined keeps a reserved, payable order until its window closes, and this
+ * is the way back into PayMongo. Buyer Dashboard only -- the Super Admin's
+ * transaction list passes no handler and renders no column.
  */
-function OrderTable({ rows, onReview, detailsEndpoint, initialExpandedOrderNumber, showPaymentStatus = true, showOrderDate = false }) {
+function OrderTable({ rows, onReview, onPay, payPendingOrderId, detailsEndpoint, initialExpandedOrderNumber, showPaymentStatus = true, paymentView = 'escrow', counterparty = 'seller', showOrderDate = false }) {
   const [expandedOrderNumber, setExpandedOrderNumber] = useState(initialExpandedOrderNumber || null)
 
   const normalized = (rows || []).map((row) => {
@@ -6492,6 +6613,8 @@ function OrderTable({ rows, onReview, detailsEndpoint, initialExpandedOrderNumbe
       seller_name: hatcheryName || sellerPersonName || row.seller || 'Unknown seller',
       seller_contact_name: sellerPersonName && sellerPersonName !== hatcheryName ? sellerPersonName : null,
       seller_avatar: sellerProfile?.profile_picture || null,
+      buyer_name: row.buyer?.name || 'Unknown buyer',
+      buyer_avatar: row.buyer?.profile_picture || null,
       quantity: row.quantity,
       quantity_label: formatQuantity(row.quantity, row.listing),
       status: row.status,
@@ -6499,6 +6622,8 @@ function OrderTable({ rows, onReview, detailsEndpoint, initialExpandedOrderNumbe
       total_amount: row.total_amount || row.amount || 0,
       created_at: row.created_at || row.date || '',
       review: row.review || null,
+      // Appended by the Order model; null unless the order is awaiting payment.
+      payment_expires_at: row.payment_expires_at || null,
     }
   })
 
@@ -6511,11 +6636,12 @@ function OrderTable({ rows, onReview, detailsEndpoint, initialExpandedOrderNumbe
       <div className="table-row first">
         <span>Order Name</span>
         <span>Order #</span>
-        <span>Seller</span>
+        <span>{counterparty === 'buyer' ? 'Buyer' : 'Seller'}</span>
         <span>Qty</span>
         {showOrderDate && <span>Order Date</span>}
         <span>Status</span>
         {showPaymentStatus && <span>Payment</span>}
+        {onPay && <span>Payment</span>}
         {onReview && <span>Review</span>}
         {detailsEndpoint && <span>Details</span>}
       </div>
@@ -6524,10 +6650,17 @@ function OrderTable({ rows, onReview, detailsEndpoint, initialExpandedOrderNumbe
           <div className="table-row">
             <span>{row.order_name}</span>
             <span>{row.order_number}</span>
-            <span className="order-seller-cell">
-              <Avatar src={row.seller_avatar} alt={row.seller_name} className="order-seller-avatar" />
-              {row.seller_name}{row.seller_contact_name ? ` (${row.seller_contact_name})` : ''}
-            </span>
+            {counterparty === 'buyer' ? (
+              <span className="order-seller-cell">
+                <Avatar src={row.buyer_avatar} alt={row.buyer_name} className="order-seller-avatar" />
+                {row.buyer_name}
+              </span>
+            ) : (
+              <span className="order-seller-cell">
+                <Avatar src={row.seller_avatar} alt={row.seller_name} className="order-seller-avatar" />
+                {row.seller_name}{row.seller_contact_name ? ` (${row.seller_contact_name})` : ''}
+              </span>
+            )}
             <span>{row.quantity_label}</span>
             {showOrderDate && (
               <span className="order-date-cell">
@@ -6536,7 +6669,8 @@ function OrderTable({ rows, onReview, detailsEndpoint, initialExpandedOrderNumbe
               </span>
             )}
             <span><Badge status={row.status}>{statusChartLabel(row.status)}</Badge></span>
-            {showPaymentStatus && <span><Badge status={row.payment_status}>{statusChartLabel(row.payment_status)}</Badge></span>}
+            {showPaymentStatus && <span><PaymentStatusBadge status={row.payment_status} view={paymentView} /></span>}
+            {onPay && <PayCell row={row} onPay={onPay} pending={payPendingOrderId === row.orderId} />}
             {onReview && <ReviewCell row={row} onReview={onReview} />}
             {detailsEndpoint && (
               <span>
@@ -6547,7 +6681,7 @@ function OrderTable({ rows, onReview, detailsEndpoint, initialExpandedOrderNumbe
             )}
           </div>
           {detailsEndpoint && expandedOrderNumber === row.order_number && (
-            <OrderTableDetailRow orderNumber={row.order_number} detailsEndpoint={detailsEndpoint} />
+            <OrderTableDetailRow orderNumber={row.order_number} detailsEndpoint={detailsEndpoint} paymentView={paymentView} />
           )}
         </Fragment>
       ))}
@@ -6618,7 +6752,13 @@ function OrderTimelineView({ timeline }) {
  * verification / seller payout status simply aren't present in the payload
  * for Buyer/Seller, so no client-side role branching is needed here.
  */
-function OrderDetailPanel({ detail }) {
+/**
+ * paymentView matches OrderTable's: 'escrow' (default -- seller, LGU, Super
+ * Admin) shows the raw lifecycle, 'buyer' collapses it so a buyer reads "Paid"
+ * here exactly as they do in the column above. Display only, so it applies to
+ * every past order without touching a single stored row.
+ */
+function OrderDetailPanel({ detail, paymentView = 'escrow' }) {
   if (!detail) return null
   return (
     <div className="order-detail-panel">
@@ -6631,7 +6771,7 @@ function OrderDetailPanel({ detail }) {
         {detail.municipality && <div className="order-detail-field"><span className="order-detail-field-label">Municipality</span><span>{detail.municipality.name}</span></div>}
         <div className="order-detail-field"><span className="order-detail-field-label">Quantity</span><span>{formatQuantity(detail.quantity, detail.listing)}</span></div>
         <div className="order-detail-field"><span className="order-detail-field-label">Total Amount</span><span className="price">{currency(detail.total_amount)}</span></div>
-        <div className="order-detail-field"><span className="order-detail-field-label">Payment Status</span><span><Badge status={detail.payment_status || 'pending'}>{statusChartLabel(detail.payment_status || 'pending')}</Badge></span></div>
+        <div className="order-detail-field"><span className="order-detail-field-label">Payment Status</span><span><PaymentStatusBadge status={detail.payment_status || 'pending'} view={paymentView} /></span></div>
         <div className="order-detail-field"><span className="order-detail-field-label">Order Status</span><span><Badge status={detail.order_status}>{statusChartLabel(detail.order_status)}</Badge></span></div>
         <div className="order-detail-field"><span className="order-detail-field-label">Delivery Status</span><span>{detail.delivery_status}</span></div>
         <div className="order-detail-field">
@@ -6670,6 +6810,51 @@ function OrderDetailPanel({ detail }) {
         <OrderTimelineView timeline={detail.timeline} />
       </div>
     </div>
+  )
+}
+
+/** One payment status, told from either the buyer's or the escrow's point of view. */
+function PaymentStatusBadge({ status, view }) {
+  if (view !== 'buyer') return <Badge status={status}>{statusChartLabel(status)}</Badge>
+  const [label, tone] = BUYER_PAYMENT_VIEW[status] || ['Unpaid', 'warning']
+  return <Badge tone={tone}>{label}</Badge>
+}
+
+/**
+ * The buyer's way back into a checkout they abandoned or that was declined.
+ * The order stays reserved and payable until payment_expires_at (the Order
+ * model derives it from ORDER_PAYMENT_TIMEOUT_MINUTES); after that
+ * orders:expire-unpaid fails it and returns the stock, the order leaves
+ * 'placed', and this cell stops offering to pay on its own.
+ *
+ * The countdown re-renders every 30s, not every second: this sits in a table
+ * that can carry many rows, and minute precision is all the label claims.
+ */
+function PayCell({ row, onPay, pending }) {
+  const expiresAtMs = row.payment_expires_at ? Date.parse(row.payment_expires_at) : null
+  const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    if (!expiresAtMs) return undefined
+    const timer = setInterval(() => setNow(Date.now()), 30000)
+    return () => clearInterval(timer)
+  }, [expiresAtMs])
+
+  if (row.status !== 'placed' || !expiresAtMs) return <span className="muted">&mdash;</span>
+
+  const minutesLeft = Math.floor((expiresAtMs - now) / 60000)
+  // The scheduler runs every five minutes, so an order can sit here briefly
+  // after its window closes. Say so rather than offering a payment that the
+  // API would refuse.
+  if (minutesLeft < 0) return <span className="muted">Expired</span>
+
+  return (
+    <span className="order-pay-cell">
+      <button type="button" onClick={() => onPay(row.orderId)} disabled={pending}>
+        {pending ? 'Opening...' : 'Pay Now'}
+      </button>
+      <small>{minutesLeft < 1 ? 'Less than a minute left' : `${minutesLeft} min left`}</small>
+    </span>
   )
 }
 
@@ -7331,7 +7516,9 @@ function PaymentCancelledPage() {
     acknowledge.mutate()
   }, [session, orderNumber, acknowledgedKey, acknowledge])
   if (!session) return <Navigate to="/login" replace />
-  return <main className="auth-page"><section className="result-card success-card"><p className="eyebrow">Payment Declined</p><h1>Card payment declined</h1><p>{orderNumber ? `Payment for order #${orderNumber} was declined or expired. The order is marked failed and your stock reservation has been restored.` : 'Your session is still active. You can continue browsing or try again.'}</p><div className="success-actions"><button className="button" type="button" onClick={() => navigate('/buyer/dashboard?tab=browse')}>Return to Merchant</button><Link className="ghost" to="/buyer/dashboard?tab=notifications">Open Notifications</Link></div></section></main>
+  // The order is NOT failed here -- markPaymentCancelled leaves it reserved and
+  // payable until its window closes, and My Orders carries the Pay Now button.
+  return <main className="auth-page"><section className="result-card success-card"><p className="eyebrow">Payment Not Completed</p><h1>Payment not completed</h1><p>{orderNumber ? `Payment for order #${orderNumber} was not completed. The order is still reserved for you — you can pay for it from My Orders until the payment window closes. No funds were captured.` : 'Your session is still active. You can continue browsing or try again.'}</p><div className="success-actions"><Link className="button" to="/buyer/dashboard?tab=orders">Go to My Orders</Link><button className="ghost" type="button" onClick={() => navigate('/buyer/dashboard?tab=browse')}>Return to Merchant</button></div></section></main>
 }
 
 function SellersPage() {

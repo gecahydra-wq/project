@@ -32,5 +32,9 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <!-- Pinned so the refund tests do not change meaning based on whether
+             the developer's .env happens to hold sk_test_ or sk_live_ keys.
+             The tests that cover automatic refunds set the config themselves. -->
+        <env name="PAYMONGO_AUTO_REFUND" value="false"/>
     </php>
 </phpunit>

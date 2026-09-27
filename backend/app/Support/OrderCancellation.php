@@ -69,13 +69,23 @@ class OrderCancellation
      */
     public static function queueRefund(MockPayment $payment, Order $order, string $event, string $reason): void
     {
-        $payment->update(['status' => self::REFUND_PENDING]);
-
         PaymentLog::create([
             'payment_id' => $payment->id,
             'event' => $event,
             'payload' => ['reason' => $reason],
         ]);
+
+        // On test keys nothing was really captured, so there is nothing for an
+        // admin to send back: finish the refund here rather than parking it in
+        // a queue nobody will work. See services.paymongo.auto_refund -- this
+        // never engages on live keys.
+        if (config('services.paymongo.auto_refund')) {
+            self::completeAutomaticRefund($payment, $order, $reason);
+
+            return;
+        }
+
+        $payment->update(['status' => self::REFUND_PENDING]);
 
         $amount = number_format((float) $payment->amount, 2);
 
@@ -91,6 +101,43 @@ class OrderCancellation
                 'body' => "Order #{$order->order_number} (₱{$amount}) needs a refund. {$reason} Refund it in PayMongo, then mark it refunded under Payouts.",
             ]);
         }
+    }
+
+    /**
+     * The test-mode counterpart of markRefunded: same end state, no admin.
+     *
+     * The PaymentLog payload records that this was automatic rather than
+     * inventing a reference number, and the activity log entry has no actor,
+     * so the audit trail never implies a person issued a refund they did not.
+     */
+    private static function completeAutomaticRefund(MockPayment $payment, Order $order, string $reason): void
+    {
+        $payment->update(['status' => self::REFUNDED]);
+
+        PaymentLog::create([
+            'payment_id' => $payment->id,
+            'event' => 'refund.completed',
+            'payload' => [
+                'automatic' => true,
+                'reason' => $reason,
+                'notes' => 'Completed automatically: PayMongo is on test keys, so no captured funds needed returning.',
+            ],
+        ]);
+
+        $amount = number_format((float) $payment->amount, 2);
+
+        self::notify($order->buyer_id, "refund_completed:{$payment->id}", 'Refund sent',
+            "Order #{$order->order_number} will not be fulfilled. Your payment of ₱{$amount} has been refunded to your original payment method.");
+
+        ActivityLog::record([
+            'actor_id' => null,
+            'actor_role' => null,
+            'action' => 'order_refunded',
+            'target_user_id' => $order->buyer_id,
+            'municipality_id' => $order->sellerProfile?->municipality_id,
+            'description' => sprintf('Refunded ₱%s for order #%s automatically (PayMongo test mode).',
+                $amount, $order->order_number),
+        ]);
     }
 
     /** Super Admin confirms the refund was sent through PayMongo. */
