@@ -20,11 +20,14 @@ use Illuminate\Support\Carbon;
  * fact; everything under 'projection' is clearly an estimate, and the UI
  * labels it as such. We never present a projection as realised earnings.
  *
- * The projection deliberately covers PIECE-priced purchases only. Survival
- * rate and a per-fish harvest value are meaningful for a count of fingerlings
- * and meaningless for kilograms or bulk sacks, so those purchases are reported
- * in the unit breakdown and excluded from the ROI maths rather than being
- * silently folded into a number that would not mean anything.
+ * The projection needs a COUNT OF FISH, because that is what a survival rate
+ * and a per-fish harvest value apply to. A piece-priced purchase is already a
+ * count. A bulk purchase is one too, as soon as the seller states how many fish
+ * are in a bulk -- listings.pieces_per_unit -- so those are converted and
+ * included. Anything the listing cannot turn into a count (a per-kilogram
+ * purchase, or a bulk listing whose seller never stated a count) stays in the
+ * unit breakdown and out of the ROI maths, and is counted in 'excluded_orders'
+ * so the UI can say so rather than silently under-reporting.
  */
 class BuyerInvestmentReport
 {
@@ -50,7 +53,7 @@ class BuyerInvestmentReport
         $harvestValue = self::clampValue($assumptions['harvest_value_per_piece'] ?? null);
 
         $completed = Order::query()
-            ->with(['listing:id,species,title,unit_type', 'sellerProfile:id,hatchery_name'])
+            ->with(['listing:id,species,title,unit_type,pieces_per_unit', 'sellerProfile:id,hatchery_name'])
             ->where('orders.buyer_id', $buyerId)
             ->where('orders.status', 'completed')
             ->whereBetween('orders.created_at', [$start, $end])
@@ -139,16 +142,20 @@ class BuyerInvestmentReport
     }
 
     /**
-     * The estimated return. Piece-priced purchases only -- see the class
-     * docblock. Returns zeroed figures (not nulls) when the farmer has bought
-     * nothing piece-priced, so the UI has nothing to special-case.
+     * The estimated return, over every purchase whose quantity can be resolved
+     * to a count of fish -- see the class docblock. Returns zeroed figures (not
+     * nulls) when none can, so the UI has nothing to special-case.
      */
     private static function projection($completed, float $survivalRate, float $harvestValue): array
     {
-        $pieceOrders = $completed->filter(fn ($order) => ($order->listing?->unit_type ?: 'piece') === 'piece');
+        // [order, fish count] for each purchase the projection can cover. A
+        // bulk order of 3 at 10 fish per bulk contributes 30.
+        $counted = $completed
+            ->map(fn ($order) => [$order, $order->listing?->piecesFor((int) $order->quantity)])
+            ->filter(fn ($pair) => $pair[1] !== null && $pair[1] > 0);
 
-        $pieces = (int) $pieceOrders->sum('quantity');
-        $invested = round((float) $pieceOrders->sum('total_amount'), 2);
+        $pieces = (int) $counted->sum(fn ($pair) => $pair[1]);
+        $invested = round((float) $counted->sum(fn ($pair) => (float) $pair[0]->total_amount), 2);
         $survivors = (int) floor($pieces * $survivalRate);
         $revenue = round($survivors * $harvestValue, 2);
         $return = round($revenue - $invested, 2);
@@ -165,7 +172,7 @@ class BuyerInvestmentReport
             'break_even_value_per_piece' => $survivors > 0 ? round($invested / $survivors, 2) : 0.0,
             // Purchases the projection could not cover, so the UI can say so
             // rather than quietly under-reporting.
-            'excluded_orders' => $completed->count() - $pieceOrders->count(),
+            'excluded_orders' => $completed->count() - $counted->count(),
         ];
     }
 

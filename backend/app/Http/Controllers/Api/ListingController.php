@@ -88,11 +88,22 @@ class ListingController extends Controller
             // The price of ONE unit_type unit -- per piece, per kilogram, or
             // per bulk, whichever the seller chose.
             'price_per_piece' => ['required', 'numeric', 'min:0.01'],
-            'unit_type' => ['nullable', Rule::in(array_keys(FingerlingListing::UNIT_TYPES))],
+            'unit_type' => ['nullable', Rule::in(FingerlingListing::SELECTABLE_UNIT_TYPES)],
             'minimum_order' => ['nullable', 'integer', 'min:1'],
             'unit_description' => ['nullable', 'string', 'max:255'],
+            // A bulk listing MUST say how many fish one bulk holds. Without it
+            // the buyer cannot tell what they are buying and the Turnout/ROI
+            // projection has to skip the purchase. Optional for kilogram, where
+            // a count is useful but not everyone can give one, and ignored for
+            // piece, where one unit is one fish by definition.
+            'pieces_per_unit' => [
+                Rule::requiredIf(fn () => $request->input('unit_type') === 'bulk'),
+                'nullable', 'integer', 'min:1', 'max:1000000',
+            ],
             'average_size' => ['nullable', 'string'],
             'availability_status' => ['nullable', 'string'],
+        ], [
+            'pieces_per_unit.required' => 'Tell buyers how many fish are in one bulk.',
         ]);
 
         $data['seller_profile_id'] = $seller->id;
@@ -124,11 +135,22 @@ class ListingController extends Controller
             'description' => ['nullable', 'string'],
             'quantity' => ['sometimes', 'integer', 'min:0'],
             'price_per_piece' => ['sometimes', 'numeric', 'min:0.01'],
-            'unit_type' => ['sometimes', Rule::in(array_keys(FingerlingListing::UNIT_TYPES))],
+            'unit_type' => ['sometimes', Rule::in(FingerlingListing::SELECTABLE_UNIT_TYPES)],
             'minimum_order' => ['sometimes', 'integer', 'min:1'],
             'unit_description' => ['nullable', 'string', 'max:255'],
+            // Required when this edit leaves the listing sold by bulk with no
+            // count on file -- either by switching it to bulk, or by editing a
+            // bulk listing created before this field existed. Deliberately not
+            // 'sometimes', which would let the rule be skipped by omitting it.
+            'pieces_per_unit' => [
+                Rule::requiredIf(fn () => $request->input('unit_type', $listing->unit_type) === 'bulk'
+                    && ! $listing->pieces_per_unit),
+                'nullable', 'integer', 'min:1', 'max:1000000',
+            ],
             'average_size' => ['nullable', 'string'],
             'availability_status' => ['nullable', 'string'],
+        ], [
+            'pieces_per_unit.required' => 'Tell buyers how many fish are in one bulk.',
         ]);
 
         $listing->update($data);

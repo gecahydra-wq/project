@@ -167,6 +167,8 @@ class CartController extends Controller
                 'unit_label_plural' => $listing->unit_label_plural,
                 'unit_type_label' => $listing->unit_type_label,
                 'unit_description' => $listing->unit_description,
+                'pieces_per_unit' => $listing->pieces_per_unit,
+                'unit_contents_label' => $listing->unit_contents_label,
                 'minimum_order' => $listing->minimumOrder(),
                 'approval_status' => $listing->approval_status,
                 'media' => $listing->media,

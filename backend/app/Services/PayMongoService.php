@@ -4,7 +4,9 @@ namespace App\Services;
 
 use App\Models\FingerlingListing;
 use App\Models\Order;
+use App\Support\PaymentReturnToken;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class PayMongoService
@@ -19,10 +21,14 @@ class PayMongoService
     {
         $secret = config('services.paymongo.secret_key');
         $frontend = rtrim(config('app.frontend_url', 'http://127.0.0.1:5173'), '/');
+        // Single-use token, so the buyer's return URL stops working once it has
+        // confirmed the payment instead of staying a replayable receipt in
+        // their history. See App\Support\PaymentReturnToken.
         $query = http_build_query([
             'order' => $order->order_number,
             'listing_id' => $order->listing_id,
             'role' => 'buyer',
+            't' => PaymentReturnToken::issue($order),
         ]);
         $successUrl = "{$frontend}/payment-success?{$query}";
         $cancelUrl = "{$frontend}/payment-cancelled?{$query}";
@@ -177,6 +183,58 @@ class PayMongoService
             ->contains(fn ($payment) => data_get($payment, 'attributes.status') === 'paid');
 
         return $paidPayment || data_get($attributes, 'payment_intent.attributes.status') === 'succeeded';
+    }
+
+    /**
+     * Kills a hosted checkout session so its checkout.paymongo.com URL stops
+     * accepting payments.
+     *
+     * The URL lives in the buyer's history and in any tab they left open, and
+     * PayMongo keeps serving it until the session is expired -- nothing on our
+     * side can take it down. Two things go wrong without this:
+     *
+     *  - a settled order's checkout page is still reachable after the buyer has
+     *    paid and been redirected home, and
+     *  - resuming payment mints a NEW session while the OLD one stays live, so
+     *    a buyer holding both URLs could pay for the same order twice (the
+     *    second payment lands as refund_pending and has to be refunded).
+     *
+     * Best effort by design: returns false rather than throwing, because every
+     * caller is finishing something more important (capturing a payment,
+     * cancelling an order) and must not fail if PayMongo is unreachable or
+     * refuses. PayMongo may decline to expire a session it has already
+     * collected on -- that is its call, not ours -- so the outcome is logged
+     * rather than asserted.
+     */
+    public function expireCheckoutSession(?string $checkoutSessionId): bool
+    {
+        $secret = config('services.paymongo.secret_key');
+        if (! $secret || ! $checkoutSessionId || Str::startsWith($checkoutSessionId, 'demo_')) {
+            return false;
+        }
+
+        try {
+            $response = Http::withBasicAuth($secret, '')->acceptJson()->timeout(15)
+                ->post("https://api.paymongo.com/v1/checkout_sessions/{$checkoutSessionId}/expire");
+        } catch (\Throwable $e) {
+            Log::warning('PayMongo checkout session could not be expired.', [
+                'checkout_session_id' => $checkoutSessionId,
+                'reason' => $e->getMessage(),
+            ]);
+
+            return false;
+        }
+
+        if (! $response->successful()) {
+            Log::warning('PayMongo refused to expire a checkout session.', [
+                'checkout_session_id' => $checkoutSessionId,
+                'status' => $response->status(),
+            ]);
+
+            return false;
+        }
+
+        return true;
     }
 
     /**

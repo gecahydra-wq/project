@@ -17,6 +17,7 @@ use App\Models\User;
 use App\Services\PayMongoService;
 use App\Support\OrderCancellation;
 use App\Support\OrderTransactionPresenter;
+use App\Support\PaymentReturnToken;
 use App\Support\SafeMailer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -181,12 +182,21 @@ class OrderController extends Controller
             'This order can no longer be paid. Please place a new order.'
         );
 
+        // Resuming payment mints a fresh session, so retire the previous one
+        // first. Left alive, the old checkout.paymongo.com URL stays payable
+        // and a buyer holding both could pay for this order twice.
+        $previousSession = $order->payment?->provider_reference;
+
         $checkout = $payMongo->createCheckoutSession($order->load('listing'));
         $order->payment()->update([
             'provider_reference' => $checkout['id'],
             'checkout_url' => $checkout['checkout_url'],
             'status' => $checkout['mode'] === 'demo' ? 'paid_held' : 'checkout_created',
         ]);
+
+        if ($previousSession && $previousSession !== $checkout['id']) {
+            $payMongo->expireCheckoutSession($previousSession);
+        }
 
         return response()->json([
             'order' => $order->fresh('payment'),
@@ -377,6 +387,28 @@ class OrderController extends Controller
 
         abort_if($request->user()->status === 'suspended', 403, 'Your account has been suspended and cannot make payments. Contact support for assistance.');
 
+        // The return URL carries a single-use token, burned here on first use.
+        // Order matters: a spent token must never stop us capturing money that
+        // is not in escrow yet, because this redirect is a capture path in its
+        // own right and not only a receipt. So we reject a replay only once the
+        // payment is demonstrably already settled -- at which point there is
+        // nothing left to confirm and re-running markOrderPaid() would just add
+        // a duplicate PaymentLog row against a closed payment.
+        // Judged on the PAYMENT, never the order. An order that expired or was
+        // cancelled while its payment was still open is exactly the case where
+        // a late arrival has to reach markOrderPaid() so it can be queued for
+        // refund -- treating that order as "done" would silently swallow money.
+        $firstUse = PaymentReturnToken::consume($order, $request->input('t'));
+        $settled = in_array($order->payment?->status, ['paid_held', 'released', OrderCancellation::REFUND_PENDING, OrderCancellation::REFUNDED], true);
+
+        if (! $firstUse && $settled) {
+            return response()->json([
+                'order' => $order->fresh('payment'),
+                'status' => 'already_confirmed',
+                'message' => 'This payment link has already been used. Your order is in My Orders.',
+            ], 410);
+        }
+
         // Anyone can open the success URL, so for a real PayMongo checkout ask
         // PayMongo whether it was actually paid. Demo mode (no secret key) has
         // no session to check and keeps working as before.
@@ -421,6 +453,18 @@ class OrderController extends Controller
         }
 
         $payment = $order->payment;
+
+        // Same replay problem as the success link: re-opening an old cancel URL
+        // for an order that has since been paid would notify the buyer that
+        // their card was "declined" long after the money reached escrow.
+        if ($payment && ! in_array($payment->status, OrderCancellation::UNPAID_PAYMENT_STATUSES, true)) {
+            return response()->json([
+                'order' => $order->fresh('payment'),
+                'status' => 'already_confirmed',
+                'message' => 'This payment link has already been used. Your order is in My Orders.',
+            ], 410);
+        }
+
         $stillPayable = $payment
             && in_array($payment->status, OrderCancellation::UNPAID_PAYMENT_STATUSES, true)
             && $order->status === 'placed';
@@ -480,7 +524,16 @@ class OrderController extends Controller
         $isNewlyPaid = $payment && ! in_array($payment->status, ['paid_held', 'released', OrderCancellation::REFUND_PENDING, OrderCancellation::REFUNDED], true);
 
         if ($isNewlyPaid) {
-            $payment->update(['status' => 'paid_held']);
+            // Retire the hosted checkout page along with the payment. The
+            // checkout.paymongo.com URL is in the buyer's history and stays
+            // live on PayMongo's side until it is expired, so without this the
+            // page for a paid -- even delivered -- order is still reachable.
+            // Best effort: expireCheckoutSession() never throws, and PayMongo
+            // may decline to expire a session it has collected on. We also drop
+            // our stored copy so nothing here can hand the URL out again.
+            app(PayMongoService::class)->expireCheckoutSession($payment->provider_reference);
+
+            $payment->update(['status' => 'paid_held', 'checkout_url' => null]);
         }
 
         if (! in_array($order->status, ['paid', 'confirmed', 'in_transit', 'completed'], true)) {

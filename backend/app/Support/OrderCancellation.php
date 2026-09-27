@@ -7,6 +7,7 @@ use App\Models\MockPayment;
 use App\Models\Order;
 use App\Models\PaymentLog;
 use App\Models\User;
+use App\Services\PayMongoService;
 
 /**
  * The single place an order that will never be fulfilled is wound down, so
@@ -45,6 +46,7 @@ class OrderCancellation
         }
 
         if ($payment && in_array($payment->status, self::UNPAID_PAYMENT_STATUSES, true)) {
+            self::closeCheckoutPage($payment);
             $payment->update(['status' => 'cancelled']);
         }
 
@@ -55,12 +57,35 @@ class OrderCancellation
     /** An unpaid order passed its payment window (orders:expire-unpaid). */
     public static function expire(Order $order): void
     {
+        self::closeCheckoutPage($order->payment);
         $order->payment?->update(['status' => 'failed']);
         $order->update(['status' => 'failed']);
         self::restock($order);
 
         self::notify($order->buyer_id, 'order_expired', 'Order expired',
             "Order #{$order->order_number} was not paid in time, so it was cancelled and the reserved stock was released. No payment was captured.");
+    }
+
+    /**
+     * Retire the hosted PayMongo checkout page for a payment that will never
+     * be collected, and drop our stored copy of its URL.
+     *
+     * The checkout.paymongo.com link is not ours to take down -- it stays live
+     * and payable until the session is expired -- so an order that expired or
+     * was cancelled would otherwise leave a working payment page behind, and
+     * any money paid through it would arrive for a closed order and have to be
+     * refunded. Best effort: expireCheckoutSession() logs and returns false
+     * rather than throwing, because closing the order matters more than
+     * reaching PayMongo.
+     */
+    private static function closeCheckoutPage(?MockPayment $payment): void
+    {
+        if (! $payment) {
+            return;
+        }
+
+        app(PayMongoService::class)->expireCheckoutSession($payment->provider_reference);
+        $payment->update(['checkout_url' => null]);
     }
 
     /**

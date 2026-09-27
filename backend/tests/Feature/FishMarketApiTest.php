@@ -27,6 +27,7 @@ use App\Models\ModerationLog;
 use App\Models\MockPayment;
 use App\Models\Municipality;
 use App\Models\Order;
+use App\Models\PaymentLog;
 use App\Models\Review;
 use App\Models\SellerNotice;
 use App\Models\SellerProfile;
@@ -34,6 +35,7 @@ use App\Models\Settlement;
 use App\Models\User;
 use App\Models\WithdrawalRequest;
 use App\Support\CommissionCalculator;
+use App\Support\PaymentReturnToken;
 use App\Support\SellerApproval;
 use App\Support\SellerReputation;
 use Database\Seeders\DatabaseSeeder;
@@ -3272,7 +3274,10 @@ class FishMarketApiTest extends TestCase
         $payment = $this->makePayment($order, ['status' => 'paid_held']);
         Sanctum::actingAs($buyer);
 
-        $this->postJson("/api/orders/{$order->order_number}/payment-cancelled")->assertOk();
+        // 410: the return link is spent, so there is no decline left to record.
+        $this->postJson("/api/orders/{$order->order_number}/payment-cancelled")
+            ->assertStatus(410)
+            ->assertJsonPath('status', 'already_confirmed');
 
         $this->assertSame('paid', $order->fresh()->status);
         $this->assertSame('paid_held', $payment->fresh()->status);
@@ -4430,12 +4435,178 @@ class FishMarketApiTest extends TestCase
 
         // The frontend calls this after PayMongo's redirect, and the
         // webhook can also fire for the same payment -- only the first
-        // transition into paid_held should trigger a receipt email.
+        // transition into paid_held should trigger a receipt email. The second
+        // call is now refused outright as a spent return link.
         $this->postJson("/api/orders/{$order->order_number}/payment-success")->assertOk();
-        $this->postJson("/api/orders/{$order->order_number}/payment-success")->assertOk();
+        $this->postJson("/api/orders/{$order->order_number}/payment-success")->assertStatus(410);
 
         Mail::assertSent(PaymentReceiptMail::class, 1);
         Mail::assertSent(NewOrderReceivedMail::class, 1);
+    }
+
+    public function test_the_hosted_checkout_page_is_expired_once_the_payment_is_captured(): void
+    {
+        config(['services.paymongo.secret_key' => 'sk_test_fake']);
+        Http::fake([
+            'api.paymongo.com/v1/checkout_sessions/cs_test_paid' => Http::response(['data' => [
+                'attributes' => ['payments' => [['attributes' => ['status' => 'paid']]]],
+            ]]),
+            'api.paymongo.com/*' => Http::response([]),
+        ]);
+
+        $seller = $this->makeSeller();
+        $buyer = $this->makeBuyer();
+        $listing = $this->makeListing($seller);
+        $order = $this->makeOrder($buyer, $listing);
+        $payment = $this->makePayment($order, [
+            'status' => 'checkout_created',
+            'provider_reference' => 'cs_test_paid',
+            'checkout_url' => 'https://checkout.paymongo.com/cs_test_paid',
+        ]);
+        Sanctum::actingAs($buyer);
+
+        $this->postJson("/api/orders/{$order->order_number}/payment-success", [
+            't' => PaymentReturnToken::issue($order),
+        ])->assertOk()->assertJsonPath('status', 'success');
+
+        // The buyer's checkout.paymongo.com page is not ours to take down, so
+        // it has to be expired through PayMongo, or it stays payable forever.
+        Http::assertSent(fn ($request) => $request->method() === 'POST'
+            && $request->url() === 'https://api.paymongo.com/v1/checkout_sessions/cs_test_paid/expire');
+
+        // ...and we stop holding a copy of the dead URL.
+        $this->assertSame('paid_held', $payment->fresh()->status);
+        $this->assertNull($payment->fresh()->checkout_url);
+    }
+
+    public function test_resuming_payment_expires_the_previous_checkout_page(): void
+    {
+        config(['services.paymongo.secret_key' => 'sk_test_fake']);
+        Http::fake([
+            'api.paymongo.com/v1/checkout_sessions' => Http::response(['data' => [
+                'id' => 'cs_test_second',
+                'attributes' => ['checkout_url' => 'https://checkout.paymongo.com/cs_test_second'],
+            ]]),
+            'api.paymongo.com/*' => Http::response([]),
+        ]);
+
+        $seller = $this->makeSeller();
+        $buyer = $this->makeBuyer();
+        $listing = $this->makeListing($seller);
+        $order = $this->makeOrder($buyer, $listing);
+        $this->makePayment($order, [
+            'status' => 'checkout_created',
+            'provider_reference' => 'cs_test_first',
+            'checkout_url' => 'https://checkout.paymongo.com/cs_test_first',
+        ]);
+        Sanctum::actingAs($buyer);
+
+        // NB: the checkout route binds by id, not order_number.
+        $this->postJson("/api/orders/{$order->id}/checkout")->assertOk();
+
+        // Two live sessions for one order would let the buyer pay twice, so the
+        // abandoned one is retired as the replacement is minted.
+        Http::assertSent(fn ($request) => $request->method() === 'POST'
+            && $request->url() === 'https://api.paymongo.com/v1/checkout_sessions/cs_test_first/expire');
+        $this->assertSame('cs_test_second', $order->payment->fresh()->provider_reference);
+    }
+
+    public function test_an_expired_unpaid_order_takes_its_checkout_page_down_with_it(): void
+    {
+        config([
+            'services.paymongo.secret_key' => 'sk_test_fake',
+            'services.paymongo.unpaid_order_timeout_minutes' => 30,
+        ]);
+        Http::fake([
+            // Unpaid, so the scheduler is allowed to expire the order.
+            'api.paymongo.com/v1/checkout_sessions/cs_test_stale' => Http::response(['data' => [
+                'attributes' => ['payments' => []],
+            ]]),
+            'api.paymongo.com/*' => Http::response([]),
+        ]);
+
+        $seller = $this->makeSeller();
+        $buyer = $this->makeBuyer();
+        $listing = $this->makeListing($seller);
+        $order = $this->makeOrder($buyer, $listing);
+        $payment = $this->makePayment($order, [
+            'status' => 'checkout_created',
+            'provider_reference' => 'cs_test_stale',
+            'checkout_url' => 'https://checkout.paymongo.com/cs_test_stale',
+        ]);
+        // created_at is not fillable, so push it past the payment window here.
+        $order->forceFill(['created_at' => now()->subMinutes(90)])->save();
+
+        $this->artisan('orders:expire-unpaid')->assertExitCode(0);
+
+        $this->assertSame('failed', $order->fresh()->status);
+        Http::assertSent(fn ($request) => $request->method() === 'POST'
+            && $request->url() === 'https://api.paymongo.com/v1/checkout_sessions/cs_test_stale/expire');
+        $this->assertNull($payment->fresh()->checkout_url);
+    }
+
+    public function test_a_payment_return_link_is_single_use_once_the_payment_is_settled(): void
+    {
+        $seller = $this->makeSeller();
+        $buyer = $this->makeBuyer();
+        $listing = $this->makeListing($seller);
+        $order = $this->makeOrder($buyer, $listing);
+        $payment = $this->makePayment($order);
+        Sanctum::actingAs($buyer);
+
+        $token = PaymentReturnToken::issue($order);
+
+        // First trip back from PayMongo: the token is valid and is burned.
+        $this->postJson("/api/orders/{$order->order_number}/payment-success", ['t' => $token])
+            ->assertOk()
+            ->assertJsonPath('status', 'success');
+
+        // Re-opening the very same URL later -- from history or a bookmark --
+        // must not render a fresh receipt, and must not append another audit
+        // row to a payment that closed long ago.
+        $logsAfterFirstUse = PaymentLog::where('payment_id', $payment->id)->count();
+
+        $this->postJson("/api/orders/{$order->order_number}/payment-success", ['t' => $token])
+            ->assertStatus(410)
+            ->assertJsonPath('status', 'already_confirmed');
+
+        $this->assertSame($logsAfterFirstUse, PaymentLog::where('payment_id', $payment->id)->count());
+    }
+
+    public function test_a_spent_return_link_still_captures_a_payment_that_never_reached_escrow(): void
+    {
+        $seller = $this->makeSeller();
+        $buyer = $this->makeBuyer();
+        $listing = $this->makeListing($seller);
+        $order = $this->makeOrder($buyer, $listing);
+        $payment = $this->makePayment($order);
+        Sanctum::actingAs($buyer);
+
+        // No token at all (a checkout minted before tokens existed, or a lost
+        // query string). Money that is not in escrow yet must still be
+        // captured -- the replay guard protects the receipt, never the capture.
+        $this->postJson("/api/orders/{$order->order_number}/payment-success")
+            ->assertOk()
+            ->assertJsonPath('status', 'success');
+
+        $this->assertSame('paid_held', $payment->fresh()->status);
+    }
+
+    public function test_a_spent_cancel_link_does_not_report_a_decline_after_the_order_was_paid(): void
+    {
+        $seller = $this->makeSeller();
+        $buyer = $this->makeBuyer();
+        $listing = $this->makeListing($seller);
+        $order = $this->makeOrder($buyer, $listing, ['status' => 'paid']);
+        $this->makePayment($order, ['status' => 'paid_held']);
+        Sanctum::actingAs($buyer);
+
+        $this->postJson("/api/orders/{$order->order_number}/payment-cancelled")
+            ->assertStatus(410)
+            ->assertJsonPath('status', 'already_confirmed');
+
+        $this->assertSame(0, AppNotification::where('user_id', $buyer->id)
+            ->where('type', 'payment_failed')->count());
     }
 
     public function test_order_confirmation_email_sends_when_seller_confirms_and_not_on_repeat_updates(): void
@@ -7596,19 +7767,19 @@ class FishMarketApiTest extends TestCase
             'title' => 'Bangus Fingerlings',
             'quantity' => 400,
             'price_per_piece' => 120.00,
-            'unit_type' => 'kilogram',
+            'unit_type' => 'piece',
             'minimum_order' => 25,
-            'unit_description' => 'Roughly 80-100 pcs per kg.',
         ])->assertCreated()->json();
 
-        $this->assertSame('kilogram', $listing['unit_type']);
+        $this->assertSame('piece', $listing['unit_type']);
         $this->assertSame(25, $listing['minimum_order']);
         // The labels the UI renders come from the API, not from the frontend.
-        $this->assertSame('kg', $listing['unit_label']);
-        $this->assertSame('Per Kilogram', $listing['unit_type_label']);
+        $this->assertSame('pc', $listing['unit_label']);
+        $this->assertSame('Per Piece', $listing['unit_type_label']);
 
-        // Switching a listing to bulk works the same way.
-        $this->patchJson("/api/listings/{$listing['id']}", ['unit_type' => 'bulk', 'minimum_order' => 2])
+        // Switching a listing to bulk works the same way, and takes the fish
+        // count with it.
+        $this->patchJson("/api/listings/{$listing['id']}", ['unit_type' => 'bulk', 'minimum_order' => 2, 'pieces_per_unit' => 10])
             ->assertOk()
             ->assertJsonPath('unit_type', 'bulk')
             ->assertJsonPath('unit_label', 'bulk')
@@ -7616,6 +7787,33 @@ class FishMarketApiTest extends TestCase
 
         // An unknown unit is rejected rather than silently stored.
         $this->patchJson("/api/listings/{$listing['id']}", ['unit_type' => 'truckload'])->assertStatus(422);
+    }
+
+    public function test_fingerlings_can_no_longer_be_listed_by_the_kilogram(): void
+    {
+        $seller = $this->makeSeller();
+        Sanctum::actingAs($seller->user);
+
+        // Fingerlings are counted, not weighed, so the unit was withdrawn.
+        $this->postJson('/api/listings', [
+            'species' => 'Bangus',
+            'title' => 'Bangus Fingerlings',
+            'quantity' => 400,
+            'price_per_piece' => 120.00,
+            'unit_type' => 'kilogram',
+        ])->assertStatus(422)->assertJsonValidationErrors('unit_type');
+
+        // A listing created while it WAS on offer keeps its own labels, so
+        // nothing already on the marketplace starts reading as pieces.
+        $legacy = $this->makeListing($seller, ['unit_type' => 'kilogram']);
+        $this->assertSame('kg', $legacy->unit_label);
+        $this->assertSame('Per Kilogram', $legacy->unit_type_label);
+
+        // ...but editing it has to move it onto a unit still on offer.
+        $this->patchJson("/api/listings/{$legacy->id}", ['unit_type' => 'kilogram'])
+            ->assertStatus(422)->assertJsonValidationErrors('unit_type');
+        $this->patchJson("/api/listings/{$legacy->id}", ['unit_type' => 'bulk', 'pieces_per_unit' => 10])
+            ->assertOk()->assertJsonPath('unit_contents_label', '1 bulk = 10 fish');
     }
 
     public function test_listings_default_to_per_piece_with_no_minimum(): void
@@ -7764,7 +7962,7 @@ class FishMarketApiTest extends TestCase
         $this->assertEquals(0.0, $clamped['harvest_value_per_piece']);
     }
 
-    public function test_the_projection_excludes_kilogram_and_bulk_purchases(): void
+    public function test_the_projection_excludes_kilogram_purchases(): void
     {
         $seller = $this->makeSeller();
         $pieces = $this->makeListing($seller, ['approval_status' => 'approved', 'price_per_piece' => 5, 'quantity' => 10000]);
@@ -7781,8 +7979,105 @@ class FishMarketApiTest extends TestCase
         $this->assertEquals(7000, $report['investment']['total_invested']);
         $this->assertCount(2, $report['units']);
 
-        // ...but only the piece-priced one feeds the per-fish projection, and
-        // the excluded order is reported rather than silently dropped.
+        // ...but a weight cannot be resolved to a count of fish, so only the
+        // piece-priced order feeds the per-fish projection, and the excluded
+        // one is reported rather than silently dropped. (Bulk is different: it
+        // carries pieces_per_unit -- see the bulk projection test.)
+        $this->assertSame(1000, $report['projection']['pieces_purchased']);
+        $this->assertEquals(5000, $report['projection']['invested_in_pieces']);
+        $this->assertSame(1, $report['projection']['excluded_orders']);
+    }
+
+    public function test_a_bulk_listing_must_state_how_many_fish_are_in_one_bulk(): void
+    {
+        $seller = $this->makeSeller();
+        Sanctum::actingAs($seller->user);
+
+        // Bulk with no count is refused -- it would tell the buyer nothing and
+        // the projection could not use it.
+        $this->postJson('/api/listings', [
+            'species' => 'Tilapia',
+            'title' => 'Tilapia by the sack',
+            'quantity' => 40,
+            'price_per_piece' => 850,
+            'unit_type' => 'bulk',
+        ])->assertStatus(422)->assertJsonValidationErrors('pieces_per_unit');
+
+        // With the count it is accepted, and the listing carries a plain
+        // sentence both the seller and the buyer can read.
+        $this->postJson('/api/listings', [
+            'species' => 'Tilapia',
+            'title' => 'Tilapia by the sack',
+            'quantity' => 40,
+            'price_per_piece' => 850,
+            'unit_type' => 'bulk',
+            'pieces_per_unit' => 10,
+        ])->assertCreated()
+            ->assertJsonPath('pieces_per_unit', 10)
+            ->assertJsonPath('unit_contents_label', '1 bulk = 10 fish');
+
+        // A per-piece listing needs no count: one piece is one fish.
+        $this->postJson('/api/listings', [
+            'species' => 'Bangus',
+            'title' => 'Bangus Fingerlings',
+            'quantity' => 5000,
+            'price_per_piece' => 3.5,
+            'unit_type' => 'piece',
+        ])->assertCreated()->assertJsonPath('unit_contents_label', null);
+    }
+
+    public function test_the_projection_counts_bulk_purchases_using_the_sellers_fish_per_bulk(): void
+    {
+        $seller = $this->makeSeller();
+        $pieces = $this->makeListing($seller, ['price_per_piece' => 5, 'quantity' => 10000]);
+        $byBulk = $this->makeListing($seller, [
+            'price_per_piece' => 850,
+            'quantity' => 500,
+            'unit_type' => 'bulk',
+            'pieces_per_unit' => 10,
+        ]);
+        $buyer = $this->makeBuyer();
+
+        $this->makeOrder($buyer, $pieces, ['status' => 'completed', 'quantity' => 1000, 'unit_price' => 5, 'total_amount' => 5000]);
+        // 3 bulk x 10 fish = 30 fish, for 2,550 pesos.
+        $this->makeOrder($buyer, $byBulk, ['status' => 'completed', 'quantity' => 3, 'unit_price' => 850, 'total_amount' => 2550]);
+
+        Sanctum::actingAs($buyer);
+        $report = $this->getJson('/api/buyer/analytics?period=yearly')->assertOk()->json('investment');
+
+        // Both purchases now feed the per-fish projection, and nothing is
+        // excluded, because both can be resolved to a count of fish.
+        $this->assertSame(1030, $report['projection']['pieces_purchased']);
+        $this->assertEquals(7550, $report['projection']['invested_in_pieces']);
+        $this->assertSame(0, $report['projection']['excluded_orders']);
+
+        // The unit breakdown still keeps bulk and pieces apart.
+        $this->assertCount(2, $report['units']);
+    }
+
+    public function test_a_bulk_listing_with_no_stated_count_stays_out_of_the_projection(): void
+    {
+        $seller = $this->makeSeller();
+        $pieces = $this->makeListing($seller, ['price_per_piece' => 5, 'quantity' => 10000]);
+        // A listing created before pieces_per_unit existed: null, not zero.
+        $legacyBulk = $this->makeListing($seller, [
+            'price_per_piece' => 850,
+            'quantity' => 500,
+            'unit_type' => 'bulk',
+            'pieces_per_unit' => null,
+        ]);
+        $buyer = $this->makeBuyer();
+
+        $this->makeOrder($buyer, $pieces, ['status' => 'completed', 'quantity' => 1000, 'unit_price' => 5, 'total_amount' => 5000]);
+        $this->makeOrder($buyer, $legacyBulk, ['status' => 'completed', 'quantity' => 3, 'unit_price' => 850, 'total_amount' => 2550]);
+
+        Sanctum::actingAs($buyer);
+        $report = $this->getJson('/api/buyer/analytics?period=yearly')->assertOk()->json('investment');
+
+        // The money is still recorded as invested...
+        $this->assertEquals(7550, $report['investment']['total_invested']);
+
+        // ...but the projection will not invent a fish count for it.
         $this->assertSame(1000, $report['projection']['pieces_purchased']);
         $this->assertEquals(5000, $report['projection']['invested_in_pieces']);
         $this->assertSame(1, $report['projection']['excluded_orders']);

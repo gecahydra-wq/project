@@ -37,6 +37,9 @@ class OrderTransactionPresenter
                 'unit_type' => $order->listing->unit_type,
                 'unit_label' => $order->listing->unit_label,
                 'unit_label_plural' => $order->listing->unit_label_plural,
+                // "1 bulk = 10 fish", so an order for 3 bulk reads as a real
+                // quantity of fish in the order detail panel too.
+                'unit_contents_label' => $order->listing->unit_contents_label,
             ] : null,
             'buyer' => $order->buyer ? [
                 'id' => $order->buyer->id,

@@ -27,6 +27,9 @@ class FingerlingListing extends Model
         'unit_type',
         'minimum_order',
         'unit_description',
+        // How many fish are in ONE unit. Required for 'bulk', where the unit
+        // is otherwise an unknown quantity to buyer and analytics alike.
+        'pieces_per_unit',
         'average_size',
         'availability_status',
         'approval_status',
@@ -36,6 +39,7 @@ class FingerlingListing extends Model
     protected $casts = [
         'price_per_piece' => 'decimal:2',
         'minimum_order' => 'integer',
+        'pieces_per_unit' => 'integer',
     ];
 
     /**
@@ -50,7 +54,20 @@ class FingerlingListing extends Model
         'bulk' => ['label' => 'Per Bulk', 'short' => 'bulk', 'plural' => 'bulk'],
     ];
 
-    protected $appends = ['unit_label', 'unit_label_plural', 'unit_type_label'];
+    /**
+     * What a seller may actually pick. Fingerlings are counted, not weighed,
+     * so selling them by the kilogram was dropped -- a weight cannot be turned
+     * into a number of fish, which left those listings unable to state what a
+     * buyer was getting and out of the Turnout/ROI projection entirely.
+     *
+     * 'kilogram' stays in UNIT_TYPES above on purpose. Any listing created
+     * while it was offered keeps its correct "kg" labels everywhere it is
+     * displayed; it simply cannot be chosen again, and editing such a listing
+     * means choosing one of these instead.
+     */
+    public const SELECTABLE_UNIT_TYPES = ['piece', 'bulk'];
+
+    protected $appends = ['unit_label', 'unit_label_plural', 'unit_type_label', 'unit_contents_label'];
 
     /** Falls back to 'piece' so a listing predating this feature still reads correctly. */
     private function unitMeta(): array
@@ -71,6 +88,39 @@ class FingerlingListing extends Model
     public function getUnitTypeLabelAttribute(): string
     {
         return $this->unitMeta()['label'];
+    }
+
+    /**
+     * Plain-language contents of one unit -- "1 bulk = 10 fish" -- so the
+     * seller's form, the buyer's listing page and the order summary all show
+     * the same sentence instead of each composing their own.
+     *
+     * Null when there is nothing worth saying: a per-piece listing (one piece
+     * is one fish) or a listing whose seller has not stated a count.
+     */
+    public function getUnitContentsLabelAttribute(): ?string
+    {
+        if ($this->unit_type === 'piece' || ! $this->pieces_per_unit) {
+            return null;
+        }
+
+        $fish = number_format($this->pieces_per_unit);
+
+        return "1 {$this->unitMeta()['short']} = {$fish} fish";
+    }
+
+    /**
+     * The order's quantity expressed as a count of individual fish, or null
+     * when the listing cannot say. Used by the Turnout/ROI projection, which
+     * is per-fish maths and must never guess at a missing count.
+     */
+    public function piecesFor(int $quantity): ?int
+    {
+        if ($this->unit_type === 'piece' || $this->unit_type === null) {
+            return $quantity;
+        }
+
+        return $this->pieces_per_unit ? $quantity * $this->pieces_per_unit : null;
     }
 
     /** The smallest order this listing accepts, never below 1. */

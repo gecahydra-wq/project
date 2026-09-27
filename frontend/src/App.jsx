@@ -156,6 +156,14 @@ const UNIT_TYPES = [
   { value: 'bulk', label: 'Per Bulk', short: 'bulk', plural: 'bulk' },
 ]
 
+/**
+ * What the seller's form offers. Per-kilogram was withdrawn -- fingerlings are
+ * counted, not weighed -- but it stays in UNIT_TYPES above so a listing created
+ * while it was on offer still renders its "kg" labels correctly instead of
+ * silently reading as pieces. See FingerlingListing::SELECTABLE_UNIT_TYPES.
+ */
+const SELECTABLE_UNIT_TYPES = UNIT_TYPES.filter((unit) => unit.value !== 'kilogram')
+
 function unitMeta(unitType) {
   return UNIT_TYPES.find((unit) => unit.value === unitType) || UNIT_TYPES[0]
 }
@@ -781,6 +789,11 @@ function ListingCard({ item, mode = 'public', onSelect, detailPath }) {
           <span className="listing-stock">{formatQuantity(item.quantity, item)}</span>
         )}
       </div>
+      {/* What a unit actually holds. Without this a "bulk" price is unreadable:
+          the buyer cannot tell whether one bulk is 10 fish or 1,000. */}
+      {item.unit_contents_label && (
+        <p className="listing-minimum">{item.unit_contents_label}</p>
+      )}
       {minimumOrder(item) > 1 && (
         <p className="listing-minimum">Minimum order: {formatQuantity(minimumOrder(item), item)}</p>
       )}
@@ -852,6 +865,7 @@ function ListingDetailPanel({ item, isBuyer = false, checkout, qty, setQty, onPa
         <span className="listing-seller-row"><strong>Hatchery/Farm:</strong> <Avatar src={item.sellerProfile?.profile_picture} alt={item.seller} className="listing-seller-avatar" /> {item.sellerProfile?.id ? <Link to={sellerProfilePath(item.sellerProfile.id)}>{item.seller}</Link> : item.seller}</span>
         {item.sellerContactName && item.sellerContactName !== item.seller && <span><strong>Seller:</strong> {item.sellerContactName}</span>}
         <span><strong>Sold:</strong> {item.unit_type_label || unitMeta(item.unit_type).label}</span>
+        {item.unit_contents_label && <span><strong>Fish per {unitLabel(item)}:</strong> {item.unit_contents_label}</span>}
         {item.unit_description && <span><strong>What one {unitLabel(item)} contains:</strong> {item.unit_description}</span>}
         <span><strong>Municipality:</strong> {item.municipality}</span>
       </div>
@@ -1010,6 +1024,7 @@ const EMPTY_LISTING_FORM = {
   description: '',
   unit_type: 'piece',
   minimum_order: '1',
+  pieces_per_unit: '',
   unit_description: '',
 }
 
@@ -1022,6 +1037,7 @@ function listingToForm(listing) {
     description: listing.description || '',
     unit_type: listing.unit_type || 'piece',
     minimum_order: String(listing.minimum_order ?? 1),
+    pieces_per_unit: listing.pieces_per_unit ? String(listing.pieces_per_unit) : '',
     unit_description: listing.unit_description || '',
   }
 }
@@ -1036,6 +1052,10 @@ function listingPayload(form) {
     price_per_piece: Number(form.price),
     unit_type: form.unit_type,
     minimum_order: Math.max(1, Number(form.minimum_order) || 1),
+    // One piece is one fish, so the count is only meaningful for the other
+    // units. Sent as null rather than 0 when blank -- the column records
+    // "not stated", and the ROI projection skips those instead of guessing.
+    pieces_per_unit: form.unit_type === 'piece' ? null : (Number(form.pieces_per_unit) || null),
     unit_description: form.unit_description?.trim() || null,
   }
 }
@@ -1049,6 +1069,12 @@ function listingPayload(form) {
 function ListingDetailsFields({ form, setForm }) {
   const unit = unitMeta(form.unit_type)
   const set = (patch) => setForm({ ...form, ...patch })
+  // Editing a listing still on a withdrawn unit (per kilogram) keeps that
+  // option visible, or the select would render blank and a seller saving an
+  // unrelated edit would be forced to silently re-unit their listing.
+  const unitOptions = SELECTABLE_UNIT_TYPES.some((option) => option.value === form.unit_type)
+    ? SELECTABLE_UNIT_TYPES
+    : [...SELECTABLE_UNIT_TYPES, unitMeta(form.unit_type)]
 
   return (
     <div className="form grid-form">
@@ -1059,7 +1085,7 @@ function ListingDetailsFields({ form, setForm }) {
       <label className="filter-label">
         Unit of Measurement
         <select value={form.unit_type} onChange={(e) => set({ unit_type: e.target.value })}>
-          {UNIT_TYPES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          {unitOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
       </label>
       <label className="filter-label">
@@ -1075,8 +1101,25 @@ function ListingDetailsFields({ form, setForm }) {
         <input type="number" min="1" value={form.minimum_order} onChange={(e) => set({ minimum_order: e.target.value })} placeholder="1" />
         <span className="helper-text">Buyers cannot order less than this. Leave at 1 for no minimum.</span>
       </label>
+      {form.unit_type !== 'piece' && (
+        <label className="filter-label">
+          Fish in one {unit.short} {form.unit_type === 'bulk' ? '' : '(optional)'}
+          <input
+            type="number"
+            min="1"
+            value={form.pieces_per_unit}
+            onChange={(e) => set({ pieces_per_unit: e.target.value })}
+            placeholder={form.unit_type === 'bulk' ? 'e.g. 10' : 'e.g. 90'}
+          />
+          <span className="helper-text">
+            {form.unit_type === 'bulk'
+              ? 'Required. Buyers see this on your listing, and it is what lets their Turnout projection count these fish.'
+              : 'Optional. Give a count if you can and buyers can include this purchase in their Turnout projection.'}
+          </span>
+        </label>
+      )}
       <label className="filter-label">
-        What one {unit.short} contains {form.unit_type === 'bulk' ? '' : '(optional)'}
+        What one {unit.short} contains (optional)
         <input
           value={form.unit_description}
           onChange={(e) => set({ unit_description: e.target.value })}
@@ -7104,8 +7147,9 @@ function BuyerInvestmentPanel({ data, assumptions, setAssumptions, updating = fa
         <div className="card roi-assumptions">
           <p className="helper-text">
             <strong>These are estimates, not earnings.</strong> AbaiMarket only records what you buy -- it cannot know what you sell your
-            grown fish for. Enter your own survival rate and farm-gate price below and the projection recalculates. Piece-priced purchases
-            only; stock bought by kilogram or bulk is excluded from this maths.
+            grown fish for. Enter your own survival rate and farm-gate price below and the projection recalculates. This maths needs a
+            number of fish, so it covers every purchase whose fish count is known -- stock bought per piece, and stock bought by bulk
+            where the seller states how many fish are in one bulk. Anything with no stated count is left out and reported below.
           </p>
           <div className="form grid-form">
             <label className="filter-label">
@@ -7172,13 +7216,14 @@ function BuyerInvestmentPanel({ data, assumptions, setAssumptions, updating = fa
             </div>
             {projection.excluded_orders > 0 && (
               <p className="helper-text">
-                {projection.excluded_orders} order{projection.excluded_orders === 1 ? ' was' : 's were'} bought by kilogram or bulk and
-                {projection.excluded_orders === 1 ? ' is' : ' are'} not included in this projection.
+                {projection.excluded_orders} order{projection.excluded_orders === 1 ? ' has' : 's have'} no fish count -- bought by
+                kilogram, or by bulk without the seller stating how many fish one bulk holds -- so
+                {projection.excluded_orders === 1 ? ' it is' : ' they are'} not included in this projection.
               </p>
             )}
           </>
         ) : (
-          <EmptyState message="No piece-priced purchases in this period yet, so there is nothing to project." />
+          <EmptyState message="No purchases with a known fish count in this period yet, so there is nothing to project." />
         )}
       </Section>
 
@@ -7493,10 +7538,21 @@ function PaymentSuccessPage() {
   const session = getSession()
   const orderNumber = searchParams.get('order')
   const listingId = searchParams.get('listing_id')
+  const returnToken = searchParams.get('t')
   const acknowledgedKey = orderNumber ? `fishmarket_payment_success_${orderNumber}` : null
   const acknowledgedRef = useRef(false)
   const acknowledge = useMutation({
-    mutationFn: async () => (await api.post(`/orders/${orderNumber}/payment-success`)).data,
+    // 410 means the single-use return token was already spent, which is an
+    // expected answer here (a bookmarked or re-opened receipt), not a failure
+    // to report as one -- so unwrap it into the same shape as a 200.
+    mutationFn: async () => {
+      try {
+        return (await api.post(`/orders/${orderNumber}/payment-success`, { t: returnToken })).data
+      } catch (err) {
+        if (err?.response?.status === 410) return err.response.data
+        throw err
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['buyer-dashboard'] })
       queryClient.invalidateQueries({ queryKey: ['buyer-notifications'] })
@@ -7518,13 +7574,18 @@ function PaymentSuccessPage() {
     }
   }, [acknowledge.data?.status, orderNumber, listingId, navigate])
   if (!session) return <Navigate to="/login" replace />
-  const processing = acknowledge.data?.status === 'processing'
+  const status = acknowledge.data?.status
+  const processing = status === 'processing'
+  // A spent single-use token: the buyer re-opened an old receipt. Never render
+  // this as a fresh "Payment Successful", or the same link keeps looking like a
+  // new transaction every time it is visited.
+  const spent = status === 'already_confirmed'
   return (
     <main className="auth-page">
-      <section className="result-card success-card">
-        <p className="eyebrow">{processing ? 'Confirming Payment' : 'Payment Successful'}</p>
-        <h1>{processing ? 'Almost there' : 'Order received'}</h1>
-        <p>{processing ? acknowledge.data.message : orderNumber ? `Payment for order #${orderNumber} was successful and is now held in escrow.` : 'Your payment returned from PayMongo and your session is still active.'}</p>
+      <section className={`result-card ${spent ? '' : 'success-card'}`}>
+        <p className="eyebrow">{spent ? 'Link Already Used' : processing ? 'Confirming Payment' : 'Payment Successful'}</p>
+        <h1>{spent ? 'This payment link has expired' : processing ? 'Almost there' : 'Order received'}</h1>
+        <p>{spent || processing ? acknowledge.data.message : orderNumber ? `Payment for order #${orderNumber} was successful and is now held in escrow.` : 'Your payment returned from PayMongo and your session is still active.'}</p>
         <div className="success-actions">
           <Link className="button" to={`/buyer/dashboard?tab=orders${orderNumber ? `&order=${orderNumber}` : ''}`}>View Orders</Link>
           <Link className="ghost" to="/buyer/dashboard?tab=notifications">Open Notifications</Link>
@@ -7540,10 +7601,20 @@ function PaymentCancelledPage() {
   const [searchParams] = useSearchParams()
   const session = getSession()
   const orderNumber = searchParams.get('order')
+  const returnToken = searchParams.get('t')
   const acknowledgedKey = orderNumber ? `fishmarket_payment_failed_${orderNumber}` : null
   const acknowledgedRef = useRef(false)
   const acknowledge = useMutation({
-    mutationFn: async () => (await api.post(`/orders/${orderNumber}/payment-cancelled`)).data,
+    // 410 = the return token was already spent and the order has since been
+    // paid, so there is no "declined" state left to record.
+    mutationFn: async () => {
+      try {
+        return (await api.post(`/orders/${orderNumber}/payment-cancelled`, { t: returnToken })).data
+      } catch (err) {
+        if (err?.response?.status === 410) return err.response.data
+        throw err
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['buyer-dashboard'] })
       queryClient.invalidateQueries({ queryKey: ['buyer-notifications'] })
@@ -7562,7 +7633,10 @@ function PaymentCancelledPage() {
   if (!session) return <Navigate to="/login" replace />
   // The order is NOT failed here -- markPaymentCancelled leaves it reserved and
   // payable until its window closes, and My Orders carries the Pay Now button.
-  return <main className="auth-page"><section className="result-card success-card"><p className="eyebrow">Payment Not Completed</p><h1>Payment not completed</h1><p>{orderNumber ? `Payment for order #${orderNumber} was not completed. The order is still reserved for you — you can pay for it from My Orders until the payment window closes. No funds were captured.` : 'Your session is still active. You can continue browsing or try again.'}</p><div className="success-actions"><Link className="button" to="/buyer/dashboard?tab=orders">Go to My Orders</Link><button className="ghost" type="button" onClick={() => navigate('/buyer/dashboard?tab=browse')}>Return to Merchant</button></div></section></main>
+  // Same spent-token handling as PaymentSuccessPage: an old cancel link must
+  // not keep announcing a failure for an order that has since been paid.
+  const spent = acknowledge.data?.status === 'already_confirmed'
+  return <main className="auth-page"><section className="result-card success-card"><p className="eyebrow">{spent ? 'Link Already Used' : 'Payment Not Completed'}</p><h1>{spent ? 'This payment link has expired' : 'Payment not completed'}</h1><p>{spent ? acknowledge.data.message : orderNumber ? `Payment for order #${orderNumber} was not completed. The order is still reserved for you — you can pay for it from My Orders until the payment window closes. No funds were captured.` : 'Your session is still active. You can continue browsing or try again.'}</p><div className="success-actions"><Link className="button" to="/buyer/dashboard?tab=orders">Go to My Orders</Link><button className="ghost" type="button" onClick={() => navigate('/buyer/dashboard?tab=browse')}>Return to Merchant</button></div></section></main>
 }
 
 function SellersPage() {
