@@ -236,6 +236,16 @@ class FishMarketApiTest extends TestCase
         ], $overrides));
     }
 
+    public function test_database_heartbeat_endpoint_reports_a_reachable_connection(): void
+    {
+        // An external uptime pinger hits this every few minutes so the free
+        // Aiven plan never sees an idle window and powers the database off.
+        $response = $this->getJson('/up/db');
+
+        $response->assertOk();
+        $response->assertJson(['status' => 'ok', 'database' => 'reachable']);
+    }
+
     public function test_fresh_seed_contains_only_the_two_administrator_accounts(): void
     {
         $this->assertDatabaseCount('users', 2);

@@ -1,9 +1,34 @@
 <?php
 
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
     return view('welcome');
+});
+
+// Aiven's free MySQL plan powers the database off after a stretch with no
+// client connections, which takes the whole site down until someone turns it
+// back on by hand. The scheduler in routes/console.php already queries the
+// database every five minutes, but only while both this container and the
+// background `schedule:work` worker are alive -- start.sh starts that worker
+// detached and deliberately lets the web server carry on without it. This
+// endpoint gives an external uptime pinger a single URL that wakes the
+// container AND forces a real database round-trip, so neither can sit idle
+// unnoticed. Laravel's own /up health check never touches the database, which
+// is why it cannot serve this purpose.
+Route::get('/up/db', function () {
+    try {
+        DB::connection()->getPdo()->query('SELECT 1');
+    } catch (\Throwable $e) {
+        // Log it for us, but never hand connection details to an anonymous
+        // caller -- this route is deliberately unauthenticated.
+        report($e);
+
+        return response()->json(['status' => 'error', 'database' => 'unreachable'], 503);
+    }
+
+    return response()->json(['status' => 'ok', 'database' => 'reachable']);
 });
 
 Route::get('/paymongo/success', function () {
