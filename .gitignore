@@ -6,3 +6,7 @@ documentation/
 
 # Design mockups (static HTML references for Figma). Kept locally, not published.
 figma/
+
+# Internal developer/system docs. Kept locally, not published.
+SYSTEM_DOCUMENTATION.md
+DEVELOPER_GUIDE.md
