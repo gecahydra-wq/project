@@ -256,12 +256,33 @@ class OrderController extends Controller
             SafeMailer::send($order->buyer?->email, new OrderConfirmedMail($order));
         }
 
+        // Delivery progress reached the buyer by email only, so anyone who did
+        // not check their inbox saw the status change silently. The type is
+        // per-order so two orders moving through the same stage do not collide
+        // in notifyOnce's firstOrCreate, and re-saving the same status cannot
+        // raise a second copy. 'Out for Delivery' is the label the whole app
+        // uses for in_transit (see STATUS_LABELS on the frontend).
+        if ($statusChanged && $data['status'] === 'in_transit') {
+            $this->notifyOnce(
+                $order->buyer_id,
+                "order_out_for_delivery:{$order->id}",
+                'Out for delivery',
+                "Order #{$order->order_number} is on its way to you."
+            );
+        }
+
         if ($data['status'] === 'completed') {
             $this->notifyLguOfCompletedDelivery($order, $seller);
 
             if ($statusChanged) {
                 $order->loadMissing('buyer');
                 SafeMailer::send($order->buyer?->email, new OrderDeliveredMail($order));
+                $this->notifyOnce(
+                    $order->buyer_id,
+                    "order_delivered:{$order->id}",
+                    'Order delivered',
+                    "Order #{$order->order_number} has been marked delivered. You can now rate the seller."
+                );
             }
         }
 

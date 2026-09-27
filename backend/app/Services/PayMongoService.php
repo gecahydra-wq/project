@@ -53,21 +53,31 @@ class PayMongoService
             $lineItem['images'] = $images;
         }
 
+        $attributes = [
+            'send_email_receipt' => false,
+            'show_description' => true,
+            'show_line_items' => true,
+            'payment_method_types' => ['gcash', 'card', 'paymaya'],
+            'success_url' => $successUrl,
+            'cancel_url' => $cancelUrl,
+            'description' => 'AbaiMarket order '.$order->order_number,
+            'line_items' => [$lineItem],
+        ];
+
+        // Identify the buyer to PayMongo. Without this the hosted page asks the
+        // payer to type their own billing details, which the browser autofills
+        // from whoever last paid on that device -- so a transaction could show a
+        // name belonging to a different AbaiMarket account entirely. Sending it
+        // means the dashboard shows the account that actually placed the order,
+        // and the payer cannot overwrite it.
+        if ($billing = self::billingFor($order)) {
+            $attributes['billing'] = $billing;
+        }
+
         $response = Http::withBasicAuth($secret, '')
             ->acceptJson()
             ->post('https://api.paymongo.com/v1/checkout_sessions', [
-                'data' => [
-                    'attributes' => [
-                        'send_email_receipt' => false,
-                        'show_description' => true,
-                        'show_line_items' => true,
-                        'payment_method_types' => ['gcash', 'card', 'paymaya'],
-                        'success_url' => $successUrl,
-                        'cancel_url' => $cancelUrl,
-                        'description' => 'AbaiMarket order '.$order->order_number,
-                        'line_items' => [$lineItem],
-                    ],
-                ],
+                'data' => ['attributes' => $attributes],
             ]);
 
         $response->throw();
@@ -78,6 +88,31 @@ class PayMongoService
             'checkout_url' => $payload['attributes']['checkout_url'] ?? null,
             'mode' => 'paymongo',
         ];
+    }
+
+    /**
+     * The order's buyer as PayMongo's billing object.
+     *
+     * Empty values are dropped rather than sent blank: PayMongo rejects an
+     * empty string where it will accept the key being absent, and `phone` is
+     * nullable on users. Returns null when there is nothing worth sending, so
+     * the caller omits the key entirely.
+     */
+    private static function billingFor(Order $order): ?array
+    {
+        $buyer = $order->loadMissing('buyer')->buyer;
+
+        if (! $buyer) {
+            return null;
+        }
+
+        $billing = array_filter([
+            'name' => trim((string) $buyer->name) ?: null,
+            'email' => trim((string) $buyer->email) ?: null,
+            'phone' => trim((string) $buyer->phone) ?: null,
+        ], fn ($value) => $value !== null);
+
+        return $billing ?: null;
     }
 
     /**

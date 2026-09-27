@@ -55,11 +55,47 @@
       <div class="dashboard-head"><div><p class="eyebrow">Manage listings, orders, and analytics.</p><h1>Seller Dashboard</h1></div></div>
 
       <div class="stats-grid">
-        <div class="stat-card"><strong>3</strong><span>Active Listings</span></div>
-        <div class="stat-card"><strong>2</strong><span>Pending Orders</span></div>
-        <div class="stat-card stat-card-highlight"><strong>₱42,650.00</strong><span>Total Sales</span></div>
-        <div class="stat-card"><strong>4.8/5</strong><span>Seller Rating</span></div>
+        <a class="stat-card stat-card-link" href="#"><strong>3</strong><span>Active Listings</span></a>
+        <a class="stat-card stat-card-link" href="#"><strong>2</strong><span>Pending Orders</span></a>
+        <a class="stat-card stat-card-link stat-card-highlight" href="#"><strong>₱42,650.00</strong><span>Total Sales</span></a>
+        <a class="stat-card stat-card-link" href="#"><strong>4.8/5</strong><span>Seller Rating</span></a>
       </div>
+
+      <section class="section">
+        <div class="section-head"><h2>Recent Orders</h2><a class="ghost" href="#">View All Orders</a></div>
+        <div class="table">
+          <div class="table-row first">
+            <span>Order Name</span><span>Order #</span><span>Buyer</span><span>Qty</span><span>Order Date</span><span>Status</span><span>Payment</span><span>Details</span>
+          </div>
+          <div class="table-row">
+            <span>Bangus Fingerlings</span><span>FG-WEM2JE</span>
+            <span class="order-seller-cell"><img class="avatar order-seller-avatar" src="assets/placeholders/avatar.svg" alt="">Lloyd Sanchez</span>
+            <span>500 pcs</span>
+            <span class="order-date-cell">Sep 27, 2026<small>09:05 AM</small></span>
+            <span><span class="badge badge-warning">Placed</span></span>
+            <span><span class="badge badge-warning">Checkout Created</span></span>
+            <span><button class="ghost" type="button">View Details</button></span>
+          </div>
+          <div class="table-row">
+            <span>Bangus Fingerlings</span><span>FG-K72PLA</span>
+            <span class="order-seller-cell"><img class="avatar order-seller-avatar" src="assets/placeholders/avatar.svg" alt="">Maria Reyes</span>
+            <span>1,200 pcs</span>
+            <span class="order-date-cell">Sep 26, 2026<small>02:12 AM</small></span>
+            <span><span class="badge badge-info">Confirmed</span></span>
+            <span><span class="badge badge-info">Paid Held</span></span>
+            <span><button class="ghost" type="button">View Details</button></span>
+          </div>
+          <div class="table-row">
+            <span>Tilapia Fingerlings</span><span>FG-9XQ0T2</span>
+            <span class="order-seller-cell"><img class="avatar order-seller-avatar" src="assets/placeholders/avatar.svg" alt="">Ana Cruz</span>
+            <span>800 pcs</span>
+            <span class="order-date-cell">Sep 19, 2026<small>04:40 PM</small></span>
+            <span><span class="badge badge-success">Completed</span></span>
+            <span><span class="badge badge-success">Released</span></span>
+            <span><button class="ghost" type="button">View Details</button></span>
+          </div>
+        </div>
+      </section>
 
       <section class="section">
         <div class="section-head"><h2>Order Management</h2></div>
@@ -68,11 +104,15 @@
             <div>
               <strong>FG-WEM2JE</strong>
               <p>Bangus Fingerlings · <a href="#">Lloyd Sanchez</a> · 500 pcs · ₱1,750.00</p>
-              <span class="badge badge-warning">Placed</span>
+              <span class="seller-order-badges">
+                <span class="badge badge-warning">Placed</span>
+                <span class="badge badge-warning">Checkout Created</span>
+              </span>
+              <p class="muted">Waiting for the buyer's payment. You can confirm this order once the payment is held in escrow.</p>
             </div>
             <div class="row-actions">
-              <button type="button">Confirm Order</button>
               <button type="button" class="ghost danger">Cancel Order</button>
+              <button type="button" class="ghost">View Details</button>
             </div>
           </div>
 
@@ -80,11 +120,15 @@
             <div>
               <strong>FG-K72PLA</strong>
               <p>Bangus Fingerlings · <a href="#">Maria Reyes</a> · 1,200 pcs · ₱4,200.00</p>
-              <span class="badge badge-info">Confirmed</span>
+              <span class="seller-order-badges">
+                <span class="badge badge-info">Confirmed</span>
+                <span class="badge badge-info">Paid Held</span>
+              </span>
             </div>
             <div class="row-actions">
               <button type="button">Mark Out for Delivery</button>
               <button type="button" class="ghost danger">Cancel Order</button>
+              <button type="button" class="ghost">View Details</button>
             </div>
           </div>
 

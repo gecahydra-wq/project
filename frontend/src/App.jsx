@@ -52,6 +52,7 @@ import {
   Trash2,
   UserPlus,
   Users as UsersIcon,
+  Timer,
   Video as VideoIcon,
   Wallet,
   X,
@@ -6640,8 +6641,7 @@ function OrderTable({ rows, onReview, onPay, payPendingOrderId, detailsEndpoint,
         <span>Qty</span>
         {showOrderDate && <span>Order Date</span>}
         <span>Status</span>
-        {showPaymentStatus && <span>Payment</span>}
-        {onPay && <span>Payment</span>}
+        {(showPaymentStatus || onPay) && <span>Payment</span>}
         {onReview && <span>Review</span>}
         {detailsEndpoint && <span>Details</span>}
       </div>
@@ -6669,8 +6669,14 @@ function OrderTable({ rows, onReview, onPay, payPendingOrderId, detailsEndpoint,
               </span>
             )}
             <span><Badge status={row.status}>{statusChartLabel(row.status)}</Badge></span>
-            {showPaymentStatus && <span><PaymentStatusBadge status={row.payment_status} view={paymentView} /></span>}
-            {onPay && <PayCell row={row} onPay={onPay} pending={payPendingOrderId === row.orderId} />}
+            {(showPaymentStatus || onPay) && (
+              <PaymentCell
+                row={row}
+                view={paymentView}
+                onPay={onPay}
+                pending={payPendingOrderId === row.orderId}
+              />
+            )}
             {onReview && <ReviewCell row={row} onReview={onReview} />}
             {detailsEndpoint && (
               <span>
@@ -6821,16 +6827,16 @@ function PaymentStatusBadge({ status, view }) {
 }
 
 /**
- * The buyer's way back into a checkout they abandoned or that was declined.
- * The order stays reserved and payable until payment_expires_at (the Order
- * model derives it from ORDER_PAYMENT_TIMEOUT_MINUTES); after that
- * orders:expire-unpaid fails it and returns the stock, the order leaves
- * 'placed', and this cell stops offering to pay on its own.
+ * The payment state, and -- only while the order can still be paid -- the way
+ * to act on it.
  *
- * The countdown re-renders every 30s, not every second: this sits in a table
- * that can carry many rows, and minute precision is all the label claims.
+ * Pay Now used to be a column of its own. It was empty for every order that
+ * was not mid-checkout, so for most buyers it was a column of dashes taking
+ * width on a table that already scrolls sideways. Putting the action in the
+ * cell it acts on means it is present exactly when it is useful and costs
+ * nothing when it is not.
  */
-function PayCell({ row, onPay, pending }) {
+function PaymentCell({ row, view, onPay, pending }) {
   const expiresAtMs = row.payment_expires_at ? Date.parse(row.payment_expires_at) : null
   const [now, setNow] = useState(() => Date.now())
 
@@ -6840,20 +6846,29 @@ function PayCell({ row, onPay, pending }) {
     return () => clearInterval(timer)
   }, [expiresAtMs])
 
-  if (row.status !== 'placed' || !expiresAtMs) return <span className="muted">&mdash;</span>
-
-  const minutesLeft = Math.floor((expiresAtMs - now) / 60000)
+  const minutesLeft = expiresAtMs === null ? null : Math.floor((expiresAtMs - now) / 60000)
   // The scheduler runs every five minutes, so an order can sit here briefly
-  // after its window closes. Say so rather than offering a payment that the
-  // API would refuse.
-  if (minutesLeft < 0) return <span className="muted">Expired</span>
+  // after its window has closed. Don't offer a payment the API would refuse.
+  const payable = Boolean(onPay) && row.status === 'placed' && minutesLeft !== null && minutesLeft >= 0
 
+  if (!payable) return <span><PaymentStatusBadge status={row.payment_status} view={view} /></span>
+
+  // No "Unpaid" badge here: a Pay Now button with a countdown beside it already
+  // says the order is unpaid, and saying it twice in one cell just adds height.
+  // The badge is still the whole story in the branch above, where there is no
+  // button to carry the meaning -- including an order that is still unpaid but
+  // whose window has closed.
   return (
     <span className="order-pay-cell">
       <button type="button" onClick={() => onPay(row.orderId)} disabled={pending}>
         {pending ? 'Opening...' : 'Pay Now'}
       </button>
-      <small>{minutesLeft < 1 ? 'Less than a minute left' : `${minutesLeft} min left`}</small>
+      {/* Turns amber under five minutes: the same number, but by then it is a
+          warning rather than a note. */}
+      <small className={minutesLeft < 5 ? 'order-pay-countdown urgent' : 'order-pay-countdown'}>
+        <Timer size={12} aria-hidden="true" />
+        {minutesLeft < 1 ? 'under a minute' : `${minutesLeft} min left`}
+      </small>
     </span>
   )
 }
@@ -7207,11 +7222,19 @@ function MessagesPanel({ initialUserId }) {
   const [draft, setDraft] = useState('')
   const openedInitialRef = useRef(false)
 
+  // There is no websocket: a reply would otherwise sit unseen until the panel
+  // remounted or the window regained focus. Polling is scoped to this component,
+  // which is only mounted while the Messages tab is open, and React Query pauses
+  // intervals on a backgrounded tab (refetchIntervalInBackground defaults to
+  // false), so a minimised browser stops asking. The open conversation refreshes
+  // faster than the thread list because that is where someone is actually
+  // waiting for a reply.
   const threads = useQuery({
     queryKey: ['message-threads'],
     queryFn: async () => (await api.get('/messages/threads')).data,
     retry: false,
     placeholderData: [],
+    refetchInterval: 15000,
   })
 
   const thread = useQuery({
@@ -7219,6 +7242,7 @@ function MessagesPanel({ initialUserId }) {
     queryFn: async () => (await api.get(`/messages/thread/${activeUserId}`)).data,
     enabled: !!activeUserId,
     retry: false,
+    refetchInterval: 5000,
   })
 
   const markRead = useMutation({
@@ -7269,6 +7293,23 @@ function MessagesPanel({ initialUserId }) {
     markRead.mutate(userId)
   }
 
+  // markRead used to fire only when a thread was opened. Now that replies can
+  // arrive into a thread that is already on screen, one landing here would stay
+  // counted as unread -- so mark it read as it arrives. Reading the count from a
+  // ref keeps this to one PATCH per batch of new messages rather than one per
+  // render, and markRead only invalidates 'message-threads', so it cannot
+  // retrigger the thread query that fed it.
+  const seenCountRef = useRef(0)
+  useEffect(() => {
+    const count = thread.data?.messages?.length ?? 0
+    if (!activeUserId) { seenCountRef.current = 0; return }
+    if (count > seenCountRef.current) {
+      if (seenCountRef.current > 0) markRead.mutate(activeUserId)
+      seenCountRef.current = count
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [thread.data, activeUserId])
+
   // Where "View Profile" goes for the person in the open conversation, or null
   // when this pairing has no profile page to open.
   const counterpart = thread.data?.user
@@ -7308,9 +7349,12 @@ function MessagesPanel({ initialUserId }) {
         {!activeUserId && <p>Select a conversation to view messages.</p>}
         {activeUserId && (
           <>
-            <h4>
+            {/* The name is wrapped rather than left as a bare text node so it
+                can be truncated: without a box of its own a long name grows the
+                header and shunts the avatar and View Profile around. */}
+            <h4 className="thread-header">
               <Avatar src={thread.data?.user?.profile_picture} alt={thread.data?.user?.name} className="thread-header-avatar" />
-              {thread.data?.user?.name || 'Conversation'}
+              <span className="thread-header-name">{thread.data?.user?.name || 'Conversation'}</span>
               {/* View Profile works both ways: a seller opens the buyer they're
                   talking to, and a buyer opens the hatchery. The seller's page
                   is addressed by seller_profiles.id, which the thread payload

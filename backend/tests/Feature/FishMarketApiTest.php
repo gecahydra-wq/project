@@ -739,8 +739,12 @@ class FishMarketApiTest extends TestCase
         $this->assertNull($notification->read_at);
 
         // Idempotent: re-marking completed must not create a second notification.
+        // Scoped to this LGU admin rather than counting the whole table -- the
+        // buyer is also notified on delivery, so a global count measures two
+        // unrelated behaviours at once.
         $this->patchJson("/api/orders/{$order->id}/status", ['status' => 'completed'])->assertOk();
-        $this->assertDatabaseCount('notifications', 1);
+        $this->assertSame(1, AppNotification::where('user_id', $lguAdmin->id)
+            ->where('type', "earnings_pending_approval:{$payment->id}")->count());
     }
 
     public function test_lgu_dashboard_includes_the_pending_earnings_notification(): void
@@ -3339,6 +3343,54 @@ class FishMarketApiTest extends TestCase
         $this->patchJson("/api/orders/{$order->id}/status", ['status' => 'cancelled'])->assertOk();
 
         $this->assertSame('refund_pending', $payment->fresh()->status);
+    }
+
+    public function test_the_buyer_is_notified_when_an_order_ships_and_when_it_is_delivered(): void
+    {
+        $sellerProfile = $this->makeSeller();
+        $listing = $this->makeListing($sellerProfile);
+        $buyer = $this->makeBuyer();
+        $order = $this->makeOrder($buyer, $listing, ['status' => 'confirmed']);
+        $this->makePayment($order, ['status' => 'paid_held']);
+
+        Sanctum::actingAs($sellerProfile->user);
+
+        $this->patchJson("/api/orders/{$order->id}/status", ['status' => 'in_transit'])->assertOk();
+        $this->assertDatabaseHas('notifications', [
+            'user_id' => $buyer->id,
+            'type' => "order_out_for_delivery:{$order->id}",
+            'title' => 'Out for delivery',
+        ]);
+
+        $this->patchJson("/api/orders/{$order->id}/status", ['status' => 'completed'])->assertOk();
+        $this->assertDatabaseHas('notifications', [
+            'user_id' => $buyer->id,
+            'type' => "order_delivered:{$order->id}",
+            'title' => 'Order delivered',
+        ]);
+
+        // Re-saving the same status must not raise a duplicate.
+        $this->patchJson("/api/orders/{$order->id}/status", ['status' => 'completed'])->assertOk();
+        $this->assertSame(1, \App\Models\AppNotification::where('user_id', $buyer->id)
+            ->where('type', "order_delivered:{$order->id}")->count());
+    }
+
+    public function test_delivery_notifications_do_not_collide_between_two_orders(): void
+    {
+        $sellerProfile = $this->makeSeller();
+        $listing = $this->makeListing($sellerProfile, ['quantity' => 900]);
+        $buyer = $this->makeBuyer();
+        $first = $this->makeOrder($buyer, $listing, ['status' => 'confirmed']);
+        $second = $this->makeOrder($buyer, $listing, ['status' => 'confirmed']);
+        $this->makePayment($first, ['status' => 'paid_held']);
+        $this->makePayment($second, ['status' => 'paid_held']);
+
+        Sanctum::actingAs($sellerProfile->user);
+        $this->patchJson("/api/orders/{$first->id}/status", ['status' => 'in_transit'])->assertOk();
+        $this->patchJson("/api/orders/{$second->id}/status", ['status' => 'in_transit'])->assertOk();
+
+        $this->assertSame(2, \App\Models\AppNotification::where('user_id', $buyer->id)
+            ->where('title', 'Out for delivery')->count());
     }
 
     public function test_a_seller_cannot_advance_an_unpaid_order(): void
@@ -6685,6 +6737,68 @@ class FishMarketApiTest extends TestCase
 
         $this->deleteJson('/api/cart')->assertOk();
         $this->assertDatabaseCount('cart_items', 0);
+    }
+
+    /**
+     * Without a billing object PayMongo asks the payer to type their own
+     * details on its hosted page, which the browser autofills from whoever
+     * last paid on that device -- so a transaction could show a name belonging
+     * to a different AbaiMarket account. See App\Services\PayMongoService.
+     */
+    public function test_paymongo_checkout_identifies_the_buyer_who_placed_the_order(): void
+    {
+        config(['services.paymongo.secret_key' => 'sk_test_fake']);
+        Http::fake([
+            'api.paymongo.com/*' => Http::response(['data' => [
+                'id' => 'cs_test_billing',
+                'attributes' => ['checkout_url' => 'https://checkout.paymongo.com/cs_test_billing'],
+            ]]),
+        ]);
+
+        $buyer = $this->makeBuyer(['name' => 'Ana Dela Cruz', 'email' => 'ana@example.com', 'phone' => '09171234567']);
+        $order = $this->makeOrder($buyer, $this->makeListing($this->makeSeller()));
+        $this->makePayment($order);
+
+        Sanctum::actingAs($buyer);
+        $this->postJson("/api/orders/{$order->id}/checkout")->assertOk();
+
+        Http::assertSent(function ($request) {
+            $billing = $request->data()['data']['attributes']['billing'] ?? null;
+
+            return $billing === [
+                'name' => 'Ana Dela Cruz',
+                'email' => 'ana@example.com',
+                'phone' => '09171234567',
+            ];
+        });
+    }
+
+    /**
+     * phone is nullable on users. PayMongo rejects an empty string where it
+     * accepts the key being absent, so a blank field is dropped, not blanked.
+     */
+    public function test_paymongo_billing_omits_fields_the_buyer_has_not_filled_in(): void
+    {
+        config(['services.paymongo.secret_key' => 'sk_test_fake']);
+        Http::fake([
+            'api.paymongo.com/*' => Http::response(['data' => [
+                'id' => 'cs_test_nophone',
+                'attributes' => ['checkout_url' => 'https://checkout.paymongo.com/cs_test_nophone'],
+            ]]),
+        ]);
+
+        $buyer = $this->makeBuyer(['name' => 'Ben Santos', 'phone' => null]);
+        $order = $this->makeOrder($buyer, $this->makeListing($this->makeSeller()));
+        $this->makePayment($order);
+
+        Sanctum::actingAs($buyer);
+        $this->postJson("/api/orders/{$order->id}/checkout")->assertOk();
+
+        Http::assertSent(function ($request) use ($buyer) {
+            $billing = $request->data()['data']['attributes']['billing'] ?? null;
+
+            return $billing === ['name' => 'Ben Santos', 'email' => $buyer->email];
+        });
     }
 
     /**

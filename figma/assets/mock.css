@@ -8,6 +8,11 @@
    re-point it at the copy that ships inside this folder so it shows offline. */
 :root { --sidebar-image: url('sidebar-bg.jpg'); }
 
+/* Same reason for the page backdrop app.css added: it points at '/page-bg.jpg'
+   at the site root, which does not exist when these files are opened straight
+   off disk. Re-point it at the copy that ships in this folder. */
+:root { --page-image: url('page-bg.jpg'); }
+
 html, body { margin: 0; padding: 0; background: var(--color-bg); }
 
 /* The live app fades/slides content in on mount. With no JS driving them, a
