@@ -1,0 +1,5 @@
+# Capstone documentation (ERD, use case diagrams). Kept locally, not published.
+documentation/
+
+# Local Claude Code settings and session data.
+.claude/
