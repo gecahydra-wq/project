@@ -1409,6 +1409,7 @@ function LoginPage() {
   const [searchParams] = useSearchParams()
   const session = getSession()
   const [unverifiedEmail, setUnverifiedEmail] = useState(searchParams.get('resend_email') || null)
+  const [showPassword, setShowPassword] = useState(false)
   useEffect(() => {
     if (session?.role) {
       navigate(roleRoutes[session.role] || '/', { replace: true })
@@ -1457,11 +1458,12 @@ function LoginPage() {
         <input {...register('email', { validate: (value) => validateEmail(value) || true })} placeholder="Email" />
         <input
           {...passwordField}
-          type="password"
+          type={showPassword ? 'text' : 'password'}
           placeholder="Password"
           onKeyDown={blockSpaceKey}
           onChange={(e) => { e.target.value = stripSpaces(e.target.value); passwordField.onChange(e) }}
         />
+        <PasswordVisibilityToggle shown={showPassword} onToggle={() => setShowPassword(!showPassword)} noun="password" />
         {errors.email && <p className="error">{errors.email.message}</p>}
         <p className="helper-text"><Link to="/forgot-password">Forgot password?</Link></p>
         <button type="submit" disabled={login.isPending}>{login.isPending ? 'Logging in...' : 'Login'}</button>
@@ -1657,6 +1659,7 @@ function RegisterPage() {
   const passwordField = register('password', {
     validate: (value) => validatePassword(value) || true,
   })
+  const [showPassword, setShowPassword] = useState(false)
   const municipalitiesQuery = useQuery({
     queryKey: ['municipalities'],
     queryFn: async () => (await api.get('/municipalities')).data,
@@ -1720,13 +1723,14 @@ function RegisterPage() {
         {errors.email && <p className="error">{errors.email.message}</p>}
         <input
           {...passwordField}
-          type="password"
+          type={showPassword ? 'text' : 'password'}
           placeholder="Password"
           onKeyDown={blockSpaceKey}
           onChange={(e) => { e.target.value = stripSpaces(e.target.value); passwordField.onChange(e) }}
         />
         <p className="helper-text">{PASSWORD_HELP}</p>
         {errors.password && <p className="error">{errors.password.message}</p>}
+        <PasswordVisibilityToggle shown={showPassword} onToggle={() => setShowPassword(!showPassword)} noun="password" />
         <select {...register('role')}><option value="buyer">Buyer / Fish Farmer</option><option value="seller">Seller / Hatchery</option></select>
         {isSeller && (
           <>
@@ -2444,11 +2448,13 @@ function PasswordChecklist({ password = '', confirmation = '' }) {
   )
 }
 
-function PasswordVisibilityToggle({ shown, onToggle }) {
+// `noun` exists only so a form with one password field can say "Show
+// password" rather than the plural the multi-field forms need.
+function PasswordVisibilityToggle({ shown, onToggle, noun = 'passwords' }) {
   return (
     <button type="button" className="profile-link-button password-visibility-toggle" onClick={onToggle}>
       {shown ? <EyeOff size={15} aria-hidden="true" /> : <Eye size={15} aria-hidden="true" />}
-      {shown ? 'Hide passwords' : 'Show passwords'}
+      {shown ? `Hide ${noun}` : `Show ${noun}`}
     </button>
   )
 }
