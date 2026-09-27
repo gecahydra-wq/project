@@ -208,17 +208,6 @@ To use **MySQL**, set `DB_CONNECTION=mysql` and the `DB_*` values in `.env`, cre
 
 > ⚠️ `migrate:fresh --seed` drops and rebuilds all tables. Do **not** run it against a database with real data — use `php artisan migrate` in production.
 
-### Seeded accounts
-
-A fresh seed creates a clean environment with only the two administrator accounts below (municipalities are seeded too). There are **no** seeded buyers or sellers — those register through the app, and the marketplace starts with zero listings.
-
-| Role | Email | Password |
-| --- | --- | --- |
-| Super Admin | `superadmin@gmail.com` | `admin2026` |
-| LGU Admin | `lgu@gmail.com` | `admin2026` |
-
-> Change these credentials before any public deployment.
-
 ---
 
 ## Running the Backend
