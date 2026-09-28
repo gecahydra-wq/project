@@ -20,8 +20,10 @@ use App\Models\PaymentLog;
 use App\Models\SellerProfile;
 use App\Models\Municipality;
 use App\Models\Review;
+use App\Models\SellerNotice;
 use App\Models\User;
 use App\Models\UserReport;
+use App\Support\SellerSanctions;
 use App\Models\WithdrawalRequest;
 use App\Support\AccountModeration;
 use App\Support\ActivityLog;
@@ -354,6 +356,46 @@ class SuperAdminController extends Controller
         ]);
 
         return response()->json(OrderCancellation::markRefunded($payment, $request->user(), $data['reference'] ?? null, $data['notes'] ?? null));
+    }
+
+    /**
+     * Notices to Explain across every municipality. The Super Admin is the
+     * fallback reviewer here for the same reason they are for seller
+     * registrations: a municipality without an active LGU Admin would
+     * otherwise leave sellers frozen with nobody able to decide their case.
+     */
+    public function sellerNotices()
+    {
+        $notices = SellerNotice::with(['sellerProfile.user', 'sellerProfile.municipality', 'reviewer'])
+            ->latest()
+            ->get();
+
+        return response()->json(SellerSanctions::attachOffenseCounts($notices));
+    }
+
+    public function acceptSellerNotice(Request $request, SellerNotice $notice)
+    {
+        abort_if(! $notice->seller_response, 422, 'This seller has not explained yet, so there is nothing to accept.');
+        abort_if(in_array($notice->status, [SellerNotice::STATUS_ACCEPTED, SellerNotice::STATUS_REJECTED], true), 422, 'This notice has already been decided.');
+
+        $data = $request->validate(['notes' => ['nullable', 'string', 'max:2000']]);
+
+        return response()->json(
+            SellerSanctions::acceptExplanation($notice, $request->user(), $data['notes'] ?? null)
+                ->load(['sellerProfile.user', 'reviewer'])
+        );
+    }
+
+    public function rejectSellerNotice(Request $request, SellerNotice $notice)
+    {
+        abort_if(in_array($notice->status, [SellerNotice::STATUS_ACCEPTED, SellerNotice::STATUS_REJECTED], true), 422, 'This notice has already been decided.');
+
+        $data = $request->validate(['reason' => ['required', 'string', 'min:10', 'max:2000']]);
+
+        return response()->json(
+            SellerSanctions::rejectExplanation($notice, $request->user(), $data['reason'])
+                ->load(['sellerProfile.user', 'reviewer'])
+        );
     }
 
     public function rejectWithdrawal(Request $request, WithdrawalRequest $withdrawal)

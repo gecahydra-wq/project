@@ -69,6 +69,11 @@ class AccountModeration
     {
         $seller->update(['status' => $seller->verified ? 'verified' : 'pending']);
 
+        // A reinstatement that left the shop frozen would not be one: the
+        // seller could sign in again but still have nothing on the
+        // marketplace. Lifting the suspension lifts the freeze with it.
+        SellerSanctions::liftFreeze($seller);
+
         if ($seller->user) {
             self::log($seller->user, 'seller', $moderator, 'reinstated', $reason, $notes, $seller->status);
             SafeMailer::send($seller->user->email, new AccountReinstatedMail($seller->user, 'seller', $moderator, $reason, $notes));

@@ -130,6 +130,13 @@ class OrderController extends Controller
             return response()->json(['message' => 'This listing is not currently available for order.'], 422);
         }
 
+        // Hiding a frozen seller's listings is not enough on its own: a buyer
+        // holding the id from a cart, a link or an open tab could still order.
+        $listingSeller = $listing->sellerProfile;
+        if ($listingSeller?->status === 'suspended' || $listingSeller?->listings_frozen_at) {
+            return response()->json(['message' => 'This seller is not accepting orders at the moment.'], 422);
+        }
+
         // Enforces both the seller's Minimum Order and the stock ceiling, in
         // the listing's own unit (pieces/kilograms/bulk) -- the same check the
         // cart uses, so the two can never disagree.

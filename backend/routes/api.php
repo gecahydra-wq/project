@@ -185,6 +185,8 @@ Route::prefix('lgu')->middleware(['auth:sanctum', 'verified', 'role:lgu_admin'])
     Route::patch('user-reports/{report}', [LguController::class, 'updateUserReport']);
     Route::get('seller-notices', [LguController::class, 'sellerNotices']);
     Route::patch('seller-notices/{notice}', [LguController::class, 'updateSellerNotice']);
+    Route::patch('seller-notices/{notice}/accept', [LguController::class, 'acceptSellerNotice']);
+    Route::patch('seller-notices/{notice}/reject', [LguController::class, 'rejectSellerNotice']);
     Route::get('users', [LguController::class, 'users']);
     Route::get('reviews', [PlatformController::class, 'lguReviews']);
     Route::delete('reviews/{review}', [LguController::class, 'destroyReview']);
@@ -253,6 +255,11 @@ Route::prefix('super-admin')->middleware(['auth:sanctum', 'verified', 'role:supe
     // Refund queue for paid orders that were cancelled or expired (App\Support\OrderCancellation).
     Route::get('refunds', [SuperAdminController::class, 'refunds']);
     Route::patch('refunds/{payment}/refunded', [SuperAdminController::class, 'markRefunded']);
+    // Notices to Explain, platform-wide. The Super Admin is the fallback
+    // reviewer when a municipality has no active LGU Admin.
+    Route::get('seller-notices', [SuperAdminController::class, 'sellerNotices']);
+    Route::patch('seller-notices/{notice}/accept', [SuperAdminController::class, 'acceptSellerNotice']);
+    Route::patch('seller-notices/{notice}/reject', [SuperAdminController::class, 'rejectSellerNotice']);
     Route::get('lgu-withdrawals', [SuperAdminController::class, 'lguWithdrawals']);
     Route::patch('lgu-withdrawals/{withdrawal}/approve', [SuperAdminController::class, 'approveLguWithdrawal']);
     Route::patch('lgu-withdrawals/{withdrawal}/reject', [SuperAdminController::class, 'rejectLguWithdrawal']);

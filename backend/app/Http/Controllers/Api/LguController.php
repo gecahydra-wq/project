@@ -29,6 +29,7 @@ use App\Support\ReviewModeration;
 use App\Support\RevenueReport;
 use App\Support\SafeMailer;
 use App\Support\SellerApproval;
+use App\Support\SellerSanctions;
 use App\Support\UserReports;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -293,12 +294,12 @@ class LguController extends Controller
      */
     public function sellerNotices(Request $request)
     {
-        return response()->json(
-            SellerNotice::with(['sellerProfile.user', 'sellerProfile.municipality', 'reviewer'])
-                ->where('municipality_id', $request->user()->municipality_id)
-                ->latest()
-                ->get()
-        );
+        $notices = SellerNotice::with(['sellerProfile.user', 'sellerProfile.municipality', 'reviewer'])
+            ->where('municipality_id', $request->user()->municipality_id)
+            ->latest()
+            ->get();
+
+        return response()->json(SellerSanctions::attachOffenseCounts($notices));
     }
 
     public function updateSellerNotice(Request $request, SellerNotice $notice)
@@ -308,7 +309,9 @@ class LguController extends Controller
         }
 
         $data = $request->validate([
-            'status' => ['required', Rule::in(SellerNotice::STATUSES)],
+            // Accept/reject have their own endpoints because they carry
+            // consequences (offense counting, freezing, suspension).
+            'status' => ['required', Rule::in(SellerNotice::MANUAL_STATUSES)],
             'lgu_notes' => ['nullable', 'string', 'max:2000'],
         ]);
 
@@ -320,6 +323,11 @@ class LguController extends Controller
         ]);
 
         $notice->load('sellerProfile');
+
+        // Dismissing means the concern is withdrawn, so the shop reopens.
+        if ($data['status'] === 'dismissed' && $notice->sellerProfile) {
+            SellerSanctions::liftFreeze($notice->sellerProfile);
+        }
 
         if ($notice->sellerProfile?->user_id) {
             AppNotification::create([
@@ -348,6 +356,55 @@ class LguController extends Controller
         ]);
 
         return response()->json($notice->fresh(['sellerProfile.user', 'reviewer']));
+    }
+
+    /**
+     * The LGU is satisfied with the seller's explanation: no offense, and the
+     * listings go straight back on the marketplace.
+     */
+    public function acceptSellerNotice(Request $request, SellerNotice $notice)
+    {
+        $this->authorizeNotice($request, $notice);
+
+        abort_if(! $notice->seller_response, 422, 'This seller has not explained yet, so there is nothing to accept.');
+        abort_if(in_array($notice->status, [SellerNotice::STATUS_ACCEPTED, SellerNotice::STATUS_REJECTED], true), 422, 'This notice has already been decided.');
+
+        $data = $request->validate(['notes' => ['nullable', 'string', 'max:2000']]);
+
+        return response()->json(
+            SellerSanctions::acceptExplanation($notice, $request->user(), $data['notes'] ?? null)
+                ->load(['sellerProfile.user', 'reviewer'])
+        );
+    }
+
+    /**
+     * The LGU is not satisfied. This records an offense, and the third one
+     * suspends the account -- see App\Support\SellerSanctions.
+     *
+     * A missing explanation is a valid reason to reject: otherwise a seller
+     * who simply ignores the notice could never be sanctioned.
+     */
+    public function rejectSellerNotice(Request $request, SellerNotice $notice)
+    {
+        $this->authorizeNotice($request, $notice);
+
+        abort_if(in_array($notice->status, [SellerNotice::STATUS_ACCEPTED, SellerNotice::STATUS_REJECTED], true), 422, 'This notice has already been decided.');
+
+        $data = $request->validate(['reason' => ['required', 'string', 'min:10', 'max:2000']]);
+
+        return response()->json(
+            SellerSanctions::rejectExplanation($notice, $request->user(), $data['reason'])
+                ->load(['sellerProfile.user', 'reviewer'])
+        );
+    }
+
+    private function authorizeNotice(Request $request, SellerNotice $notice): void
+    {
+        abort_if(
+            $notice->municipality_id !== $request->user()->municipality_id,
+            403,
+            'LGU admins can only manage notices in their municipality.'
+        );
     }
 
     /**
@@ -407,7 +464,10 @@ class LguController extends Controller
     public function sellers(Request $request)
     {
         return response()->json(
+            // withCount('reviews') -- see PlatformController::sellers for why
+            // the count matters as well as the average.
             SellerProfile::with('user')
+                ->withCount('reviews')
                 ->where('municipality_id', $request->user()->municipality_id)
                 ->latest()
                 ->get()

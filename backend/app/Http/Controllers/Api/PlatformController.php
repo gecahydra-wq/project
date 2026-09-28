@@ -34,7 +34,11 @@ class PlatformController extends Controller
     public function sellers()
     {
         return response()->json(
-            SellerProfile::with(['user', 'municipality', 'listings'])->get()
+            // withCount('reviews') so the dashboards can tell "no ratings yet"
+            // apart from a genuine low score: seller_profiles.rating is 0.00
+            // for an unrated seller (see App\Support\SellerReputation), and
+            // rendering that as zero stars would libel a brand-new seller.
+            SellerProfile::with(['user', 'municipality', 'listings'])->withCount('reviews')->get()
         );
     }
 

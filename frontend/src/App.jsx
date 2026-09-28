@@ -144,6 +144,22 @@ function resolveListingImage(item) {
 }
 
 /**
+ * The listing's media MINUS the one already shown as the main image, so the
+ * "Seller Care Photos & Videos" gallery never repeats the thumbnail the buyer
+ * is already looking at. A listing with a single photo therefore has no
+ * gallery at all -- MediaGallery renders nothing for an empty list.
+ *
+ * Excludes the exact item resolveListingImage() picked rather than simply
+ * dropping the first: the thumbnail is the first *photo*, so for a listing
+ * whose first upload is a video, slicing index 0 would hide the video and
+ * still show the thumbnail again.
+ */
+function galleryMediaFor(item) {
+  const thumbnail = item?.media?.find((media) => media.type === 'photo' && media.url)
+  return (item?.media || []).filter((media) => media.id !== thumbnail?.id)
+}
+
+/**
  * Unit of Measurement. The backend is the source of truth (see
  * FingerlingListing::UNIT_TYPES) and sends unit_label/unit_label_plural on
  * every listing; these are the fallbacks for anything that predates the
@@ -540,7 +556,7 @@ function AppShell({ user, children }) {
     buyer: [['Dashboard', '/buyer/dashboard?tab=overview', LayoutDashboard], ['Browse', '/buyer/dashboard?tab=browse', Search], ['Cart', '/buyer/dashboard?tab=cart', ShoppingBag], ['Orders', '/buyer/dashboard?tab=orders', ShoppingCart], ['Messages', '/buyer/dashboard?tab=messages', MessageCircle], ['Notifications', '/buyer/dashboard?tab=notifications', Bell], ['Analytics', '/buyer/dashboard?tab=analytics', BarChart3], ['AI Assistant', '/buyer/dashboard?tab=ai', Bot], ['Profile', '/buyer/dashboard?tab=settings', ShieldCheck]],
     seller: [['Dashboard', '/seller/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/seller/dashboard?tab=marketplace', Search], ['Listings', '/seller/dashboard?tab=listings', Store], ['Orders', '/seller/dashboard?tab=orders', ShoppingCart], ['Messages', '/seller/dashboard?tab=messages', MessageCircle], ['Wallet', '/seller/dashboard?tab=wallet', Wallet], ['Notifications', '/seller/dashboard?tab=notifications', Bell], ['Notices', '/seller/dashboard?tab=notices', ShieldAlert], ['Analytics', '/seller/dashboard?tab=analytics', BarChart3], ['Profile', '/seller/dashboard?tab=profile', ShieldCheck]],
     lgu_admin: [['Dashboard', '/lgu/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/lgu/dashboard?tab=marketplace', Search], ['Listing Management', '/lgu/dashboard?tab=listings', Store], ['Approvals', '/lgu/dashboard?tab=approvals', CheckCircle], ['Sellers', '/lgu/dashboard?tab=sellers', ShieldCheck], ['User Reports', '/lgu/dashboard?tab=user-reports', Flag], ['Notices to Explain', '/lgu/dashboard?tab=notices', ShieldAlert], ['Seller Earnings', '/lgu/dashboard?tab=earnings', Wallet], ['LGU Wallet', '/lgu/dashboard?tab=wallet', Wallet], ['Messages', '/lgu/dashboard?tab=messages', MessageCircle], ['Notifications', '/lgu/dashboard?tab=notifications', Bell], ['Reports', '/lgu/dashboard?tab=reports', BarChart3], ['Activity Log', '/lgu/dashboard?tab=activity-log', History], ['Reviews & Ratings', '/lgu/dashboard?tab=reviews', Star], ['Users', '/lgu/dashboard?tab=users', UsersIcon], ['Profile', '/lgu/dashboard?tab=profile', CircleUserRound]],
-    super_admin: [['Dashboard', '/admin/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/admin/dashboard?tab=marketplace', Search], ['Listing Management', '/admin/dashboard?tab=listings', Store], ['LGU Admins', '/admin/dashboard?tab=lgu-admins', ShieldCheck], ['Sellers', '/admin/dashboard?tab=sellers', Store], ['Users', '/admin/dashboard?tab=users', UsersIcon], ['User Reports', '/admin/dashboard?tab=user-reports', Flag], ['Reviews & Ratings', '/admin/dashboard?tab=reviews', Star], ['Transactions', '/admin/dashboard?tab=transactions', Wallet], ['Payout Management', '/admin/dashboard?tab=payouts', Wallet], ['Municipalities', '/admin/dashboard?tab=municipalities', MapPin], ['Announcements', '/admin/dashboard?tab=announcements', Megaphone], ['Messages', '/admin/dashboard?tab=messages', MessageCircle], ['Notifications', '/admin/dashboard?tab=notifications', Bell], ['Moderation Log', '/admin/dashboard?tab=moderation', ShieldAlert], ['Activity Log', '/admin/dashboard?tab=activity-log', History], ['Reports', '/admin/dashboard?tab=reports', BarChart3], ['Profile', '/admin/dashboard?tab=profile', CircleUserRound]],
+    super_admin: [['Dashboard', '/admin/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/admin/dashboard?tab=marketplace', Search], ['Listing Management', '/admin/dashboard?tab=listings', Store], ['LGU Admins', '/admin/dashboard?tab=lgu-admins', ShieldCheck], ['Sellers', '/admin/dashboard?tab=sellers', Store], ['Users', '/admin/dashboard?tab=users', UsersIcon], ['User Reports', '/admin/dashboard?tab=user-reports', Flag], ['Notices to Explain', '/admin/dashboard?tab=notices', ShieldAlert], ['Reviews & Ratings', '/admin/dashboard?tab=reviews', Star], ['Transactions', '/admin/dashboard?tab=transactions', Wallet], ['Payout Management', '/admin/dashboard?tab=payouts', Wallet], ['Municipalities', '/admin/dashboard?tab=municipalities', MapPin], ['Announcements', '/admin/dashboard?tab=announcements', Megaphone], ['Messages', '/admin/dashboard?tab=messages', MessageCircle], ['Notifications', '/admin/dashboard?tab=notifications', Bell], ['Moderation Log', '/admin/dashboard?tab=moderation', ShieldAlert], ['Activity Log', '/admin/dashboard?tab=activity-log', History], ['Reports', '/admin/dashboard?tab=reports', BarChart3], ['Profile', '/admin/dashboard?tab=profile', CircleUserRound]],
   }[user.role]
 
   async function logout() {
@@ -869,7 +885,7 @@ function ListingDetailPanel({ item, isBuyer = false, checkout, qty, setQty, onPa
         {item.unit_description && <span><strong>What one {unitLabel(item)} contains:</strong> {item.unit_description}</span>}
         <span><strong>Municipality:</strong> {item.municipality}</span>
       </div>
-      <MediaGallery media={item.media} />
+      <MediaGallery media={galleryMediaFor(item)} />
       {isBuyer && (
         <>
           {outOfStock ? (
@@ -2804,28 +2820,23 @@ function SellerDashboard() {
   // ListingEditModal, which owns its own form and PATCH.
   const saveListing = useMutation({
     mutationFn: async () => {
-      const created = (await api.post('/listings', {
+      // Listing details AND photos go in ONE multipart request. A photo is
+      // mandatory, and the backend creates both in a single transaction, so
+      // there is no longer a window where a listing exists without one.
+      const formData = new FormData()
+      const payload = {
         ...listingPayload(form),
         scientific_name: '',
         average_size: '',
         availability_status: 'in_stock',
-      })).data
-      if (stagedImages.length) {
-        try {
-          const formData = new FormData()
-          stagedImages.forEach((staged) => formData.append('photos[]', staged.file))
-          await api.post(`/listings/${created.id}/media`, formData)
-        } catch (uploadError) {
-          // The listing itself was created successfully; open it in the edit
-          // popup so the seller can retry attaching photos instead of losing
-          // the listing.
-          setEditingListingId(created.id)
-          clearStagedImages()
-          queryClient.invalidateQueries({ queryKey: ['seller-dashboard'] })
-          throw uploadError
-        }
       }
-      return created
+      Object.entries(payload).forEach(([key, value]) => {
+        // FormData cannot carry null -- omit the key instead, which is what
+        // Laravel's 'nullable' rules expect for an absent optional field.
+        if (value !== null && value !== undefined) formData.append(key, value)
+      })
+      stagedImages.forEach((staged) => formData.append('photos[]', staged.file))
+      return (await api.post('/listings', formData)).data
     },
     onSuccess: () => {
       clearStagedImages()
@@ -2920,10 +2931,11 @@ function SellerDashboard() {
           {canManageListings && (
             <Section title="Create Listing">
               <ListingDetailsFields form={form} setForm={setForm} />
-              <p className="helper-text">Add up to 5 photos or videos (JPG, PNG, WEBP up to 25MB; MP4, MOV, WEBM up to 25MB). They&apos;ll be uploaded when you save the listing.</p>
+              <p className="helper-text">At least one photo is required. Add up to 5 photos or videos (JPG, PNG, WEBP up to 25MB; MP4, MOV, WEBM up to 25MB). They&apos;ll be uploaded together with the listing when you save.</p>
               <StagedImagePicker files={stagedImages} onAdd={addStagedImages} onRemove={removeStagedImage} />
+              {!stagedImages.length && <p className="helper-text">Buyers pay before they ever see the fingerlings, so a listing cannot be posted without at least one photo.</p>}
               <p className="helper-text">Listings are posted automatically under your registered municipality, {dashboard.data?.seller?.municipality?.name || 'your account municipality'}.</p>
-              <button onClick={() => saveListing.mutate()} type="button" disabled={saveListing.isPending}>{saveListing.isPending ? 'Saving...' : 'Save Listing'}</button>
+              <button onClick={() => saveListing.mutate()} type="button" disabled={saveListing.isPending || !stagedImages.length}>{saveListing.isPending ? 'Saving...' : 'Save Listing'}</button>
               {saveListing.error && <p className="error">{saveListing.error.response?.data?.message || 'Could not save listing.'}</p>}
             </Section>
           )}
@@ -4390,6 +4402,7 @@ function LguDashboard() {
                       <Badge status={seller.approval_status}>{seller.approval_status_label}</Badge>
                     </div>
                     <p>{seller.user?.email}</p>
+                    <p className="muted">{seller.reviews_count > 0 ? <>Seller rating: {renderStars(seller.rating)} {Number(seller.rating).toFixed(1)}/5 · {seller.reviews_count} rating{seller.reviews_count === 1 ? '' : 's'}</> : 'No seller ratings yet'}</p>
                   </div>
                   <div className="row-actions">
                     {seller.user_id && <Link className="ghost" to={`/lgu/dashboard?tab=messages&with=${seller.user_id}`}><MessageCircle size={16} /> Message</Link>}
@@ -5618,7 +5631,8 @@ function SuperAdminDashboard() {
                       <Badge status={seller.status} />
                       <Badge status={seller.approval_status}>{seller.approval_status_label}</Badge>
                     </div>
-                    <p>{seller.municipality?.name || 'Unknown'} · {seller.verified ? 'Verified' : 'Not verified'} · {seller.listings?.length ?? 0} listings · {Number(seller.rating || 0).toFixed(1)}/5</p>
+                    <p>{seller.municipality?.name || 'Unknown'} · {seller.verified ? 'Verified' : 'Not verified'} · {seller.listings?.length ?? 0} listings</p>
+                    <p className="muted">{seller.reviews_count > 0 ? <>Seller rating: {renderStars(seller.rating)} {Number(seller.rating).toFixed(1)}/5 · {seller.reviews_count} rating{seller.reviews_count === 1 ? '' : 's'}</> : 'No seller ratings yet'}</p>
                   </div>
                   <div className="row-actions">
                     {seller.user_id && <Link className="ghost" to={`/admin/dashboard?tab=messages&with=${seller.user_id}`}><MessageCircle size={16} /> Message</Link>}
@@ -5649,6 +5663,7 @@ function SuperAdminDashboard() {
           scopeLabel="Every complaint filed across the platform, in every municipality. LGU Admins handle the reports for their own municipality; you can act on any of them. Reviewing a report never changes an account's standing on its own -- suspend from the Sellers or Users tab if that is what the case calls for."
         />
       )}
+      {tab === 'notices' && <SellerNoticesPanel scope="super_admin" />}
       {tab === 'transactions' && (
         <>
           <SuperAdminOrderLookup />
@@ -6028,36 +6043,57 @@ function UserReportsPanel({ endpointBase, queryKey, scopeLabel }) {
  * is where the LGU reads the seller's explanation and decides what to do,
  * including suspending them from the Sellers tab if that is warranted.
  */
-function SellerNoticesPanel() {
+function SellerNoticesPanel({ scope = 'lgu' }) {
+  // The Super Admin sees every municipality through the same panel -- the
+  // decision, its consequences and the wording are identical, only the API
+  // prefix differs. See SuperAdminController::sellerNotices for why they are
+  // a fallback reviewer here.
+  const base = scope === 'super_admin' ? '/super-admin' : '/lgu'
+  const dashboardKey = scope === 'super_admin' ? 'super-admin-dashboard' : 'lgu-dashboard'
+  const noticesKey = `${scope}-seller-notices`
   const [actingId, setActingId] = useState(null)
   const [decision, setDecision] = useState({ status: 'under_review', notes: '' })
 
   const notices = useQuery({
-    queryKey: ['lgu-seller-notices'],
-    queryFn: async () => (await api.get('/lgu/seller-notices')).data,
+    queryKey: [noticesKey],
+    queryFn: async () => (await api.get(`${base}/seller-notices`)).data,
     retry: false,
     placeholderData: [],
   })
 
+  const refreshNotices = () => {
+    setActingId(null)
+    setDecision({ status: 'under_review', notes: '' })
+    queryClient.invalidateQueries({ queryKey: [noticesKey] })
+    queryClient.invalidateQueries({ queryKey: [dashboardKey] })
+  }
   const updateNotice = useMutation({
-    mutationFn: async ({ id, status, notes }) => (await api.patch(`/lgu/seller-notices/${id}`, {
+    mutationFn: async ({ id, status, notes }) => (await api.patch(`${base}/seller-notices/${id}`, {
       status,
       lgu_notes: notes || undefined,
     })).data,
-    onSuccess: () => {
-      setActingId(null)
-      setDecision({ status: 'under_review', notes: '' })
-      queryClient.invalidateQueries({ queryKey: ['lgu-seller-notices'] })
-      queryClient.invalidateQueries({ queryKey: ['lgu-dashboard'] })
-    },
+    onSuccess: refreshNotices,
+  })
+  // Accept and reject are separate endpoints because they carry consequences:
+  // a rejection is an offense, and the third one suspends the seller.
+  const acceptNotice = useMutation({
+    mutationFn: async ({ id, notes }) => (await api.patch(`${base}/seller-notices/${id}/accept`, { notes: notes || undefined })).data,
+    onSuccess: refreshNotices,
+  })
+  const rejectNotice = useMutation({
+    mutationFn: async ({ id, reason }) => (await api.patch(`${base}/seller-notices/${id}/reject`, { reason })).data,
+    onSuccess: refreshNotices,
   })
 
   return (
     <Section title="Notices to Explain">
       <p className="helper-text">
-        Sellers in your municipality whose average buyer rating has fallen to 3 stars or below are flagged here automatically, and are asked to
-        explain. A notice is not a penalty -- nobody is suspended by it. Read the seller&apos;s response and decide what action, if any, to take;
-        suspension is still done from the Sellers tab.
+        Sellers {scope === 'super_admin' ? 'across every municipality' : 'in your municipality'} whose average buyer rating has fallen to 3 stars or below are flagged here automatically. Their listings come
+        A seller&apos;s <strong>first</strong> notice is a warning: their listings stay up while they explain. From their{' '}
+        <strong>second</strong> notice onward the listings come off the marketplace until you accept the explanation. Read it and decide:{' '}
+        <strong>accept</strong> puts their listings back with no offense recorded, <strong>reject</strong> records an offense. Nothing here
+        suspends anyone automatically -- a rating can fall because a buyer was trolling. Suspension is your call, from the Sellers tab, after
+        one notice or never.
       </p>
       {(notices.data || []).length ? (
         <div className="item-list">
@@ -6072,6 +6108,11 @@ function SellerNoticesPanel() {
               <p className="muted">
                 Issued {new Date(notice.created_at).toLocaleString()} · {notice.ratings_count} review{notice.ratings_count === 1 ? '' : 's'} at the time
               </p>
+              <p className="muted">
+                Offenses on record: {notice.seller_offense_count ?? 0}
+                {notice.sellerProfile?.listings_frozen_at ? ' · Listings are frozen' : ' · Listings are live'}
+                {notice.sellerProfile?.status === 'suspended' ? ' · Account suspended' : ''}
+              </p>
               {notice.seller_response ? (
                 <div className="notice-response">
                   <strong>Seller&apos;s explanation</strong>
@@ -6082,39 +6123,59 @@ function SellerNoticesPanel() {
                 <p className="helper-text">The seller has not responded yet.</p>
               )}
               {notice.lgu_notes && <p className="helper-text"><strong>Your notes:</strong> {notice.lgu_notes}</p>}
-              {actingId === notice.id ? (
+              {['accepted', 'rejected'].includes(notice.status) ? (
+                <p className="helper-text">
+                  {notice.status === 'accepted' ? 'Explanation accepted.' : 'Explanation rejected -- an offense was recorded.'}
+                  {notice.reviewer?.name ? ` Decided by ${notice.reviewer.name}.` : ''}
+                </p>
+              ) : actingId === notice.id ? (
                 <div className="form grid-form">
-                  <select value={decision.status} onChange={(e) => setDecision({ ...decision, status: e.target.value })}>
-                    <option value="under_review">Mark Under Review</option>
-                    <option value="resolved">Resolve</option>
-                    <option value="dismissed">Dismiss</option>
-                  </select>
                   <textarea
                     value={decision.notes}
                     onChange={(e) => setDecision({ ...decision, notes: e.target.value })}
-                    placeholder="Notes on your decision (optional, shared with the seller)"
+                    placeholder="Reason for rejecting (required, at least 10 characters) -- or optional notes when accepting. Either way the seller sees this."
                     rows={2}
                   />
                   <div className="row-actions">
-                    <button type="button" disabled={updateNotice.isPending} onClick={() => updateNotice.mutate({ id: notice.id, status: decision.status, notes: decision.notes.trim() })}>
-                      Save Decision
+                    <button
+                      type="button"
+                      disabled={acceptNotice.isPending || !notice.seller_response}
+                      title={notice.seller_response ? undefined : 'The seller has not explained yet.'}
+                      onClick={() => acceptNotice.mutate({ id: notice.id, notes: decision.notes.trim() })}
+                    >
+                      Accept Explanation
                     </button>
-                    <button type="button" className="ghost" disabled={updateNotice.isPending} onClick={() => setActingId(null)}>Cancel</button>
+                    <button
+                      type="button"
+                      className="ghost danger"
+                      disabled={rejectNotice.isPending || decision.notes.trim().length < 10}
+                      onClick={() => rejectNotice.mutate({ id: notice.id, reason: decision.notes.trim() })}
+                    >
+                      Reject Explanation
+                    </button>
+                    <button type="button" className="ghost" onClick={() => setActingId(null)}>Cancel</button>
                   </div>
+                  <p className="helper-text">
+                    Rejecting records an offense and leaves the listings as they are. To suspend this seller, use the Sellers tab.
+                  </p>
                 </div>
               ) : (
                 <div className="row-actions">
-                  <button type="button" className="ghost" onClick={() => { setActingId(notice.id); setDecision({ status: 'under_review', notes: '' }) }}>Take Action</button>
+                  <button type="button" className="ghost" onClick={() => { setActingId(notice.id); setDecision({ status: 'under_review', notes: '' }) }}>Decide</button>
                   {notice.sellerProfile?.user_id && (
-                    <Link className="ghost" to={`/lgu/dashboard?tab=messages&with=${notice.sellerProfile.user_id}`}><MessageCircle size={16} /> Message Seller</Link>
+                    <Link className="ghost" to={`${scope === 'super_admin' ? '/admin' : '/lgu'}/dashboard?tab=messages&with=${notice.sellerProfile.user_id}`}><MessageCircle size={16} /> Message Seller</Link>
                   )}
                 </div>
               )}
             </div>
           ))}
         </div>
-      ) : <EmptyState message="No sellers in your municipality are currently flagged for a low rating." />}
-      {updateNotice.error && <p className="error">{updateNotice.error.response?.data?.message || 'Could not update this notice.'}</p>}
+      ) : <EmptyState message={`No sellers ${scope === 'super_admin' ? '' : 'in your municipality '}are currently flagged for a low rating.`} />}
+      {(updateNotice.error || acceptNotice.error || rejectNotice.error) && (
+        <p className="error">
+          {(updateNotice.error || acceptNotice.error || rejectNotice.error).response?.data?.message || 'Could not update this notice.'}
+        </p>
+      )}
     </Section>
   )
 }
@@ -6146,8 +6207,10 @@ function SellerNoticesSection() {
   return (
     <Section title="Notices to Explain">
       <p className="helper-text">
-        If your average buyer rating falls to 3 stars or below, your LGU is notified automatically and asks you to explain. This is not a
-        suspension -- your account and listings are unaffected. Respond here, and your LGU will review your explanation and decide what happens next.
+        If your average buyer rating falls to 3 stars or below, your LGU is notified automatically and asks you to explain. Your{' '}
+        <strong>first</strong> notice is a warning -- your listings stay on the marketplace while you explain. From your second notice onward your
+        listings come off the marketplace until your LGU accepts your explanation. Either way this is <strong>not</strong> a suspension: you can
+        still sign in, reply to buyers and complete orders already placed. Nothing suspends your account automatically.
       </p>
       {(notices.data || []).length ? (
         <div className="item-list">
@@ -6170,6 +6233,12 @@ function SellerNoticesSection() {
                   </div>
                 )}
                 {notice.lgu_notes && <p className="helper-text"><strong>LGU notes:</strong> {notice.lgu_notes}</p>}
+                {notice.status === 'accepted' && (
+                  <p className="helper-text">Your LGU accepted this explanation. Your listings are back on the marketplace and no offense was recorded.</p>
+                )}
+                {notice.status === 'rejected' && (
+                  <p className="error">Your LGU rejected this explanation, so an offense was recorded against your account.</p>
+                )}
                 {open ? (
                   <div className="form grid-form">
                     <textarea

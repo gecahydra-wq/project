@@ -9,6 +9,7 @@ use App\Models\SellerProfile;
 use App\Support\ImageUploader;
 use App\Support\SellerApproval;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 /**
@@ -39,7 +40,9 @@ class ListingController extends Controller
         $query = FingerlingListing::query()
             ->with(['sellerProfile.user:id,name', 'municipality', 'media'])
             ->where('approval_status', 'approved')
-            ->whereHas('sellerProfile', fn ($q) => $q->where('status', '!=', 'suspended'));
+            // Frozen sellers (under an open Notice to Explain) come off the
+            // marketplace exactly like suspended ones -- see SellerSanctions.
+            ->whereHas('sellerProfile', fn ($q) => $q->where('status', '!=', 'suspended')->whereNull('listings_frozen_at'));
 
         $query->when($request->species, fn ($q, $species) => $q->where('species', $species));
         $query->when($request->municipality_id, fn ($q, $id) => $q->where('municipality_id', $id));
@@ -56,6 +59,7 @@ class ListingController extends Controller
     public function show(FingerlingListing $listing)
     {
         abort_if($listing->sellerProfile?->status === 'suspended', 404);
+        abort_if((bool) $listing->sellerProfile?->listings_frozen_at, 404);
         abort_if($listing->approval_status !== 'approved', 404);
 
         return response()->json($listing->load(['sellerProfile.user', 'municipality', 'media']));
@@ -73,6 +77,12 @@ class ListingController extends Controller
 
         if ($seller->status === 'suspended') {
             return response()->json(['message' => 'Suspended sellers cannot create listings.'], 403);
+        }
+
+        // Otherwise a frozen seller could simply post new listings and carry on
+        // selling, which would make the freeze meaningless.
+        if ($seller->listings_frozen_at) {
+            return response()->json(['message' => 'Your listings are frozen while your Notice to Explain is open. You cannot post new listings until your LGU accepts your explanation.'], 403);
         }
 
         if ($response = $this->guardRegistrationApproved($seller)) {
@@ -102,14 +112,54 @@ class ListingController extends Controller
             ],
             'average_size' => ['nullable', 'string'],
             'availability_status' => ['nullable', 'string'],
+            // At least one photo is mandatory. Buyers are committing money up
+            // front to fingerlings they cannot inspect, so a listing with no
+            // picture is not something we want on the marketplace at all.
+            // Sent in the SAME request as the listing -- see the note below on
+            // why this is not the separate uploadMedia() call.
+            'photos' => ['required', 'array', 'min:1', 'max:'.self::MAX_MEDIA_PER_LISTING],
+            'photos.*' => ['required', 'file'],
         ], [
             'pieces_per_unit.required' => 'Tell buyers how many fish are in one bulk.',
+            'photos.required' => 'Add at least one photo of your fingerlings.',
+            'photos.min' => 'Add at least one photo of your fingerlings.',
+            'photos.max' => 'A listing can have at most '.self::MAX_MEDIA_PER_LISTING.' photos or videos.',
         ]);
 
+        $photos = $request->file('photos');
+
+        // Validate every file BEFORE the listing row exists. Creating the
+        // listing first and then rejecting a bad file would leave exactly the
+        // photo-less listing this rule is meant to prevent.
+        foreach ($photos as $photo) {
+            if ($error = ImageUploader::validateMediaFile($photo)) {
+                return response()->json(['message' => $error], 422);
+            }
+        }
+
+        unset($data['photos']);
         $data['seller_profile_id'] = $seller->id;
         $data['municipality_id'] = $seller->municipality_id;
 
-        return response()->json(FingerlingListing::create($data), 201);
+        // One transaction so a listing can never be committed without its
+        // photos: if a file fails to store, the listing is rolled back too.
+        $listing = DB::transaction(function () use ($data, $photos) {
+            $listing = FingerlingListing::create($data);
+
+            foreach (array_values($photos) as $position => $photo) {
+                $type = ImageUploader::detectMediaType($photo);
+                $listing->media()->create([
+                    'type' => $type,
+                    'title' => $type === 'video' ? 'Farm video' : 'Farm photo',
+                    'url' => ImageUploader::store($photo, "listings/{$listing->id}"),
+                    'position' => $position,
+                ]);
+            }
+
+            return $listing;
+        });
+
+        return response()->json($listing->load('media'), 201);
     }
 
     public function update(Request $request, FingerlingListing $listing)
@@ -222,6 +272,16 @@ class ListingController extends Controller
 
         if ($media->listing_id !== $listing->id) {
             return response()->json(['message' => 'This image does not belong to that listing.'], 404);
+        }
+
+        // A photo is mandatory at creation, so it has to stay mandatory
+        // afterwards -- otherwise a seller could publish a listing with a photo
+        // and then delete it, which is the same photo-less listing by a longer
+        // route. Replacing the last photo means adding the new one first.
+        if ($listing->media()->count() <= 1) {
+            return response()->json([
+                'message' => 'A listing must keep at least one photo. Upload a replacement before removing this one.',
+            ], 422);
         }
 
         ImageUploader::delete($media->url);

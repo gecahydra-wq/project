@@ -28,6 +28,7 @@ class SellerProfile extends Model
         'rating',
         'verified',
         'status',
+        'listings_frozen_at',
         // Two-stage registration approval -- see App\Support\SellerApproval.
         // 'status'/'verified' above stay the account-standing columns.
         'approval_status',
@@ -45,6 +46,7 @@ class SellerProfile extends Model
         'gallery' => 'array',
         'lgu_reviewed_at' => 'datetime',
         'super_admin_reviewed_at' => 'datetime',
+        'listings_frozen_at' => 'datetime',
     ];
 
     /**

@@ -17,10 +17,13 @@ use App\Models\User;
  * every LGU Admin in their municipality are notified, and the notice appears
  * on the LGU's Notices to Explain dashboard.
  *
- * What this deliberately does NOT do is punish anyone. It never touches
- * seller_profiles.status or .verified, never revokes tokens, and never hides
- * listings -- a low rating is a conversation, not a sanction. Suspension stays
- * a manual LGU/Super Admin decision through App\Support\AccountModeration.
+ * This class DETECTS; App\Support\SellerSanctions carries the consequences.
+ * A seller's FIRST notice is a warning only -- their listings stay up while
+ * they explain. From the second notice onward the listings are frozen until
+ * the LGU accepts the explanation. Nothing here ever suspends an account:
+ * seller_profiles.status is untouched and tokens are never revoked, so the
+ * seller can always sign in, answer, and finish orders already placed.
+ * Suspension stays a manual LGU/Super Admin judgement.
  *
  * Only one open notice exists per seller at a time, so a bad week produces one
  * case for the LGU to work rather than one per review. Once the LGU closes it,
@@ -92,7 +95,17 @@ class SellerReputation
             'status' => 'open',
         ]);
 
-        self::notifySeller($seller, $average, $count);
+        // The FIRST notice is a warning: the seller keeps selling while they
+        // explain. From the second onward the shop comes down until the LGU
+        // accepts. See SellerSanctions::FREEZE_FROM_NOTICE.
+        $noticeNumber = SellerSanctions::noticeCount($seller->id);
+        $frozen = $noticeNumber >= SellerSanctions::FREEZE_FROM_NOTICE;
+
+        if ($frozen) {
+            SellerSanctions::freezeListings($seller);
+        }
+
+        self::notifySeller($seller, $average, $count, $frozen);
         self::notifyLguAdmins($seller, $average, $count);
 
         ActivityLog::record([
@@ -113,7 +126,7 @@ class SellerReputation
         return $notice;
     }
 
-    private static function notifySeller(SellerProfile $seller, float $average, int $count): void
+    private static function notifySeller(SellerProfile $seller, float $average, int $count, bool $frozen = false): void
     {
         if (! $seller->user_id) {
             return;
@@ -124,11 +137,14 @@ class SellerReputation
             'type' => 'seller_notice_to_explain',
             'title' => 'Notice to Explain -- Low Rating',
             'body' => sprintf(
-                'Your average buyer rating is now %.2f/5 across %d review%s, which is at or below the %.1f-star threshold. Your LGU has been notified and has asked you to explain. Open the Notices tab on your dashboard to respond. Your account has not been suspended.',
+                'Your average buyer rating is now %.2f/5 across %d review%s, which is at or below the %.1f-star threshold. Your LGU has been notified and has asked you to explain. Open the Notices tab on your dashboard to respond. %s Your account has NOT been suspended.',
                 $average,
                 $count,
                 $count === 1 ? '' : 's',
-                self::LOW_RATING_THRESHOLD
+                self::LOW_RATING_THRESHOLD,
+                $frozen
+                    ? 'Because this is not your first notice, your listings have been taken off the marketplace until your LGU accepts your explanation. You can still sign in, reply to buyers and complete orders already placed.'
+                    : 'This is your first notice, so your listings stay on the marketplace while you explain.'
             ),
         ]);
     }
