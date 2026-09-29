@@ -3411,6 +3411,34 @@ a.activity-log-item:hover {
   }
 }
 
+/* Starter questions on an empty conversation. Styled as outline chips rather
+   than buttons so they read as hints next to the real "Ask" action below and
+   never compete with it for the primary-action role. */
+.ai-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.ai-suggestion {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: var(--fs-xs);
+  line-height: 1.35;
+  padding: 0.35rem 0.6rem;
+  text-align: left;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.ai-suggestion:hover {
+  background: var(--color-teal-soft);
+  border-color: var(--color-teal);
+  color: var(--color-teal-dark);
+}
+
 .ai-error {
   align-items: center;
   display: flex;

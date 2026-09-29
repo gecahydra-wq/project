@@ -1531,6 +1531,252 @@ class FishMarketApiTest extends TestCase
         }
     }
 
+    /**
+     * Farmers don't phrase questions the way a keyword list expects. Every
+     * message below is a real fish-farming question that matched no curated
+     * keyword and was therefore refused outright as "Unknown" -- the assistant
+     * told a farmer with dying stock that it couldn't help. They now reach the
+     * Fish Care path instead.
+     */
+    public function test_naturally_phrased_farming_questions_are_no_longer_refused(): void
+    {
+        foreach ([
+            'my tilapia have white spots on their fins',
+            'what pH is right for bangus?',
+            'can I put hito and tilapia in one pond?',
+            'how many fingerlings per square meter?',
+            'my pond water turned murky',
+            'what should I feed shrimp',
+            'how do I raise dissolved oxygen',
+            // The same urgency, in the languages farmers actually use.
+            'bakit nangamatay ang mga isda ko?',
+            'nganong naggasping ang akong bangus?',
+        ] as $question) {
+            $result = \App\Support\AiIntentClassifier::classify($question);
+            $this->assertSame('Fish Care', $result['category'], "Expected \"{$question}\" to reach Fish Care, got {$result['category']}.");
+        }
+    }
+
+    /**
+     * Widening the gate must not widen it onto everything. Off-topic messages
+     * share no vocabulary with fish farming and still refuse -- including the
+     * near-misses that short abbreviations invite: "ph" must not fire on
+     * "phone"/"photo", and no two-letter term may match ordinary English.
+     */
+    public function test_widening_the_farming_gate_did_not_let_off_topic_questions_through(): void
+    {
+        foreach ([
+            'Who won the last World Cup?',
+            'What do you think about the upcoming election?',
+            'Can you write me a Python script to sort a list?',
+            'Help me with my algebra homework',
+            'What is the capital of France?',
+            'Can I use my phone to take photos?',
+        ] as $question) {
+            $result = \App\Support\AiIntentClassifier::classify($question);
+            $this->assertSame('Unknown', $result['category'], "Expected \"{$question}\" to stay Unknown, got {$result['category']}.");
+        }
+    }
+
+    /**
+     * A fish-farming question is the one case where Gemini answers from its own
+     * domain knowledge rather than paraphrasing a scripted paragraph. The
+     * instruction it receives must therefore NOT carry the strict "use only
+     * this context" clause -- and must still forbid it from asserting anything
+     * about AbaiMarket itself, which is the grounding guarantee that actually
+     * matters.
+     */
+    public function test_a_farming_question_is_answered_as_an_aquaculture_adviser(): void
+    {
+        config(['services.gemini.api_key' => 'test-key']);
+
+        Http::fake([
+            'generativelanguage.googleapis.com/*' => Http::response([
+                'candidates' => [['content' => ['parts' => [['text' => 'White spots are usually ich. Raise the water temperature slowly and improve aeration.']]]]],
+            ], 200),
+        ]);
+
+        Sanctum::actingAs($this->makeBuyer());
+
+        $this->postJson('/api/ai-assistant/ask', ['question' => 'my tilapia have white spots on their fins'])
+            ->assertCreated()
+            ->assertJsonFragment(['response' => 'White spots are usually ich. Raise the water temperature slowly and improve aeration.']);
+
+        Http::assertSent(function ($request) {
+            $instruction = $request->data()['systemInstruction']['parts'][0]['text'];
+
+            return str_contains($instruction, 'fish-farming question')
+                // Free to use real aquaculture knowledge...
+                && ! str_contains($instruction, 'Use ONLY the following application knowledge')
+                // ...but never to invent AbaiMarket facts, and never to let a
+                // serious die-off rest on a chat answer alone.
+                && str_contains($instruction, 'Do NOT state facts about the AbaiMarket app')
+                && str_contains($instruction, 'BFAR');
+        });
+    }
+
+    /**
+     * An app question keeps the original strict grounding -- opening up fish
+     * care must not have opened up anything else.
+     */
+    public function test_an_app_question_is_still_strictly_grounded(): void
+    {
+        config(['services.gemini.api_key' => 'test-key']);
+
+        Http::fake([
+            'generativelanguage.googleapis.com/*' => Http::response([
+                'candidates' => [['content' => ['parts' => [['text' => 'Tap Chat Seller on the listing.']]]]],
+            ], 200),
+        ]);
+
+        Sanctum::actingAs($this->makeBuyer());
+
+        $this->postJson('/api/ai-assistant/ask', ['question' => 'How do I contact a seller?'])->assertCreated();
+
+        Http::assertSent(function ($request) {
+            $instruction = $request->data()['systemInstruction']['parts'][0]['text'];
+
+            return str_contains($instruction, 'Use ONLY the following application knowledge')
+                && str_contains($instruction, 'never invent or estimate anything beyond it');
+        });
+    }
+
+    /**
+     * With the provider down, an open farming question has no scripted answer
+     * to fall back to. It must still get fish-care guidance rather than the
+     * off-topic refusal it would have received before.
+     */
+    public function test_an_open_farming_question_falls_back_to_fish_care_not_a_refusal(): void
+    {
+        config(['services.gemini.api_key' => null]);
+        $service = new \App\Services\GeminiService();
+
+        $answer = $service->answer('my tilapia have white spots on their fins', 'English');
+
+        $this->assertStringContainsString('fish-farming', strtolower($answer));
+        $this->assertStringNotContainsString("can't answer unrelated general knowledge", $answer);
+        $this->assertSame('Fish Care', $service->lastCategory());
+    }
+
+    /**
+     * The assistant used to answer "there is no mention of any fees" when a
+     * seller asked what withdrawing costs -- faithful to its scripted context,
+     * and the exact opposite of what CommissionCalculator deducts. The fee now
+     * lives in that context for every role that can be told about it.
+     */
+    /**
+     * "How do I know if my fish are sick?" is the question a farmer asks
+     * BEFORE they know the diagnosis, so naming conditions (ich, fin rot) in
+     * the keyword list never caught it -- and 'sick fish' only fired in that
+     * exact word order, missing "fish IS sick" and "fish ARE sick".
+     */
+    public function test_a_farmer_can_ask_whether_their_fish_are_sick_in_any_phrasing(): void
+    {
+        foreach ([
+            'how to know if the fish is sick',
+            'how do I know if my fish are sick',
+            'is my fish sick?',
+            'what are the signs of a sick fish',
+            'how to tell if fish is healthy',
+            'paano malaman kung may sakit ang isda',
+            'unsaon nako mahibaw-an kung naay sakit ang isda',
+        ] as $question) {
+            $result = \App\Support\AiIntentClassifier::classify($question);
+            $this->assertSame('Fish Care', $result['category'], "Expected \"{$question}\" to reach Fish Care, got {$result['category']}.");
+        }
+    }
+
+    /**
+     * Guards the trap that catching those phrasings first created: keywords
+     * describing question FORM rather than subject. 'how to know if' matched
+     * any question shaped that way, and because the phrase pass runs across
+     * every topic before any single word, it outranked the real topic --
+     * sending withdrawal and payment questions to Fish Care.
+     */
+    public function test_app_questions_phrased_as_how_do_i_know_if_still_reach_their_own_topic(): void
+    {
+        foreach ([
+            'how do I know if my order was shipped' => 'Orders',
+            'how do I know if my withdrawal was approved' => 'Withdrawals',
+            'how do i know if my payment went through' => 'Payments',
+        ] as $question => $expected) {
+            $result = \App\Support\AiIntentClassifier::classify($question);
+            $this->assertSame($expected, $result['category'], "Expected \"{$question}\" to stay {$expected}, got {$result['category']}.");
+        }
+    }
+
+    /**
+     * The offline answer has to stand on its own: when the provider is down
+     * this text IS the answer, and a farmer standing over a pond needs
+     * something concrete to look for, not an invitation to rephrase.
+     */
+    public function test_the_offline_sick_fish_answer_lists_real_warning_signs(): void
+    {
+        config(['services.gemini.api_key' => null]);
+        $service = new \App\Services\GeminiService();
+
+        $answer = $service->answer('how to know if the fish is sick', 'English');
+
+        $this->assertStringContainsString('gasping', strtolower($answer));
+        $this->assertStringContainsString('ammonia', strtolower($answer));
+        $this->assertStringContainsString('BFAR', $answer);
+        // Not the generic "ask me a specific question" prompt it used to give.
+        $this->assertStringNotContainsString('Ask a specific question', $answer);
+
+        $tagalog = $service->answer('paano malaman kung may sakit ang isda', 'Tagalog');
+        $this->assertStringContainsString('malusog', strtolower($tagalog));
+    }
+
+    /**
+     * "Recommend" means two different things. Because the recommendation
+     * engine runs ahead of the intent classifier, "what feeds do you recommend
+     * for bangus?" was answered with a sales ranking -- "Your species
+     * performance, ranked by revenue" -- instead of advice about feed. The
+     * engine now declines husbandry questions, while keeping the business ones
+     * it exists for.
+     */
+    public function test_asking_for_feed_advice_is_not_answered_with_a_sales_ranking(): void
+    {
+        $seller = $this->makeSeller();
+
+        foreach ([
+            'what feeds do you recommend for bangus?',
+            'can you suggest a treatment for sick tilapia?',
+            'what do you recommend for water quality?',
+        ] as $question) {
+            $this->assertNull(
+                \App\Support\AiRecommendationEngine::resolve($question, $seller->user, null),
+                "\"{$question}\" is husbandry advice and must fall through to Fish Care."
+            );
+            $this->assertSame('Fish Care', \App\Support\AiIntentClassifier::classify($question)['category']);
+        }
+
+        // The business sense still belongs to the engine.
+        foreach ([
+            'what do you recommend I restock?',
+            'which species do you recommend for my listings?',
+        ] as $question) {
+            $this->assertNotNull(
+                \App\Support\AiRecommendationEngine::resolve($question, $seller->user, null),
+                "\"{$question}\" is a business question and must stay with the recommendation engine."
+            );
+        }
+    }
+
+    public function test_the_assistant_states_the_withdrawal_payout_fee(): void
+    {
+        $topic = \App\Support\AiIntentClassifier::classify('how do I withdraw my earnings')['topic'];
+        $expected = \App\Support\CommissionCalculator::WITHDRAWAL_FEE_PERCENT.'% payout fee';
+
+        foreach (['buyer', 'seller'] as $role) {
+            $this->assertStringContainsString(
+                $expected,
+                \App\Support\AiIntentClassifier::topicContext($topic, $role),
+                "The {$role} withdrawal answer must state the payout fee."
+            );
+        }
+    }
+
     public function test_gemini_service_responds_to_greetings_without_calling_the_provider(): void
     {
         config(['services.gemini.api_key' => null]);

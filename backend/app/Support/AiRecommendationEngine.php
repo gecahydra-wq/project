@@ -34,6 +34,32 @@ class AiRecommendationEngine
         'platform trends', 'approval efficiency', 'revenue insights', 'top-performing seller', 'top performing seller',
     ];
 
+    /**
+     * "Recommend" and "suggest" carry two completely different meanings here.
+     * This engine owns the marketplace one -- "recommend me a listing", "which
+     * species should I restock". But a farmer asking "what feeds do you
+     * recommend for bangus?" is using the everyday sense, and because this
+     * engine runs before the intent classifier it answered with a sales
+     * ranking ("Your species performance, ranked by revenue...") instead of
+     * advice about feed.
+     *
+     * A message carrying any of these husbandry terms is asking how to RAISE
+     * fish, so this engine declines it and lets it fall through to Fish Care --
+     * unless it also names something only this engine can know (below), in
+     * which case it really is a business question that merely mentions feed.
+     */
+    private const HUSBANDRY_TERMS = [
+        'feed', 'feeds', 'feeding', 'disease', 'sick', 'treatment', 'treat',
+        'medicine', 'antibiotic', 'water quality', 'oxygen', 'ammonia', 'salinity',
+        'pond preparation', 'stocking density', 'harvest', 'fingerling care',
+    ];
+
+    /** Terms only this engine can answer from -- they keep a business question here. */
+    private const MARKETPLACE_TERMS = [
+        'listing', 'seller', 'buy', 'price', 'cheapest', 'sales', 'revenue',
+        'restock', 'inventory', 'earnings', 'profit',
+    ];
+
     /** A listing at or below this quantity counts as needing restocking. */
     private const LOW_STOCK_THRESHOLD = 50;
 
@@ -42,6 +68,10 @@ class AiRecommendationEngine
         $lower = strtolower($question);
 
         if (!self::matchesAny($lower, self::KEYWORDS)) {
+            return null;
+        }
+
+        if (self::matchesAny($lower, self::HUSBANDRY_TERMS) && ! self::matchesAny($lower, self::MARKETPLACE_TERMS)) {
             return null;
         }
 

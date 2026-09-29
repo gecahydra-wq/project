@@ -318,12 +318,18 @@ class AiIntentClassifier
         [
             'category' => 'Withdrawals',
             'keywords' => ['withdraw', 'withdrawal', 'payout', 'payouts', 'cash out', 'how do i get paid'],
-            'English' => 'Withdrawals let a Seller cash out their Available Balance via GCash, Maya, or bank transfer. The Seller requests a withdrawal, and the Super Admin reviews, approves, and marks it paid before the amount moves from Available Balance to Withdrawn Amount.',
-            'Tagalog' => 'Sa Withdrawals, maaaring i-cash out ng Seller ang kanilang Available Balance via GCash, Maya, o bank transfer. Nag-rerequest ang Seller ng withdrawal, at ang Super Admin ang sumusuri, umaaprub, at nagmamarka nito bilang bayad bago ito lumipat mula Available Balance patungong Withdrawn Amount.',
-            'Bisaya' => 'Ang Withdrawals nagtugot sa Seller nga i-cash out ang ilang Available Balance pinaagi sa GCash, Maya, o bank transfer. Mo-request ang Seller og withdrawal, ug ang Super Admin ang mo-review, mo-aprubar, ug mag-marka niini nga bayad ayha kini mobalhin gikan sa Available Balance ngadto sa Withdrawn Amount.',
+            // The payout fee is stated here because it was previously absent:
+            // asked what withdrawing costs, the assistant answered -- correctly,
+            // from this very text -- that there were no fees, which is the
+            // opposite of what CommissionCalculator actually deducts. The
+            // percentage is interpolated from the constant rather than typed,
+            // so changing the fee can never leave this answer stale.
+            'English' => 'Withdrawals let a Seller cash out their Available Balance via GCash, Maya, or bank transfer. A '.CommissionCalculator::WITHDRAWAL_FEE_PERCENT.'% payout fee is deducted from the amount requested, so a seller receives the rest. The Seller requests a withdrawal, and the Super Admin reviews, approves, and marks it paid before the amount moves from Available Balance to Withdrawn Amount.',
+            'Tagalog' => 'Sa Withdrawals, maaaring i-cash out ng Seller ang kanilang Available Balance via GCash, Maya, o bank transfer. May '.CommissionCalculator::WITHDRAWAL_FEE_PERCENT.'% na payout fee na ibinabawas sa hinihinging halaga, kaya ang natitira ang natatanggap ng seller. Nag-rerequest ang Seller ng withdrawal, at ang Super Admin ang sumusuri, umaaprub, at nagmamarka nito bilang bayad bago ito lumipat mula Available Balance patungong Withdrawn Amount.',
+            'Bisaya' => 'Ang Withdrawals nagtugot sa Seller nga i-cash out ang ilang Available Balance pinaagi sa GCash, Maya, o bank transfer. Naay '.CommissionCalculator::WITHDRAWAL_FEE_PERCENT.'% nga payout fee nga gikuha gikan sa gihangyo nga kantidad, mao nga ang nahibilin ang madawat sa seller. Mo-request ang Seller og withdrawal, ug ang Super Admin ang mo-review, mo-aprubar, ug mag-marka niini nga bayad ayha kini mobalhin gikan sa Available Balance ngadto sa Withdrawn Amount.',
             'roles' => [
                 'seller' => [
-                    'English' => 'To withdraw: open your Wallet and request a withdrawal for up to your Available Balance via GCash, Maya, or bank transfer. The Super Admin reviews and approves it, then marks it paid -- at that point it moves from Available Balance to Withdrawn Amount.',
+                    'English' => 'To withdraw: open your Wallet and request a withdrawal for up to your Available Balance via GCash, Maya, or bank transfer. A '.CommissionCalculator::WITHDRAWAL_FEE_PERCENT.'% payout fee is deducted from the amount you request, so you receive the rest. The Super Admin reviews and approves it, then marks it paid -- at that point it moves from Available Balance to Withdrawn Amount.',
                 ],
                 'lgu_admin' => [
                     'English' => 'Withdrawals are handled platform-wide by the Super Admin, after a seller\'s earnings have been released through your Seller Earnings approval. LGU admins don\'t process withdrawal requests directly.',
@@ -418,6 +424,27 @@ class AiIntentClassifier
                 ],
             ],
         ],
+        // Placed before the general Fish Care catch-all below so "how do I know
+        // if my fish are sick?" gets these concrete warning signs rather than
+        // the catch-all's "ask me something specific" prompt. That matters most
+        // exactly when Gemini is unreachable, since this text is then the whole
+        // answer -- a farmer inspecting a pond needs something to look FOR.
+        [
+            'category' => 'Fish Care',
+            // Every keyword here carries the SUBJECT. Question-form openers
+            // ("how to know if", "how do i know if", "signs of") were tried and
+            // removed: they match any question shaped that way, so "how do I
+            // know if my withdrawal was approved" resolved to Fish Care. The
+            // phrase pass runs across all topics before any single word, so a
+            // topic-agnostic phrase here outranks every real topic below it.
+            'keywords' => [
+                'sick', 'symptom', 'healthy', 'unhealthy', 'is my fish', 'are my fish',
+                'may sakit',
+            ],
+            'English' => 'Healthy fish swim actively, feed eagerly, and have clear eyes with smooth, unbroken fins. Warning signs: gasping at the surface, swimming alone or in circles, refusing feed, white spots or cottony patches, red or frayed fins, open sores, bloating, bulging eyes, or pale/darkened colour. Check your water first -- low oxygen and high ammonia cause most of these. Remove dead fish immediately so they do not foul the pond, and if several die within a day or two, contact BFAR or your municipal fisheries technician.',
+            'Tagalog' => 'Ang malusog na isda ay aktibong lumalangoy, gutom sa pagkain, may malinaw na mata at makinis na palikpik. Mga babala: humihingal sa ibabaw, nag-iisang lumalangoy o paikot-ikot, ayaw kumain, may puting batik o parang bulak, mapula o sirang palikpik, may sugat, namamaga, umuumbok ang mata, o namumutla/nangingitim. Suriin muna ang tubig -- kulang na oxygen at sobrang ammonia ang karaniwang dahilan. Agad alisin ang patay na isda para hindi mabaho ang pond, at kung maraming namamatay sa loob ng isa o dalawang araw, tumawag sa BFAR o sa fisheries technician ng inyong munisipyo.',
+            'Bisaya' => 'Ang himsog nga isda aktibo molangoy, gana mokaon, tin-aw ang mata ug hamis ang palikpik. Mga timailhan sa sakit: naghangos sa ibabaw, nag-inusara molangoy o naglibot-libot, dili mokaon, naay puti nga tulbok o samag gapas, pula o gisi nga palikpik, naay samad, nagburot, nagbudlot ang mata, o naluspad/miitom. Susiha una ang tubig -- ang kulang nga oxygen ug taas nga ammonia maoy kasagarang hinungdan. Kuhaa dayon ang patay nga isda aron dili mabaho ang pond, ug kung daghan ang mamatay sulod sa usa o duha ka adlaw, kontaka ang BFAR o ang fisheries technician sa inyong munisipyo.',
+        ],
         [
             'category' => 'Fish Care',
             'keywords' => [
@@ -479,7 +506,96 @@ class AiIntentClassifier
             }
         }
 
+        // Last resort before refusing: a real fish-farming question that simply
+        // isn't phrased in any curated keyword above ("my tilapia have white
+        // spots", "anong pH para sa bangus?"). The TOPICS passes ran first, so
+        // this can never steal a message an app topic would have claimed --
+        // it only rescues ones that were previously refused outright. 'topic'
+        // is null on purpose: there is no scripted answer, so GeminiService
+        // answers it as an open aquaculture question instead of paraphrasing
+        // a canned paragraph. See GeminiService::answerAsFarmingAdvisor().
+        if (self::looksLikeFarmingQuestion($lower)) {
+            return ['category' => 'Fish Care', 'topic' => null];
+        }
+
         return ['category' => 'Unknown', 'topic' => null];
+    }
+
+    /**
+     * Vocabulary that marks a message as being about raising fish rather than
+     * about the app -- species, symptoms, pond/water husbandry, and the
+     * Tagalog/Bisaya words farmers actually use. This is deliberately broad:
+     * it runs only after every curated topic has already failed to match, and
+     * the cost of a false positive (a farming answer to a vague question) is
+     * far lower than the cost of the false negative it replaces (refusing a
+     * legitimate question from a farmer).
+     *
+     * Terms are grouped only for readability; matching treats them as one flat
+     * list. Anything genuinely off-topic -- politics, sports, programming,
+     * homework -- shares no vocabulary with this list and still refuses.
+     */
+    private const FARMING_VOCABULARY = [
+        // Species commonly farmed locally, including local names.
+        'tilapia', 'tilapya', 'bangus', 'milkfish', 'hito', 'catfish', 'carp', 'tuna',
+        'sea bass', 'seabass', 'apahap', 'shrimp', 'hipon', 'prawn', 'sugpo', 'crab',
+        'alimango', 'pompano', 'grouper', 'lapu-lapu', 'eel', 'igat', 'mudfish', 'dalag',
+        // Where fish are kept.
+        'pond', 'ponds', 'tank', 'cage', 'hapa', 'pen', 'fishpond', 'palaisdaan',
+        'nursery', 'grow-out', 'grow out', 'biofloc', 'aquaponic', 'hatchery',
+        // Water chemistry and environment.
+        // "DO" (dissolved oxygen) is spelled out rather than listed as a bare
+        // term: as a two-letter word it matched ordinary English ("what DO you
+        // think about the election?") and dragged off-topic messages into a
+        // farming answer. Any abbreviation short enough to collide with a
+        // common word belongs here as a phrase, not on its own.
+        'ph', 'dissolved oxygen', 'do level', 'ammonia', 'nitrite', 'nitrate', 'salinity', 'brackish', 'freshwater',
+        'saltwater', 'turbid', 'murky', 'aerator', 'aeration', 'oxygen', 'lime', 'apog',
+        'plankton', 'temperature', 'tubig',
+        // Husbandry and production.
+        'stocking', 'stock density', 'spawn', 'spawning', 'breeding', 'broodstock',
+        'molting', 'pellet', 'protein', 'fcr', 'feed conversion', 'biomass', 'growth rate',
+        'fertilizer', 'probiotic', 'acclimate', 'acclimation', 'transport', 'pakain',
+        'pagpakaon', 'alaga', 'isda',
+        // Trouble -- the questions farmers most urgently need answered.
+        'white spot', 'ich', 'fungus', 'fungal', 'bacterial', 'parasite', 'lesion',
+        'ulcer', 'fin rot', 'bloated', 'gasping', 'floating', 'lethargic', 'not eating',
+        'mortality', 'die-off', 'died', 'namatay', 'nangamatay', 'sakit', 'masakit',
+        'may sakit', 'nagkasakit', 'mamatay', 'gasping for air', 'red spots', 'wounds',
+        // The plain words a worried farmer actually types. Naming conditions
+        // ("ich", "fin rot") only catches someone who already knows the
+        // diagnosis -- the whole point of asking is usually that they don't.
+        // "how to know if the fish is sick" matched nothing at all until these
+        // were added, because 'sick fish' above only fires in that exact word
+        // order. Keep these general; specificity belongs in the answer, not
+        // the gate.
+        'fish', 'sick', 'symptom', 'healthy', 'unhealthy', 'weak', 'infect', 'swim',
+        'behaving', 'behavior', 'behaviour', 'spots', 'wound', 'gill', 'slimy',
+        'discolor', 'discolour', 'losing scales', 'bulging eyes', 'stunted',
+        'himsog', 'luya',
+    ];
+
+    /**
+     * True when $lower contains any FARMING_VOCABULARY term.
+     *
+     * Short terms (under 4 characters, e.g. "ph", "do") are anchored at BOTH
+     * edges, so "ph" matches "what ph should i use" but never "phone" or
+     * "photo". Longer terms keep the leading-edge anchor used everywhere else
+     * in this class, so "pond" still matches "ponds" and "spawn" matches
+     * "spawning" without needing every inflection spelled out.
+     */
+    private static function looksLikeFarmingQuestion(string $lower): bool
+    {
+        foreach (self::FARMING_VOCABULARY as $term) {
+            $pattern = strlen($term) < 4
+                ? '/\b'.preg_quote($term, '/').'\b/'
+                : '/\b'.preg_quote($term, '/').'/';
+
+            if (preg_match($pattern, $lower)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -538,10 +654,13 @@ class AiIntentClassifier
             'Tagalog' => 'pagbili ng fingerlings, pakikipag-ugnayan sa mga seller, orders, bayad, delivery, reviews, o mga batayan ng fish farming tulad ng species, kalidad ng tubig, at pagpapakain',
             'Bisaya' => 'pagpalit og fingerlings, pagkontak sa mga seller, orders, bayad, delivery, reviews, o mga sukaranan sa fish farming sama sa species, kalidad sa tubig, ug pagpakaon',
         ],
+        // Sellers are the fish farmers themselves, so fish care belongs in
+        // what they're told the assistant can do -- it was previously offered
+        // to buyers only, which hid it from the people most likely to need it.
         'seller' => [
-            'English' => 'your listings, orders, wallet, seller earnings, withdrawals, reviews, and business recommendations',
-            'Tagalog' => 'iyong mga listing, orders, wallet, seller earnings, withdrawals, reviews, at mga business recommendation',
-            'Bisaya' => 'imong mga listing, orders, wallet, seller earnings, withdrawals, reviews, ug mga business recommendation',
+            'English' => 'your listings, orders, wallet, seller earnings, withdrawals, reviews, business recommendations, and fish farming -- water quality, feeding, disease, and harvesting',
+            'Tagalog' => 'iyong mga listing, orders, wallet, seller earnings, withdrawals, reviews, mga business recommendation, at fish farming -- kalidad ng tubig, pagpapakain, sakit, at pag-harvest',
+            'Bisaya' => 'imong mga listing, orders, wallet, seller earnings, withdrawals, reviews, mga business recommendation, ug fish farming -- kalidad sa tubig, pagpakaon, sakit, ug pag-harvest',
         ],
         'lgu_admin' => [
             'English' => 'pending approvals, seller verification, seller earnings, reports, and municipality statistics',
@@ -554,6 +673,34 @@ class AiIntentClassifier
             'Bisaya' => 'estadistika sa tibuok platform, listings, payouts, reports, ug pagtandi sa munisipyo',
         ],
     ];
+
+    /**
+     * The offline fallback for an open fish-farming question -- one recognized
+     * by looksLikeFarmingQuestion() rather than by a curated topic, so there is
+     * no scripted answer to fall back to. Reuses the general Fish Care topic's
+     * own text (the "ask me something specific" prompt) rather than duplicating
+     * it, so the two can never drift apart.
+     */
+    public static function generalFishCareFallback(): array
+    {
+        foreach (self::TOPICS as $topic) {
+            if (in_array('fish farming', $topic['keywords'], true)) {
+                return [
+                    'English' => $topic['English'],
+                    'Tagalog' => $topic['Tagalog'],
+                    'Bisaya' => $topic['Bisaya'],
+                ];
+            }
+        }
+
+        // Unreachable while that topic exists; kept so a future edit to TOPICS
+        // degrades to a sensible answer instead of an undefined-index error.
+        return [
+            'English' => 'I can help with fish-farming questions such as water quality, feeding, disease, and harvesting. Please ask a specific question.',
+            'Tagalog' => 'Makakatulong ako sa mga tanong tungkol sa fish farming tulad ng kalidad ng tubig, pagpapakain, sakit, at pag-harvest. Magtanong nang tiyak.',
+            'Bisaya' => 'Makatabang ko sa mga pangutana bahin sa fish farming sama sa kalidad sa tubig, pagpakaon, sakit, ug pag-harvest. Pangutana og espisipiko.',
+        ];
+    }
 
     public static function greetingResponse(string $language, string $role = 'buyer'): string
     {

@@ -8398,14 +8398,14 @@ function Step({ n, t, d }) {
 
 const AI_GREETING_BY_ROLE = {
   buyer: 'Ask AbaiMarket AI about buying fingerlings, contacting sellers, orders, wallet, reviews, or fish farming basics like species, water quality, and feeding.',
-  seller: 'Ask AbaiMarket AI about your listings, orders, wallet, seller earnings, withdrawals, reviews, or business recommendations like restocking and top-performing species.',
+  seller: 'Ask AbaiMarket AI about your listings, orders, wallet, seller earnings, withdrawals, reviews, business recommendations like restocking, or fish farming -- water quality, feeding, disease, and harvesting.',
   lgu_admin: 'Ask AbaiMarket AI about pending approvals, seller verification, seller earnings, reports, or municipality statistics -- scoped to your own municipality.',
   super_admin: 'Ask AbaiMarket AI about platform-wide statistics, listings, payouts, reports, or municipality comparisons and trends.',
 }
 
 const AI_PLACEHOLDER_BY_ROLE = {
   buyer: 'Ask about buying, sellers, orders, or fish care...',
-  seller: 'Ask about your listings, orders, wallet, or sales...',
+  seller: 'Ask about your listings, orders, wallet, sales, or fish care...',
   lgu_admin: 'Ask about approvals, sellers, earnings, or reports...',
   super_admin: 'Ask about platform stats, payouts, or municipalities...',
 }
@@ -8422,6 +8422,21 @@ const AI_LANGUAGES = [
   ['Tagalog', 'Tagalog'],
   ['Bisaya', 'Bisaya'],
 ]
+
+/**
+ * Starter questions offered on an empty conversation, per role. A blank chat
+ * box gives no clue what the assistant can actually answer, so users guessed --
+ * and a guess that misses gets a refusal, which reads as "the AI is broken".
+ * These are phrased as a real user would type them, and each role's list mixes
+ * a live-data question with a how-does-this-work one; buyers and sellers also
+ * get a fish-farming question, since that capability is the least discoverable.
+ */
+const AI_SUGGESTIONS_BY_ROLE = {
+  buyer: ['How do I buy fingerlings?', 'Where is my order?', 'What species is good for a beginner?', 'Why are my fingerlings dying?'],
+  seller: ['What is my available balance?', 'How do I withdraw my earnings?', 'How often should I feed my fingerlings?', 'My tilapia have white spots -- what do I do?'],
+  lgu_admin: ['How many sellers are registered here?', 'What is awaiting my earnings approval?', 'How do I verify a seller?'],
+  super_admin: ['How many sellers are on the platform?', 'What withdrawals are awaiting payout?', 'Which municipality has the most listings?'],
+}
 
 const AI_LANGUAGE_STORAGE_KEY = 'fishmarket_ai_language'
 
@@ -8536,6 +8551,25 @@ function FloatingAi() {
               <p className="ai ai-typing"><span className="typing-dots"><span /><span /><span /></span></p>
             )}
           </div>
+          {/* Only on a genuinely empty conversation -- once there is anything
+              to read, the suggestions stop being help and start being clutter. */}
+          {!historyMessages.length && !chat.length && !ask.isPending && (
+            <div className="ai-suggestions">
+              {(AI_SUGGESTIONS_BY_ROLE[role] || AI_SUGGESTIONS_BY_ROLE.buyer).map((suggestion) => (
+                <button
+                  type="button"
+                  className="ai-suggestion"
+                  key={suggestion}
+                  onClick={() => {
+                    setChat((current) => [...current, { role: 'user', text: suggestion }])
+                    sendQuestion(suggestion)
+                  }}
+                >
+                  {suggestion}
+                </button>
+              ))}
+            </div>
+          )}
           {error && (
             <div className="ai-error">
               <p className="error">{error.message}</p>
