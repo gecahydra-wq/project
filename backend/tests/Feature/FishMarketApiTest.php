@@ -1763,6 +1763,50 @@ class FishMarketApiTest extends TestCase
         }
     }
 
+    /**
+     * The storefront's "Partnered LGUs" section answers "is my town covered?".
+     * It must list only municipalities that really have an LGU partner -- the
+     * `municipalities` table is the seeded list of every Cebu municipality and
+     * backs the registration dropdown, so returning all of them would claim
+     * coverage the platform does not have.
+     */
+    public function test_the_public_partner_list_shows_only_municipalities_with_an_active_lgu_admin(): void
+    {
+        // Named explicitly rather than picked with whereDoesntHave()->first():
+        // that has no ORDER BY, so it once returned the very municipality this
+        // test had just made covered.
+        $covered = Municipality::where('name', 'Cordova')->firstOrFail();
+        $uncovered = Municipality::where('name', 'Compostela')->firstOrFail();
+        $this->assertSame(0, $uncovered->lguAdmins()->count(), 'Precondition: Compostela is seeded without an LGU Admin.');
+
+        $this->makeLguAdmin(['municipality_id' => $covered->id]);
+        $seller = $this->makeSeller(
+            ['municipality_id' => $covered->id],
+            ['municipality_id' => $covered->id]
+        );
+
+        // Public -- no token at all.
+        $body = $this->getJson('/api/partner-municipalities')->assertOk()->json();
+        $names = collect($body)->pluck('name');
+
+        $this->assertTrue($names->contains($covered->name));
+        $this->assertFalse($names->contains($uncovered->name), 'A municipality with no LGU Admin must not be advertised as a partner.');
+        $this->assertSame(1, collect($body)->firstWhere('name', $covered->name)['verified_sellers_count']);
+
+        // Suspending the only LGU Admin removes the municipality: with nobody
+        // to verify sellers or approve earnings, it is no longer covered.
+        AccountModeration::suspendLguAdmin(
+            User::where('role', 'lgu_admin')->where('municipality_id', $covered->id)->firstOrFail(),
+            User::where('role', 'super_admin')->firstOrFail(),
+            'Under review.'
+        );
+
+        $this->assertFalse(
+            collect($this->getJson('/api/partner-municipalities')->assertOk()->json())->pluck('name')->contains($covered->name)
+        );
+        $this->assertNotNull($seller->fresh());
+    }
+
     public function test_the_assistant_states_the_withdrawal_payout_fee(): void
     {
         $topic = \App\Support\AiIntentClassifier::classify('how do I withdraw my earnings')['topic'];

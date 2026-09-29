@@ -68,6 +68,10 @@ Route::get('sellers', [SellerProfileController::class, 'index']);
 Route::get('sellers/{seller}', [SellerProfileController::class, 'show']);
 
 Route::get('municipalities', [PlatformController::class, 'municipalities']);
+// Public: municipalities with an active LGU partner, for the storefront's
+// coverage section. Distinct from the line above, which is the full seeded
+// list backing the registration dropdown.
+Route::get('partner-municipalities', [PlatformController::class, 'partnerMunicipalities']);
 
 // Public: the site-wide announcement bar is shown to guests on the storefront
 // too, not only to signed-in roles. Read-only, display fields only.

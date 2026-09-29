@@ -26,6 +26,33 @@ class PlatformController extends Controller
         return response()->json(User::where('role', 'lgu_admin')->with('municipality')->get());
     }
 
+    /**
+     * Public: the municipalities actually covered by the platform, so a visitor
+     * can see whether their own area has an LGU partner before registering.
+     *
+     * Deliberately NOT every row in `municipalities` -- that table is the
+     * seeded list of Cebu municipalities used to populate the registration
+     * dropdown, and advertising all of them as partners would claim coverage
+     * that does not exist. A municipality qualifies only while it has an LGU
+     * Admin account that the Super Admin created and that is still active.
+     *
+     * Only aggregate, non-identifying figures are exposed: naming the LGU
+     * officer or their contact details on a public page is not this endpoint's
+     * job.
+     */
+    public function partnerMunicipalities()
+    {
+        return response()->json(
+            Municipality::query()
+                ->select(['id', 'name', 'province'])
+                ->whereHas('activeLguAdmins')
+                ->withCount('verifiedSellers')
+                ->orderBy('province')
+                ->orderBy('name')
+                ->get()
+        );
+    }
+
     public function municipalities()
     {
         return response()->json(Municipality::orderBy('name')->get());

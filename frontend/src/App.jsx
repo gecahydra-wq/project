@@ -688,6 +688,16 @@ function LandingPage() {
     retry: false,
     placeholderData: [],
   })
+  // Coverage, not the seeded dropdown list: only municipalities with an active
+  // LGU Admin come back, so a visitor can tell whether their own area is served
+  // before they bother registering.
+  const partnersQuery = useQuery({
+    queryKey: ['partner-municipalities'],
+    queryFn: async () => (await api.get('/partner-municipalities')).data,
+    retry: false,
+    placeholderData: [],
+  })
+  const partners = partnersQuery.data || []
   const featured = listingsQuery.data || []
   const featuredSellers = sellersQuery.data || []
   const verifiedSellerCount = featuredSellers.filter((seller) => seller.verified).length
@@ -713,6 +723,35 @@ function LandingPage() {
       </Section>
       <Section title="Featured Sellers">
         {featuredSellers.length ? <SellerGrid items={featuredSellers.slice(0, 3)} /> : <EmptyState message="No sellers registered yet." />}
+      </Section>
+      {/* Coverage map in list form. A visitor's first question is "is my town
+          on here?", and until now the only way to find out was to start
+          registering and open the municipality dropdown -- which lists every
+          seeded municipality, partnered or not. */}
+      <Section title="Partnered LGUs">
+        <p className="helper-text">
+          These municipalities have an LGU partner on AbaiMarket. Their LGU verifies local hatcheries, approves seller earnings, and handles reports for the area.
+        </p>
+        {partners.length ? (
+          <div className="lgu-grid">
+            {partners.map((partner) => (
+              <div className="lgu-card" key={partner.id}>
+                <span className="lgu-card-head">
+                  <MapPin size={16} />
+                  <strong>{partner.name}</strong>
+                </span>
+                <span className="muted">{partner.province}</span>
+                <span className="lgu-card-count">
+                  {partner.verified_sellers_count
+                    ? `${partner.verified_sellers_count} verified ${partner.verified_sellers_count === 1 ? 'seller' : 'sellers'}`
+                    : 'No verified sellers yet'}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <EmptyState message="No LGU partners yet. Municipalities appear here once their LGU joins AbaiMarket." />
+        )}
       </Section>
       <Section title="How It Works"><div className="steps"><Step n="1" t="Register" d="Buyers and sellers create verified marketplace accounts." /><Step n="2" t="Order & Pay" d="Buyers place orders and pay through PayMongo Checkout." /><Step n="3" t="LGU Oversight" d="LGU admins verify sellers and approve local listings." /><Step n="4" t="Release" d="Super Admin releases held seller funds after completion." /></div></Section>
       {/* Browse-by-species row: the photo leads, the label sits under it, and
@@ -8453,6 +8492,9 @@ function aiErrorMessage(err) {
   if (!err?.response) return 'Network error -- please check your connection and try again.'
   const status = err.response.status
   if (status === 422) return 'Please enter a question first.'
+  // Reachable when a token expires mid-conversation; the guest case is handled
+  // before a request is ever made.
+  if (status === 401) return 'Please log in again to use the AI assistant.'
   if (status === 429) return 'Too many requests right now -- please wait a moment and try again.'
   if (status >= 500) return 'The AI assistant is temporarily unavailable. Please try again shortly.'
   return 'Something went wrong. Please try again.'
@@ -8465,7 +8507,13 @@ function FloatingAi() {
   const [error, setError] = useState(null)
   const [language, setLanguage] = useState(storedAiLanguage)
   const chatLogRef = useRef(null)
-  const role = getSession()?.role || 'buyer'
+  // This widget also renders on the PUBLIC layout, where there is no session.
+  // Both AI endpoints sit behind auth:sanctum, so a guest's question came back
+  // 401 and surfaced as a generic "Something went wrong" -- the feature looked
+  // broken rather than gated. Guests now see what it does and how to get it.
+  const session = getSession()
+  const isGuest = !session
+  const role = session?.role || 'buyer'
   const aiGreeting = { role: 'ai', text: AI_GREETING_BY_ROLE[role] || AI_GREETING_BY_ROLE.buyer }
 
   const chooseLanguage = (value) => {
@@ -8485,6 +8533,8 @@ function FloatingAi() {
     queryFn: async () => (await api.get('/ai-assistant/history')).data,
     retry: false,
     refetchOnWindowFocus: false,
+    // A guest has no history and no token -- asking for it is a guaranteed 401.
+    enabled: !isGuest,
   })
 
   // Prior conversation history (from the server) is rendered directly from
@@ -8551,9 +8601,15 @@ function FloatingAi() {
               <p className="ai ai-typing"><span className="typing-dots"><span /><span /><span /></span></p>
             )}
           </div>
+          {isGuest && (
+            <div className="ai-guest">
+              <p>Log in to ask the assistant about listings, orders, your wallet, or fish farming.</p>
+              <Link className="button full" to="/login">Log in</Link>
+            </div>
+          )}
           {/* Only on a genuinely empty conversation -- once there is anything
               to read, the suggestions stop being help and start being clutter. */}
-          {!historyMessages.length && !chat.length && !ask.isPending && (
+          {!isGuest && !historyMessages.length && !chat.length && !ask.isPending && (
             <div className="ai-suggestions">
               {(AI_SUGGESTIONS_BY_ROLE[role] || AI_SUGGESTIONS_BY_ROLE.buyer).map((suggestion) => (
                 <button
@@ -8576,21 +8632,25 @@ function FloatingAi() {
               <button type="button" className="ghost" onClick={retry} disabled={ask.isPending}>Retry</button>
             </div>
           )}
-          <textarea
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                submit()
-              }
-            }}
-            placeholder={AI_PLACEHOLDER_BY_ROLE[role] || AI_PLACEHOLDER_BY_ROLE.buyer}
-            disabled={ask.isPending}
-          />
-          <button onClick={submit} type="button" disabled={ask.isPending || !message.trim()}>
-            {ask.isPending ? 'Thinking...' : 'Ask AbaiMarket AI'}
-          </button>
+          {!isGuest && (
+            <>
+              <textarea
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    submit()
+                  }
+                }}
+                placeholder={AI_PLACEHOLDER_BY_ROLE[role] || AI_PLACEHOLDER_BY_ROLE.buyer}
+                disabled={ask.isPending}
+              />
+              <button onClick={submit} type="button" disabled={ask.isPending || !message.trim()}>
+                {ask.isPending ? 'Thinking...' : 'Ask AbaiMarket AI'}
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>
