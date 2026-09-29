@@ -1836,6 +1836,16 @@ function RegisterPage() {
     retry: false,
     placeholderData: [],
   })
+  // An unreachable API, a 404 and a genuinely empty table all used to render
+  // the same thing here -- a select with no options -- which reads as "there
+  // are no municipalities" and hides the real cause. Seller registration is
+  // impossible without this list, so say which of the three it is.
+  const municipalities = municipalitiesQuery.data || []
+  const municipalityIssue = municipalitiesQuery.isError
+    ? "Couldn't load the municipality list. The API may be unreachable -- check that the backend is running and that VITE_API_URL points at it."
+    : (!municipalitiesQuery.isFetching && !municipalities.length
+      ? 'No municipalities are set up yet. An administrator needs to add them before sellers can register.'
+      : null)
   const [registeredEmail, setRegisteredEmail] = useState(null)
   const registerUser = useMutation({
     mutationFn: async (values) => {
@@ -1904,10 +1914,13 @@ function RegisterPage() {
         <select {...register('role')}><option value="buyer">Buyer / Fish Farmer</option><option value="seller">Seller / Hatchery</option></select>
         {isSeller && (
           <>
-            <select {...register('municipality_id', { required: isSeller })} defaultValue="">
-              <option value="" disabled>Select municipality</option>
-              {(municipalitiesQuery.data || []).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+            <select {...register('municipality_id', { required: isSeller })} defaultValue="" disabled={!municipalities.length}>
+              <option value="" disabled>
+                {municipalitiesQuery.isFetching && !municipalities.length ? 'Loading municipalities...' : 'Select municipality'}
+              </option>
+              {municipalities.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
+            {municipalityIssue && <p className="error">{municipalityIssue}</p>}
             {errors.municipality_id && <p className="error">Please select your hatchery's municipality.</p>}
           </>
         )}
