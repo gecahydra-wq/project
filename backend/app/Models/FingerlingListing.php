@@ -67,7 +67,7 @@ class FingerlingListing extends Model
      */
     public const SELECTABLE_UNIT_TYPES = ['piece', 'bulk'];
 
-    protected $appends = ['unit_label', 'unit_label_plural', 'unit_type_label', 'unit_contents_label'];
+    protected $appends = ['unit_label', 'unit_label_plural', 'unit_type_label', 'unit_contents_label', 'available_bulks'];
 
     /** Falls back to 'piece' so a listing predating this feature still reads correctly. */
     private function unitMeta(): array
@@ -100,13 +100,17 @@ class FingerlingListing extends Model
      */
     public function getUnitContentsLabelAttribute(): ?string
     {
-        if ($this->unit_type === 'piece' || ! $this->pieces_per_unit) {
+        if (! $this->pieces_per_unit) {
             return null;
         }
 
-        $fish = number_format($this->pieces_per_unit);
+        return '1 bulk = '.number_format($this->pieces_per_unit).' quantity';
+    }
 
-        return "1 {$this->unitMeta()['short']} = {$fish} fish";
+    /** Stock expressed in whole bulks, for the buyer's bulk option. */
+    public function getAvailableBulksAttribute(): ?int
+    {
+        return $this->availableBulks();
     }
 
     /**
@@ -127,6 +131,29 @@ class FingerlingListing extends Model
     public function minimumOrder(): int
     {
         return max(1, (int) ($this->minimum_order ?? 1));
+    }
+
+    /**
+     * How many fish make up one bulk.
+     *
+     * EVERYTHING IS COUNTED IN FISH -- stock, minimum order, order quantity and
+     * the price, which is the price of ONE fish. A listing has no unit of
+     * measurement of its own; "bulk" is purely a convenience the BUYER can
+     * choose at order time, and it is converted to fish before it reaches the
+     * API. So this number never takes part in stock or money maths: it only
+     * tells the buyer that 5 bulks means 50 fish.
+     */
+    public function bulkSize(): ?int
+    {
+        return $this->pieces_per_unit ? max(1, (int) $this->pieces_per_unit) : null;
+    }
+
+    /** Whole bulks the remaining stock makes up, for display. */
+    public function availableBulks(): ?int
+    {
+        $size = $this->bulkSize();
+
+        return $size ? intdiv(max(0, (int) $this->quantity), $size) : null;
     }
 
     /**

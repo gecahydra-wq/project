@@ -172,13 +172,13 @@ const UNIT_TYPES = [
   { value: 'bulk', label: 'Per Bulk', short: 'bulk', plural: 'bulk' },
 ]
 
-/**
- * What the seller's form offers. Per-kilogram was withdrawn -- fingerlings are
- * counted, not weighed -- but it stays in UNIT_TYPES above so a listing created
- * while it was on offer still renders its "kg" labels correctly instead of
- * silently reading as pieces. See FingerlingListing::SELECTABLE_UNIT_TYPES.
+/*
+ * There is no longer a unit picker on the listing form: every listing is
+ * counted, priced and stocked in single fingerlings, and "bulk" is a choice
+ * the BUYER makes at order time. UNIT_TYPES above is kept only so listings
+ * created while units existed still render their old labels rather than
+ * silently reading as something else.
  */
-const SELECTABLE_UNIT_TYPES = UNIT_TYPES.filter((unit) => unit.value !== 'kilogram')
 
 function unitMeta(unitType) {
   return UNIT_TYPES.find((unit) => unit.value === unitType) || UNIT_TYPES[0]
@@ -202,6 +202,27 @@ function minimumOrder(item) {
 /** e.g. "500 pcs", "12 kg". */
 function formatQuantity(quantity, item) {
   return `${Number(quantity || 0).toLocaleString()} ${unitLabelPlural(item)}`
+}
+
+/**
+ * Stock, in the words a buyer needs. Everything is counted in single fish, so
+ * the number is the number -- but when the seller has stated a bulk size we
+ * also say what that buys, because a buyer thinking in bulks should not have
+ * to divide.
+ */
+function formatStock(item) {
+  const fish = Number(item?.quantity || 0)
+  const bulk = Number(item?.pieces_per_unit || 0)
+  const base = `${fish.toLocaleString()} qty`
+  if (bulk <= 0) return base
+  const bulks = Number(item?.available_bulks ?? Math.floor(fish / bulk))
+  return `${base} (${bulks.toLocaleString()} bulk${bulks === 1 ? '' : 's'})`
+}
+
+/** Fish in one bulk, or null when the seller has not stated it. */
+function bulkSize(item) {
+  const n = Number(item?.pieces_per_unit || 0)
+  return n > 0 ? n : null
 }
 
 function mapListing(item) {
@@ -555,7 +576,7 @@ function AppShell({ user, children }) {
   const menu = {
     buyer: [['Dashboard', '/buyer/dashboard?tab=overview', LayoutDashboard], ['Browse', '/buyer/dashboard?tab=browse', Search], ['Cart', '/buyer/dashboard?tab=cart', ShoppingBag], ['Orders', '/buyer/dashboard?tab=orders', ShoppingCart], ['Messages', '/buyer/dashboard?tab=messages', MessageCircle], ['Notifications', '/buyer/dashboard?tab=notifications', Bell], ['Analytics', '/buyer/dashboard?tab=analytics', BarChart3], ['AI Assistant', '/buyer/dashboard?tab=ai', Bot], ['Profile', '/buyer/dashboard?tab=settings', ShieldCheck]],
     seller: [['Dashboard', '/seller/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/seller/dashboard?tab=marketplace', Search], ['Listings', '/seller/dashboard?tab=listings', Store], ['Orders', '/seller/dashboard?tab=orders', ShoppingCart], ['Messages', '/seller/dashboard?tab=messages', MessageCircle], ['Wallet', '/seller/dashboard?tab=wallet', Wallet], ['Notifications', '/seller/dashboard?tab=notifications', Bell], ['Notices', '/seller/dashboard?tab=notices', ShieldAlert], ['Analytics', '/seller/dashboard?tab=analytics', BarChart3], ['Profile', '/seller/dashboard?tab=profile', ShieldCheck]],
-    lgu_admin: [['Dashboard', '/lgu/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/lgu/dashboard?tab=marketplace', Search], ['Listing Management', '/lgu/dashboard?tab=listings', Store], ['Approvals', '/lgu/dashboard?tab=approvals', CheckCircle], ['Sellers', '/lgu/dashboard?tab=sellers', ShieldCheck], ['User Reports', '/lgu/dashboard?tab=user-reports', Flag], ['Notices to Explain', '/lgu/dashboard?tab=notices', ShieldAlert], ['Seller Earnings', '/lgu/dashboard?tab=earnings', Wallet], ['LGU Wallet', '/lgu/dashboard?tab=wallet', Wallet], ['Messages', '/lgu/dashboard?tab=messages', MessageCircle], ['Notifications', '/lgu/dashboard?tab=notifications', Bell], ['Reports', '/lgu/dashboard?tab=reports', BarChart3], ['Activity Log', '/lgu/dashboard?tab=activity-log', History], ['Reviews & Ratings', '/lgu/dashboard?tab=reviews', Star], ['Users', '/lgu/dashboard?tab=users', UsersIcon], ['Profile', '/lgu/dashboard?tab=profile', CircleUserRound]],
+    lgu_admin: [['Dashboard', '/lgu/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/lgu/dashboard?tab=marketplace', Search], ['Listing Management', '/lgu/dashboard?tab=listings', Store], ['Sellers', '/lgu/dashboard?tab=sellers', ShieldCheck], ['User Reports', '/lgu/dashboard?tab=user-reports', Flag], ['Notices to Explain', '/lgu/dashboard?tab=notices', ShieldAlert], ['Seller Earnings', '/lgu/dashboard?tab=earnings', Wallet], ['LGU Wallet', '/lgu/dashboard?tab=wallet', Wallet], ['Messages', '/lgu/dashboard?tab=messages', MessageCircle], ['Notifications', '/lgu/dashboard?tab=notifications', Bell], ['Reports', '/lgu/dashboard?tab=reports', BarChart3], ['Activity Log', '/lgu/dashboard?tab=activity-log', History], ['Reviews & Ratings', '/lgu/dashboard?tab=reviews', Star], ['Users', '/lgu/dashboard?tab=users', UsersIcon], ['Profile', '/lgu/dashboard?tab=profile', CircleUserRound]],
     super_admin: [['Dashboard', '/admin/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/admin/dashboard?tab=marketplace', Search], ['Listing Management', '/admin/dashboard?tab=listings', Store], ['LGU Admins', '/admin/dashboard?tab=lgu-admins', ShieldCheck], ['Sellers', '/admin/dashboard?tab=sellers', Store], ['Users', '/admin/dashboard?tab=users', UsersIcon], ['User Reports', '/admin/dashboard?tab=user-reports', Flag], ['Notices to Explain', '/admin/dashboard?tab=notices', ShieldAlert], ['Reviews & Ratings', '/admin/dashboard?tab=reviews', Star], ['Transactions', '/admin/dashboard?tab=transactions', Wallet], ['Payout Management', '/admin/dashboard?tab=payouts', Wallet], ['Municipalities', '/admin/dashboard?tab=municipalities', MapPin], ['Announcements', '/admin/dashboard?tab=announcements', Megaphone], ['Messages', '/admin/dashboard?tab=messages', MessageCircle], ['Notifications', '/admin/dashboard?tab=notifications', Bell], ['Moderation Log', '/admin/dashboard?tab=moderation', ShieldAlert], ['Activity Log', '/admin/dashboard?tab=activity-log', History], ['Reports', '/admin/dashboard?tab=reports', BarChart3], ['Profile', '/admin/dashboard?tab=profile', CircleUserRound]],
   }[user.role]
 
@@ -798,11 +819,11 @@ function ListingCard({ item, mode = 'public', onSelect, detailPath }) {
         </p>
       )}
       <div className="listing-price-row">
-        <span className="listing-price">{currency(item.price)}<small>/{unitLabel(item)}</small></span>
+        <span className="listing-price">{currency(item.price)}<small>/qty</small></span>
         {Number(item.quantity) <= 0 ? (
           <Badge tone="danger">Out of Stock</Badge>
         ) : (
-          <span className="listing-stock">{formatQuantity(item.quantity, item)}</span>
+          <span className="listing-stock">{formatStock(item)}</span>
         )}
       </div>
       {/* What a unit actually holds. Without this a "bulk" price is unreadable:
@@ -811,7 +832,7 @@ function ListingCard({ item, mode = 'public', onSelect, detailPath }) {
         <p className="listing-minimum">{item.unit_contents_label}</p>
       )}
       {minimumOrder(item) > 1 && (
-        <p className="listing-minimum">Minimum order: {formatQuantity(minimumOrder(item), item)}</p>
+        <p className="listing-minimum">Minimum order: {minimumOrder(item).toLocaleString()} qty</p>
       )}
       {mode === 'buyer' ? (
         <button className="button full" type="button" onClick={() => onSelect?.(item)}>View Details</button>
@@ -832,12 +853,21 @@ function ListingDetailPanel({ item, isBuyer = false, checkout, qty, setQty, onPa
   // backend enforces the same rule (FingerlingListing::quantityIssue).
   const minimum = minimumOrder(item)
   const available = Number(item.quantity) || 0
+  // A listing has no unit of its own; the buyer decides here whether to count
+  // in single fingerlings or in bulks. `qty` ALWAYS holds a plain quantity --
+  // the bulk input just multiplies on the way in -- so everything downstream
+  // (the total, Add to Cart, and the checkout call in the parent) is unchanged
+  // and there is only ever one number being ordered.
+  const perBulk = bulkSize(item) || 0
+  const [orderMode, setOrderMode] = useState('quantity')
+  const buyingInBulk = orderMode === 'bulk' && perBulk > 0
+  const bulksEntered = perBulk > 0 ? Math.round((Number(qty) || 0) / perBulk) : 0
   const belowMinimumStock = !outOfStock && available < minimum
   const enteredQty = Number(qty) || 0
   const safeQty = Math.min(Math.max(enteredQty, minimum), available || minimum)
   const quantityError = outOfStock || belowMinimumStock ? null
-    : enteredQty < minimum ? `Minimum order for this listing is ${formatQuantity(minimum, item)}.`
-      : enteredQty > available ? `Only ${formatQuantity(available, item)} available.`
+    : enteredQty < minimum ? `Minimum order for this listing is ${minimum.toLocaleString()} quantity.`
+      : enteredQty > available ? `Only ${available.toLocaleString()} quantity available.`
         : null
   const canOrder = !outOfStock && !belowMinimumStock && !quantityError
   // Start the buyer at the seller's minimum rather than at 1, so the form
@@ -872,17 +902,17 @@ function ListingDetailPanel({ item, isBuyer = false, checkout, qty, setQty, onPa
         <p className="helper-text">No description provided by the seller.</p>
       )}
       <div className="stats-inline">
-        <Stat value={currency(item.price)} label={`Per ${unitLabel(item)}`} highlight />
-        <Stat value={formatQuantity(item.quantity, item)} label="Available" />
-        <Stat value={formatQuantity(minimum, item)} label="Minimum order" />
-        <Stat value={`${item.rating}/5`} label="Seller rating" />
+        <Stat value={currency(item.price)} label="Per quantity" highlight />
+        <Stat value={formatStock(item)} label="Available" />
+        <Stat value={`${minimum.toLocaleString()} qty`} label="Minimum order" />
       </div>
       <div className="detail-meta">
         <span className="listing-seller-row"><strong>Hatchery/Farm:</strong> <Avatar src={item.sellerProfile?.profile_picture} alt={item.seller} className="listing-seller-avatar" /> {item.sellerProfile?.id ? <Link to={sellerProfilePath(item.sellerProfile.id)}>{item.seller}</Link> : item.seller}</span>
+        {/* Sits with the hatchery it belongs to rather than in the stats row:
+            it describes the SELLER, not this listing's price or stock. */}
+        <span><strong>Seller rating:</strong> {renderStars(item.rating)} <span className="muted">{Number(item.rating || 0).toFixed(1)}/5</span></span>
         {item.sellerContactName && item.sellerContactName !== item.seller && <span><strong>Seller:</strong> {item.sellerContactName}</span>}
-        <span><strong>Sold:</strong> {item.unit_type_label || unitMeta(item.unit_type).label}</span>
-        {item.unit_contents_label && <span><strong>Fish per {unitLabel(item)}:</strong> {item.unit_contents_label}</span>}
-        {item.unit_description && <span><strong>What one {unitLabel(item)} contains:</strong> {item.unit_description}</span>}
+        {item.unit_description && <span><strong>What one bulk contains:</strong> {item.unit_description}</span>}
         <span><strong>Municipality:</strong> {item.municipality}</span>
       </div>
       <MediaGallery media={galleryMediaFor(item)} />
@@ -892,17 +922,53 @@ function ListingDetailPanel({ item, isBuyer = false, checkout, qty, setQty, onPa
             <p className="helper-text">This item is currently unavailable.</p>
           ) : belowMinimumStock ? (
             <p className="helper-text">
-              Only {formatQuantity(available, item)} left, which is below this seller&apos;s minimum order of {formatQuantity(minimum, item)}.
+              Only {available.toLocaleString()} quantity left, which is below this seller&apos;s minimum order of {minimum.toLocaleString()}.
               This listing can&apos;t be ordered until they restock.
             </p>
           ) : (
-            <label>
-              Quantity ({unitLabelPlural(item)})
-              <input type="number" min={minimum} max={available} value={qty} onChange={(e) => setQty(e.target.value)} />
-              <span className="helper-text">
-                Minimum {formatQuantity(minimum, item)} · {formatQuantity(available, item)} available · {currency(item.price)} per {unitLabel(item)}
-              </span>
-            </label>
+            <>
+              {/* The listing has no unit of its own -- the BUYER decides here
+                  whether to think in single fingerlings or in bulks. Either
+                  way the order is sent as a plain quantity. */}
+              {perBulk > 0 && (
+                <label>
+                  Order by
+                  <select
+                    value={orderMode}
+                    onChange={(e) => {
+                      const mode = e.target.value
+                      setOrderMode(mode)
+                      const wanted = Math.max(minimum, Number(qty) || minimum)
+                      // Switching to bulk snaps up to a whole bulk that still
+                      // clears the seller's minimum.
+                      setQty(String(mode === 'bulk'
+                        ? Math.max(1, Math.ceil(wanted / perBulk)) * perBulk
+                        : wanted))
+                    }}
+                  >
+                    <option value="quantity">Quantity</option>
+                    <option value="bulk">Bulk</option>
+                  </select>
+                </label>
+              )}
+              <label>
+                {buyingInBulk ? 'Number of bulks' : 'Quantity'}
+                <input
+                  type="number"
+                  min={buyingInBulk ? 1 : minimum}
+                  max={buyingInBulk ? Math.floor(available / perBulk) : available}
+                  value={buyingInBulk ? bulksEntered : qty}
+                  onChange={(e) => setQty(buyingInBulk
+                    ? String((Number(e.target.value) || 0) * perBulk)
+                    : e.target.value)}
+                />
+                <span className="helper-text">
+                  {buyingInBulk
+                    ? `${bulksEntered.toLocaleString()} bulk${bulksEntered === 1 ? '' : 's'} = ${(bulksEntered * perBulk).toLocaleString()} quantity · ${currency(item.price)} each`
+                    : `Minimum ${minimum.toLocaleString()} · ${available.toLocaleString()} available · ${currency(item.price)} each`}
+                </span>
+              </label>
+            </>
           )}
           {quantityError && <p className="error">{quantityError}</p>}
           <div className="checkout-bar">
@@ -1038,7 +1104,6 @@ const EMPTY_LISTING_FORM = {
   quantity: '',
   price: '',
   description: '',
-  unit_type: 'piece',
   minimum_order: '1',
   pieces_per_unit: '',
   unit_description: '',
@@ -1051,7 +1116,6 @@ function listingToForm(listing) {
     quantity: String(listing.quantity ?? ''),
     price: String(listing.price_per_piece ?? ''),
     description: listing.description || '',
-    unit_type: listing.unit_type || 'piece',
     minimum_order: String(listing.minimum_order ?? 1),
     pieces_per_unit: listing.pieces_per_unit ? String(listing.pieces_per_unit) : '',
     unit_description: listing.unit_description || '',
@@ -1066,12 +1130,8 @@ function listingPayload(form) {
     description: form.description,
     quantity: Number(form.quantity),
     price_per_piece: Number(form.price),
-    unit_type: form.unit_type,
     minimum_order: Math.max(1, Number(form.minimum_order) || 1),
-    // One piece is one fish, so the count is only meaningful for the other
-    // units. Sent as null rather than 0 when blank -- the column records
-    // "not stated", and the ROI projection skips those instead of guessing.
-    pieces_per_unit: form.unit_type === 'piece' ? null : (Number(form.pieces_per_unit) || null),
+    pieces_per_unit: Number(form.pieces_per_unit) || null,
     unit_description: form.unit_description?.trim() || null,
   }
 }
@@ -1085,12 +1145,6 @@ function listingPayload(form) {
 function ListingDetailsFields({ form, setForm }) {
   const unit = unitMeta(form.unit_type)
   const set = (patch) => setForm({ ...form, ...patch })
-  // Editing a listing still on a withdrawn unit (per kilogram) keeps that
-  // option visible, or the select would render blank and a seller saving an
-  // unrelated edit would be forced to silently re-unit their listing.
-  const unitOptions = SELECTABLE_UNIT_TYPES.some((option) => option.value === form.unit_type)
-    ? SELECTABLE_UNIT_TYPES
-    : [...SELECTABLE_UNIT_TYPES, unitMeta(form.unit_type)]
 
   return (
     <div className="form grid-form">
@@ -1099,41 +1153,34 @@ function ListingDetailsFields({ form, setForm }) {
         <input value={form.species} onChange={(e) => set({ species: e.target.value })} placeholder="e.g. Bangus" />
       </label>
       <label className="filter-label">
-        Unit of Measurement
-        <select value={form.unit_type} onChange={(e) => set({ unit_type: e.target.value })}>
-          {unitOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-        </select>
+        Price per quantity
+        <input type="number" min="0.01" step="0.01" value={form.price} onChange={(e) => set({ price: e.target.value })} placeholder="Price for one fingerling" />
+        <span className="helper-text">The price of a single fingerling. A buyer ordering by bulk pays this times the bulk size.</span>
       </label>
       <label className="filter-label">
-        Price per {unit.short}
-        <input type="number" min="0.01" step="0.01" value={form.price} onChange={(e) => set({ price: e.target.value })} placeholder={`Price for one ${unit.short}`} />
+        Stock available (quantity)
+        <input type="number" min="0" value={form.quantity} onChange={(e) => set({ quantity: e.target.value })} placeholder="Total fingerlings you have" />
+        <span className="helper-text">The total number of fingerlings you have, not a number of bulks.</span>
       </label>
       <label className="filter-label">
-        Stock available ({unit.plural})
-        <input type="number" min="0" value={form.quantity} onChange={(e) => set({ quantity: e.target.value })} placeholder={`Total ${unit.plural} you have`} />
-      </label>
-      <label className="filter-label">
-        Minimum order ({unit.plural})
+        Minimum order (quantity)
         <input type="number" min="1" value={form.minimum_order} onChange={(e) => set({ minimum_order: e.target.value })} placeholder="1" />
         <span className="helper-text">Buyers cannot order less than this. Leave at 1 for no minimum.</span>
       </label>
-      {form.unit_type !== 'piece' && (
-        <label className="filter-label">
-          Fish in one {unit.short} {form.unit_type === 'bulk' ? '' : '(optional)'}
-          <input
-            type="number"
-            min="1"
-            value={form.pieces_per_unit}
-            onChange={(e) => set({ pieces_per_unit: e.target.value })}
-            placeholder={form.unit_type === 'bulk' ? 'e.g. 10' : 'e.g. 90'}
-          />
-          <span className="helper-text">
-            {form.unit_type === 'bulk'
-              ? 'Required. Buyers see this on your listing, and it is what lets their Turnout projection count these fish.'
-              : 'Optional. Give a count if you can and buyers can include this purchase in their Turnout projection.'}
-          </span>
-        </label>
-      )}
+      <label className="filter-label">
+        1 bulk = how many quantity?
+        <input
+          type="number"
+          min="1"
+          value={form.pieces_per_unit}
+          onChange={(e) => set({ pieces_per_unit: e.target.value })}
+          placeholder="e.g. 10"
+        />
+        <span className="helper-text">
+          Required. Buyers can order by quantity or by bulk, and this is what one bulk means on your listing
+          {Number(form.pieces_per_unit) > 0 ? ` — 1 bulk = ${Number(form.pieces_per_unit).toLocaleString()} quantity.` : '.'}
+        </span>
+      </label>
       <label className="filter-label">
         What one {unit.short} contains (optional)
         <input
@@ -2934,7 +2981,10 @@ function SellerDashboard() {
               <p className="helper-text">At least one photo is required. Add up to 5 photos or videos (JPG, PNG, WEBP up to 25MB; MP4, MOV, WEBM up to 25MB). They&apos;ll be uploaded together with the listing when you save.</p>
               <StagedImagePicker files={stagedImages} onAdd={addStagedImages} onRemove={removeStagedImage} />
               {!stagedImages.length && <p className="helper-text">Buyers pay before they ever see the fingerlings, so a listing cannot be posted without at least one photo.</p>}
-              <p className="helper-text">Listings are posted automatically under your registered municipality, {dashboard.data?.seller?.municipality?.name || 'your account municipality'}.</p>
+              <p className="helper-text">
+                Listings are posted automatically under your registered municipality, {dashboard.data?.seller?.municipality?.name || 'your account municipality'},
+                and go live straight away — your LGU no longer approves them one by one. They can still review and take down anything that breaks the rules.
+              </p>
               <button onClick={() => saveListing.mutate()} type="button" disabled={saveListing.isPending || !stagedImages.length}>{saveListing.isPending ? 'Saving...' : 'Save Listing'}</button>
               {saveListing.error && <p className="error">{saveListing.error.response?.data?.message || 'Could not save listing.'}</p>}
             </Section>
@@ -4175,14 +4225,6 @@ function LguDashboard() {
     retry: false,
     placeholderData: { buyer_reviews: [], seller_ratings: [] },
   })
-  const approve = useMutation({
-    mutationFn: async (id) => (await api.patch(`/lgu/listings/${id}/approve`)).data,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['lgu-dashboard'] }),
-  })
-  const reject = useMutation({
-    mutationFn: async (id) => (await api.patch(`/lgu/listings/${id}/reject`)).data,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['lgu-dashboard'] }),
-  })
   const sellersDirectory = useQuery({
     queryKey: ['lgu-sellers'],
     queryFn: async () => (await api.get('/lgu/sellers')).data,
@@ -4302,7 +4344,6 @@ function LguDashboard() {
           <StatsRow items={[
             ['Registered Sellers', reports.data?.registered_sellers ?? 0],
             ['Listings', reports.data?.listings ?? 0],
-            ['Pending Approvals', reports.data?.pending_approvals ?? 0],
             ['Open User Reports', lgu.data?.open_user_reports ?? 0],
             ['Open Notices to Explain', lgu.data?.open_seller_notices ?? 0],
           ]} />
@@ -4359,27 +4400,6 @@ function LguDashboard() {
         </Section>
       )}
       {tab === 'messages' && <Section title="Messages"><MessagesPanel initialUserId={searchParams.get('with') ? Number(searchParams.get('with')) : null} /></Section>}
-      {tab === 'approvals' && (
-        <Section title="Pending Approvals">
-          {(lgu.data?.pending_approvals || []).length ? (
-            <div className="item-list">
-              {lgu.data.pending_approvals.map((item) => (
-                <div className="card action" key={item.id}>
-                  <div>
-                    <div className="card-row"><Link className="seller-name-link" to={`/lgu/listings/${item.id}`}><strong>{item.title}</strong></Link><Badge tone="warning">Pending</Badge></div>
-                    <p>{item.sellerProfile?.hatchery_name}</p>
-                  </div>
-                  <div className="row-actions">
-                    <Link className="ghost" to={`/lgu/listings/${item.id}`}>Review</Link>
-                    <button type="button" onClick={() => approve.mutate(item.id)}>Approve</button>
-                    <button type="button" className="ghost danger" onClick={() => reject.mutate(item.id)}>Reject</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : <EmptyState message="No listings awaiting approval." />}
-        </Section>
-      )}
       {tab === 'sellers' && (
         <>
           <SellerRegistrationQueue
@@ -4563,7 +4583,7 @@ function LguDashboard() {
             <CategoryBarChart title="Sellers by Verification Status" data={(reports.data?.sellers_by_status || []).map((row) => ({ ...row, label: statusChartLabel(row.status) }))} dataKey="total" nameKey="label" colorFor={(entry) => statusChartColor(entry.status)} />
             <TimeSeriesChart title={`Orders Over Time (${periodLabel(reportsPeriod)})`} data={reports.data?.orders_over_time} dataKey="count" color="var(--color-primary)" />
           </div>
-          <StatsRow items={[['Registered Sellers', reports.data?.registered_sellers ?? 0], ['Listings', reports.data?.listings ?? 0], ['Pending Approvals', reports.data?.pending_approvals ?? 0]]} />
+          <StatsRow items={[['Registered Sellers', reports.data?.registered_sellers ?? 0], ['Listings', reports.data?.listings ?? 0]]} />
 
           <h3>Municipality Revenue (LGU Share)</h3>
           <p className="helper-text">Revenue values represent your municipality&apos;s LGU Share only, for the selected period.</p>

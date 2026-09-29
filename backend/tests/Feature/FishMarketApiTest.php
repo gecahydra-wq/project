@@ -142,6 +142,10 @@ class FishMarketApiTest extends TestCase
             'title' => 'Bangus Fingerlings',
             'quantity' => 5000,
             'price_per_piece' => 3.50,
+            // Every listing states a bulk size now, so the factory does too --
+            // otherwise editing one trips the "state your bulk size" rule that
+            // exists for listings predating the field.
+            'pieces_per_unit' => 10,
             'average_size' => '4-5 inches',
             'availability_status' => 'in_stock',
             'approval_status' => 'approved',
@@ -158,6 +162,9 @@ class FishMarketApiTest extends TestCase
     {
         return $this->post('/api/listings', array_merge([
             'photos' => [UploadedFile::fake()->image('fingerlings.jpg')->size(300)],
+            // Every listing states its bulk size now -- the buyer chooses
+            // quantity or bulk at order time, so it is always needed.
+            'pieces_per_unit' => 10,
         ], $payload), ['Accept' => 'application/json']);
     }
 
@@ -2414,13 +2421,10 @@ class FishMarketApiTest extends TestCase
 
         $response->assertCreated()->assertJsonPath('description', 'Healthy tilapia fingerlings raised in aerated freshwater ponds.');
 
-        // New listings start out pending and are not publicly visible until an LGU admin approves them.
-        $this->getJson("/api/listings/{$response->json('id')}")->assertStatus(404);
+        // A verified seller's listing goes live immediately -- there is no
+        // per-listing approval queue any more.
+        $this->assertSame('approved', $response->json('approval_status'));
 
-        Sanctum::actingAs($lguAdmin);
-        $this->patchJson("/api/lgu/listings/{$response->json('id')}/approve")->assertOk();
-
-        Sanctum::actingAs($sellerProfile->user);
         $this->getJson("/api/listings/{$response->json('id')}")
             ->assertOk()
             ->assertJsonPath('description', 'Healthy tilapia fingerlings raised in aerated freshwater ponds.');
@@ -7941,65 +7945,6 @@ class FishMarketApiTest extends TestCase
     // ::quantityIssue).
     // ---------------------------------------------------------------------
 
-    public function test_a_seller_chooses_a_unit_of_measurement_and_a_minimum_order(): void
-    {
-        $seller = $this->makeSeller();
-        Sanctum::actingAs($seller->user);
-
-        $listing = $this->postListing([
-            'species' => 'Bangus',
-            'title' => 'Bangus Fingerlings',
-            'quantity' => 400,
-            'price_per_piece' => 120.00,
-            'unit_type' => 'piece',
-            'minimum_order' => 25,
-        ])->assertCreated()->json();
-
-        $this->assertSame('piece', $listing['unit_type']);
-        $this->assertSame(25, $listing['minimum_order']);
-        // The labels the UI renders come from the API, not from the frontend.
-        $this->assertSame('pc', $listing['unit_label']);
-        $this->assertSame('Per Piece', $listing['unit_type_label']);
-
-        // Switching a listing to bulk works the same way, and takes the fish
-        // count with it.
-        $this->patchJson("/api/listings/{$listing['id']}", ['unit_type' => 'bulk', 'minimum_order' => 2, 'pieces_per_unit' => 10])
-            ->assertOk()
-            ->assertJsonPath('unit_type', 'bulk')
-            ->assertJsonPath('unit_label', 'bulk')
-            ->assertJsonPath('minimum_order', 2);
-
-        // An unknown unit is rejected rather than silently stored.
-        $this->patchJson("/api/listings/{$listing['id']}", ['unit_type' => 'truckload'])->assertStatus(422);
-    }
-
-    public function test_fingerlings_can_no_longer_be_listed_by_the_kilogram(): void
-    {
-        $seller = $this->makeSeller();
-        Sanctum::actingAs($seller->user);
-
-        // Fingerlings are counted, not weighed, so the unit was withdrawn.
-        $this->postListing([
-            'species' => 'Bangus',
-            'title' => 'Bangus Fingerlings',
-            'quantity' => 400,
-            'price_per_piece' => 120.00,
-            'unit_type' => 'kilogram',
-        ])->assertStatus(422)->assertJsonValidationErrors('unit_type');
-
-        // A listing created while it WAS on offer keeps its own labels, so
-        // nothing already on the marketplace starts reading as pieces.
-        $legacy = $this->makeListing($seller, ['unit_type' => 'kilogram']);
-        $this->assertSame('kg', $legacy->unit_label);
-        $this->assertSame('Per Kilogram', $legacy->unit_type_label);
-
-        // ...but editing it has to move it onto a unit still on offer.
-        $this->patchJson("/api/listings/{$legacy->id}", ['unit_type' => 'kilogram'])
-            ->assertStatus(422)->assertJsonValidationErrors('unit_type');
-        $this->patchJson("/api/listings/{$legacy->id}", ['unit_type' => 'bulk', 'pieces_per_unit' => 10])
-            ->assertOk()->assertJsonPath('unit_contents_label', '1 bulk = 10 fish');
-    }
-
     public function test_listings_default_to_per_piece_with_no_minimum(): void
     {
         $seller = $this->makeSeller();
@@ -8146,36 +8091,223 @@ class FishMarketApiTest extends TestCase
         $this->assertEquals(0.0, $clamped['harvest_value_per_piece']);
     }
 
-    public function test_the_projection_excludes_kilogram_purchases(): void
-    {
-        $seller = $this->makeSeller();
-        $pieces = $this->makeListing($seller, ['approval_status' => 'approved', 'price_per_piece' => 5, 'quantity' => 10000]);
-        $byKilo = $this->makeListing($seller, ['approval_status' => 'approved', 'price_per_piece' => 200, 'quantity' => 500, 'unit_type' => 'kilogram']);
-        $buyer = $this->makeBuyer();
-
-        $this->makeOrder($buyer, $pieces, ['status' => 'completed', 'quantity' => 1000, 'unit_price' => 5, 'total_amount' => 5000]);
-        $this->makeOrder($buyer, $byKilo, ['status' => 'completed', 'quantity' => 10, 'unit_price' => 200, 'total_amount' => 2000]);
-
-        Sanctum::actingAs($buyer);
-        $report = $this->getJson('/api/buyer/analytics?period=yearly')->assertOk()->json('investment');
-
-        // Both purchases count as investment...
-        $this->assertEquals(7000, $report['investment']['total_invested']);
-        $this->assertCount(2, $report['units']);
-
-        // ...but a weight cannot be resolved to a count of fish, so only the
-        // piece-priced order feeds the per-fish projection, and the excluded
-        // one is reported rather than silently dropped. (Bulk is different: it
-        // carries pieces_per_unit -- see the bulk projection test.)
-        $this->assertSame(1000, $report['projection']['pieces_purchased']);
-        $this->assertEquals(5000, $report['projection']['invested_in_pieces']);
-        $this->assertSame(1, $report['projection']['excluded_orders']);
-    }
-
     /**
      * Buyers commit money before they ever see the fingerlings, so a listing
      * without a picture is not something we want on the marketplace at all.
      */
+    /**
+     * A listing has no unit of measurement. Stock, minimum order and price are
+     * all counted in single fingerlings; "bulk" is only a convenience the BUYER
+     * may pick at order time, and the API only ever receives a plain quantity.
+     */
+    /**
+     * Listings no longer wait in an approval queue. The check moved upstream:
+     * the LGU vets the SELLER once, and after that their posts go straight to
+     * the marketplace. Listing Management stays for monitoring after the fact.
+     */
+    public function test_a_verified_sellers_listing_goes_live_immediately(): void
+    {
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $seller = $this->makeSeller(
+            ['municipality_id' => $lguAdmin->municipality_id],
+            ['municipality_id' => $lguAdmin->municipality_id]
+        );
+        $this->assertTrue((bool) $seller->verified);
+
+        Sanctum::actingAs($seller->user);
+        $listing = $this->postListing([
+            'species' => 'Bangus',
+            'title' => 'Bangus Fingerlings',
+            'quantity' => 500,
+            'price_per_piece' => 3.5,
+        ])->assertCreated()->json();
+
+        $this->assertSame('approved', $listing['approval_status']);
+
+        // On the public marketplace straight away, with no LGU action at all.
+        $this->assertTrue(collect($this->getJson('/api/listings')->assertOk()->json())->contains('id', $listing['id']));
+        $this->getJson("/api/listings/{$listing['id']}")->assertOk();
+    }
+
+    public function test_an_unverified_seller_cannot_post_anything(): void
+    {
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $seller = $this->makePendingSeller($lguAdmin);
+
+        Sanctum::actingAs($seller->user);
+        $this->postListing([
+            'species' => 'Bangus',
+            'title' => 'Bangus Fingerlings',
+            'quantity' => 500,
+            'price_per_piece' => 3.5,
+        ])->assertStatus(403);
+
+        // Verification is now the only gate in front of the marketplace, so it
+        // is checked on the profile flag itself: an account whose verification
+        // is withdrawn must stop being able to post, even though its
+        // registration decision still reads 'approved'.
+        $seller->forceFill(['approval_status' => 'approved', 'verified' => false])->save();
+        Sanctum::actingAs($seller->user->fresh());
+        $this->postListing([
+            'species' => 'Bangus',
+            'title' => 'Bangus Fingerlings',
+            'quantity' => 500,
+            'price_per_piece' => 3.5,
+        ])->assertStatus(403);
+
+        // Verified -- now they can.
+        $seller->forceFill(['verified' => true, 'status' => 'verified'])->save();
+        Sanctum::actingAs($seller->user->fresh());
+        $this->postListing([
+            'species' => 'Bangus',
+            'title' => 'Bangus Fingerlings',
+            'quantity' => 500,
+            'price_per_piece' => 3.5,
+        ])->assertCreated()->assertJsonPath('approval_status', 'approved');
+    }
+
+    public function test_the_lgu_can_still_take_down_a_live_listing(): void
+    {
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $seller = $this->makeSeller(
+            ['municipality_id' => $lguAdmin->municipality_id],
+            ['municipality_id' => $lguAdmin->municipality_id]
+        );
+        $listing = $this->makeListing($seller, ['approval_status' => 'approved']);
+
+        // Monitoring after the fact still works -- removing the queue did not
+        // remove the LGU's ability to act.
+        Sanctum::actingAs($lguAdmin);
+        $this->patchJson("/api/lgu/listings/{$listing->id}/reject", ['reason' => 'Photos do not match the species listed.'])
+            ->assertOk();
+
+        $this->assertFalse(collect($this->getJson('/api/listings')->assertOk()->json())->contains('id', $listing->id));
+    }
+
+    public function test_every_listing_must_state_its_bulk_size(): void
+    {
+        $seller = $this->makeSeller();
+        Sanctum::actingAs($seller->user);
+
+        $this->post('/api/listings', [
+            'species' => 'Bangus',
+            'title' => 'Bangus Fingerlings',
+            'quantity' => 500,
+            'price_per_piece' => 3.5,
+            'photos' => [UploadedFile::fake()->image('fingerlings.jpg')->size(300)],
+        ], ['Accept' => 'application/json'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('pieces_per_unit');
+
+        $listing = $this->postListing([
+            'species' => 'Bangus',
+            'title' => 'Bangus Fingerlings',
+            'quantity' => 500,
+            'price_per_piece' => 3.5,
+            'minimum_order' => 25,
+            'pieces_per_unit' => 10,
+        ])->assertCreated()->json();
+
+        $this->assertSame(10, $listing['pieces_per_unit']);
+        $this->assertSame(25, $listing['minimum_order']);
+        $this->assertSame('1 bulk = 10 quantity', $listing['unit_contents_label']);
+        // 500 fingerlings is 50 whole bulks.
+        $this->assertSame(50, $listing['available_bulks']);
+    }
+
+    /**
+     * Whether the buyer thought in fingerlings or in bulks, the order is a
+     * plain quantity by the time it reaches the API, and stock moves one-for-one
+     * with it. The conversion is a front-end convenience, not a second unit.
+     */
+    public function test_stock_moves_one_for_one_with_the_ordered_quantity(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, [
+            'quantity' => 1000,
+            'price_per_piece' => 10,
+            'pieces_per_unit' => 10,
+            'minimum_order' => 1,
+        ]);
+        $buyer = $this->makeBuyer();
+        Sanctum::actingAs($buyer);
+
+        // A buyer who chose "5 bulks" sends 50 -- the UI multiplied for them.
+        $order = $this->postJson('/api/orders', [
+            'fingerling_listing_id' => $listing->id,
+            'quantity' => 50,
+        ])->assertCreated()->json();
+
+        $this->assertSame(50, (int) $order['quantity']);
+        // Priced per fingerling: 50 x 10.
+        $this->assertEquals(500, (float) $order['total_amount']);
+        $this->assertSame(950, (int) $listing->fresh()->quantity);
+        $this->assertSame(95, $listing->fresh()->availableBulks());
+
+        // Cancelling returns exactly what was taken.
+        $seller->user->refresh();
+        Sanctum::actingAs($seller->user);
+        $this->patchJson("/api/orders/{$order['id']}/status", ['status' => 'cancelled'])->assertOk();
+        $this->assertSame(1000, (int) $listing->fresh()->quantity);
+    }
+
+    public function test_the_stock_ceiling_is_the_plain_quantity(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 45, 'pieces_per_unit' => 10, 'minimum_order' => 1]);
+        $buyer = $this->makeBuyer();
+        Sanctum::actingAs($buyer);
+
+        // 45 fingerlings is only 4 whole bulks, but the ceiling itself is 45.
+        $this->assertSame(4, $listing->availableBulks());
+
+        $this->postJson('/api/orders', ['fingerling_listing_id' => $listing->id, 'quantity' => 50])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Requested quantity exceeds available stock.');
+
+        $this->postJson('/api/orders', ['fingerling_listing_id' => $listing->id, 'quantity' => 45])
+            ->assertCreated();
+
+        $this->assertSame(0, (int) $listing->fresh()->quantity);
+    }
+
+    public function test_the_cart_enforces_the_same_plain_quantity_ceiling(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 30, 'pieces_per_unit' => 10, 'minimum_order' => 1]);
+        $buyer = $this->makeBuyer();
+        Sanctum::actingAs($buyer);
+
+        $this->postJson('/api/cart', ['fingerling_listing_id' => $listing->id, 'quantity' => 40])
+            ->assertStatus(422);
+
+        $this->postJson('/api/cart', ['fingerling_listing_id' => $listing->id, 'quantity' => 30])
+            ->assertCreated();
+    }
+
+    /**
+     * With units gone, every purchase is already a count of fingerlings, so the
+     * Turnout/ROI projection can cover all of them. Nothing is excluded any
+     * more except a listing that predates the bulk-size field.
+     */
+    public function test_the_projection_counts_every_purchase_now_that_all_stock_is_counted(): void
+    {
+        $seller = $this->makeSeller();
+        $listingA = $this->makeListing($seller, ['price_per_piece' => 5, 'quantity' => 10000]);
+        $listingB = $this->makeListing($seller, ['price_per_piece' => 10, 'quantity' => 10000]);
+        $buyer = $this->makeBuyer();
+
+        $this->makeOrder($buyer, $listingA, ['status' => 'completed', 'quantity' => 1000, 'unit_price' => 5, 'total_amount' => 5000]);
+        $this->makeOrder($buyer, $listingB, ['status' => 'completed', 'quantity' => 30, 'unit_price' => 10, 'total_amount' => 300]);
+
+        Sanctum::actingAs($buyer);
+        $report = $this->getJson('/api/buyer/analytics?period=yearly')->assertOk()->json('investment');
+
+        $this->assertSame(1030, $report['projection']['pieces_purchased']);
+        $this->assertEquals(5300, $report['projection']['invested_in_pieces']);
+        $this->assertSame(0, $report['projection']['excluded_orders']);
+    }
+
     public function test_a_listing_cannot_be_created_without_a_photo(): void
     {
         $seller = $this->makeSeller();
@@ -8227,44 +8359,6 @@ class FishMarketApiTest extends TestCase
 
         $this->deleteJson("/api/listings/{$listing['id']}/media/{$firstPhoto}")->assertOk();
         $this->assertSame(1, ListingMedia::where('listing_id', $listing['id'])->count());
-    }
-
-    public function test_a_bulk_listing_must_state_how_many_fish_are_in_one_bulk(): void
-    {
-        $seller = $this->makeSeller();
-        Sanctum::actingAs($seller->user);
-
-        // Bulk with no count is refused -- it would tell the buyer nothing and
-        // the projection could not use it.
-        $this->postListing([
-            'species' => 'Tilapia',
-            'title' => 'Tilapia by the sack',
-            'quantity' => 40,
-            'price_per_piece' => 850,
-            'unit_type' => 'bulk',
-        ])->assertStatus(422)->assertJsonValidationErrors('pieces_per_unit');
-
-        // With the count it is accepted, and the listing carries a plain
-        // sentence both the seller and the buyer can read.
-        $this->postListing([
-            'species' => 'Tilapia',
-            'title' => 'Tilapia by the sack',
-            'quantity' => 40,
-            'price_per_piece' => 850,
-            'unit_type' => 'bulk',
-            'pieces_per_unit' => 10,
-        ])->assertCreated()
-            ->assertJsonPath('pieces_per_unit', 10)
-            ->assertJsonPath('unit_contents_label', '1 bulk = 10 fish');
-
-        // A per-piece listing needs no count: one piece is one fish.
-        $this->postListing([
-            'species' => 'Bangus',
-            'title' => 'Bangus Fingerlings',
-            'quantity' => 5000,
-            'price_per_piece' => 3.5,
-            'unit_type' => 'piece',
-        ])->assertCreated()->assertJsonPath('unit_contents_label', null);
     }
 
     public function test_the_projection_counts_bulk_purchases_using_the_sellers_fish_per_bulk(): void

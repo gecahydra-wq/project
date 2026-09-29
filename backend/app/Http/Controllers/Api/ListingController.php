@@ -98,18 +98,12 @@ class ListingController extends Controller
             // The price of ONE unit_type unit -- per piece, per kilogram, or
             // per bulk, whichever the seller chose.
             'price_per_piece' => ['required', 'numeric', 'min:0.01'],
-            'unit_type' => ['nullable', Rule::in(FingerlingListing::SELECTABLE_UNIT_TYPES)],
             'minimum_order' => ['nullable', 'integer', 'min:1'],
             'unit_description' => ['nullable', 'string', 'max:255'],
-            // A bulk listing MUST say how many fish one bulk holds. Without it
-            // the buyer cannot tell what they are buying and the Turnout/ROI
-            // projection has to skip the purchase. Optional for kilogram, where
-            // a count is useful but not everyone can give one, and ignored for
-            // piece, where one unit is one fish by definition.
-            'pieces_per_unit' => [
-                Rule::requiredIf(fn () => $request->input('unit_type') === 'bulk'),
-                'nullable', 'integer', 'min:1', 'max:1000000',
-            ],
+            // Every listing states its bulk size, because every listing can be
+            // bought by bulk -- the buyer chooses at order time, not the seller.
+            // Stock, minimum order and price are all counted in single fish.
+            'pieces_per_unit' => ['required', 'integer', 'min:1', 'max:1000000'],
             'average_size' => ['nullable', 'string'],
             'availability_status' => ['nullable', 'string'],
             // At least one photo is mandatory. Buyers are committing money up
@@ -120,7 +114,7 @@ class ListingController extends Controller
             'photos' => ['required', 'array', 'min:1', 'max:'.self::MAX_MEDIA_PER_LISTING],
             'photos.*' => ['required', 'file'],
         ], [
-            'pieces_per_unit.required' => 'Tell buyers how many fish are in one bulk.',
+            'pieces_per_unit.required' => 'Tell buyers how many fish make up one bulk.',
             'photos.required' => 'Add at least one photo of your fingerlings.',
             'photos.min' => 'Add at least one photo of your fingerlings.',
             'photos.max' => 'A listing can have at most '.self::MAX_MEDIA_PER_LISTING.' photos or videos.',
@@ -140,6 +134,13 @@ class ListingController extends Controller
         unset($data['photos']);
         $data['seller_profile_id'] = $seller->id;
         $data['municipality_id'] = $seller->municipality_id;
+        // Listings go live immediately. The gate moved upstream: only a
+        // VERIFIED seller reaches this point at all (see guardCanList), so
+        // there is nothing left for a per-listing approval to add. The LGU and
+        // Super Admin keep their Listing Management views and can still take a
+        // listing down -- monitoring after the fact rather than a queue in
+        // front of every post.
+        $data['approval_status'] = 'approved';
 
         // One transaction so a listing can never be committed without its
         // photos: if a file fails to store, the listing is rolled back too.
@@ -185,22 +186,19 @@ class ListingController extends Controller
             'description' => ['nullable', 'string'],
             'quantity' => ['sometimes', 'integer', 'min:0'],
             'price_per_piece' => ['sometimes', 'numeric', 'min:0.01'],
-            'unit_type' => ['sometimes', Rule::in(FingerlingListing::SELECTABLE_UNIT_TYPES)],
             'minimum_order' => ['sometimes', 'integer', 'min:1'],
             'unit_description' => ['nullable', 'string', 'max:255'],
-            // Required when this edit leaves the listing sold by bulk with no
-            // count on file -- either by switching it to bulk, or by editing a
-            // bulk listing created before this field existed. Deliberately not
-            // 'sometimes', which would let the rule be skipped by omitting it.
+            // Required when the listing still has no bulk size on file -- i.e.
+            // it predates the field. Deliberately not 'sometimes', which would
+            // let the rule be skipped by omitting the key.
             'pieces_per_unit' => [
-                Rule::requiredIf(fn () => $request->input('unit_type', $listing->unit_type) === 'bulk'
-                    && ! $listing->pieces_per_unit),
+                Rule::requiredIf(fn () => ! $listing->pieces_per_unit),
                 'nullable', 'integer', 'min:1', 'max:1000000',
             ],
             'average_size' => ['nullable', 'string'],
             'availability_status' => ['nullable', 'string'],
         ], [
-            'pieces_per_unit.required' => 'Tell buyers how many fish are in one bulk.',
+            'pieces_per_unit.required' => 'Tell buyers how many fish make up one bulk.',
         ]);
 
         $listing->update($data);
@@ -323,15 +321,23 @@ class ListingController extends Controller
      * the Super Admin (App\Support\SellerApproval). Returns a 403 response to
      * return, or null when the seller is cleared.
      */
+    /**
+     * Only a VERIFIED seller may post. Since listings now go live without
+     * per-listing approval, this is the only thing standing between an
+     * unchecked account and the marketplace, so it is checked on the profile
+     * flag itself rather than inferred from the registration decision: an
+     * account that was approved and later had its verification withdrawn must
+     * stop being able to post.
+     */
     private function guardRegistrationApproved(SellerProfile $seller): ?\Illuminate\Http\JsonResponse
     {
-        if (SellerApproval::isApproved($seller)) {
+        if ($seller->verified && SellerApproval::isApproved($seller)) {
             return null;
         }
 
         $message = $seller->approval_status === SellerApproval::REJECTED
             ? 'Your seller registration was rejected'.($seller->registration_rejection_reason ? ": {$seller->registration_rejection_reason}" : '.').' Contact your LGU to have it reviewed again.'
-            : 'Your seller registration is still awaiting approval. You can manage listings once your LGU Admin has approved it.';
+            : 'Your hatchery is not verified yet. Your LGU Admin verifies your registration, and you can post listings as soon as they do.';
 
         return response()->json(['message' => $message], 403);
     }

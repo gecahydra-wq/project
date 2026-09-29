@@ -163,7 +163,9 @@ class OrderController extends Controller
             'provider' => 'paymongo',
         ]);
 
-        $listing->decrement('quantity', $data['quantity']);
+        // Orders are counted in the same fish as the stock -- a buyer who chose
+        // "by bulk" had it converted before it reached here.
+        $listing->decrement('quantity', (int) $data['quantity']);
 
         return response()->json($order->load('payment'), 201);
     }
