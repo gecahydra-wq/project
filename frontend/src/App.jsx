@@ -3383,7 +3383,7 @@ function SellerProfileForm({ seller, onSave, saving, success, error }) {
 
       <ProfileCard icon={ShieldCheck} title="Credentials & history" description="Optional, but certifications and a track record help you stand out.">
         <div className="profile-fields">
-          <ProfileField label="Certifications" hint="Optional. e.g. BFAR accreditation.">
+          <ProfileField label="Certifications" hint="Optional">
             <textarea value={form.certifications} onChange={setField('certifications')} rows={3} />
           </ProfileField>
           <ProfileField label="Farm history">
