@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\AnnouncementController;
 use App\Http\Controllers\Api\BuyerController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CartController;
+use App\Http\Controllers\Api\DisputeController;
 use App\Http\Controllers\Api\EmailVerificationController;
 use App\Http\Controllers\Api\GoogleAuthController;
 use App\Http\Controllers\Api\LguController;
@@ -98,6 +99,10 @@ Route::middleware(['auth:sanctum', 'verified', 'role:buyer'])->group(function ()
     Route::post('orders/{order:order_number}/payment-success', [OrderController::class, 'markPaymentSuccess']);
     Route::post('orders/{order:order_number}/payment-cancelled', [OrderController::class, 'markPaymentCancelled']);
     Route::post('orders/{order}/review', [ReviewController::class, 'store']);
+    // The buyer -- and only the buyer -- confirms the fingerlings arrived.
+    // Completing is what releases the payment into the LGU earnings queue,
+    // so it belongs to whoever paid. See OrderController::confirmReceived.
+    Route::patch('orders/{order}/confirm-received', [OrderController::class, 'confirmReceived']);
 });
 
 Route::middleware(['auth:sanctum', 'verified', 'role:seller'])->group(function () {
@@ -115,6 +120,11 @@ Route::middleware(['auth:sanctum', 'verified', 'role:seller'])->group(function (
     Route::delete('listings/{listing}/media/{media}', [ListingController::class, 'deleteMedia']);
     Route::patch('listings/{listing}/media/reorder', [ListingController::class, 'reorderMedia']);
     Route::patch('orders/{order}/status', [OrderController::class, 'updateStatus']);
+    // A rejected earnings review or withdrawal used to be the end of the
+    // conversation. The seller can now answer it, and the reviewer decides
+    // again -- see App\Support\DisputeResolution.
+    Route::post('orders/{order}/dispute-earnings', [DisputeController::class, 'disputeEarnings']);
+    Route::post('withdrawals/{withdrawal}/dispute', [DisputeController::class, 'disputeWithdrawal']);
     Route::get('seller/notifications', [SellerController::class, 'notifications']);
     Route::patch('seller/notifications/read-all', [SellerController::class, 'markAllNotificationsRead']);
     Route::patch('seller/notifications/{notification}/read', [SellerController::class, 'markNotificationRead']);
@@ -133,7 +143,6 @@ Route::middleware(['auth:sanctum', 'verified', 'role:seller'])->group(function (
     Route::get('seller/notices', [SellerController::class, 'notices']);
     Route::post('seller/notices/{notice}/respond', [SellerController::class, 'respondToNotice']);
     Route::get('seller/buyers/{buyer}', [SellerController::class, 'buyerProfile']);
-    Route::post('orders/{order}/rate-buyer', [SellerController::class, 'rateBuyer']);
     Route::patch('orders/{order:order_number}/notes', [OrderController::class, 'updateSellerNotes']);
 });
 
@@ -194,19 +203,29 @@ Route::prefix('lgu')->middleware(['auth:sanctum', 'verified', 'role:lgu_admin'])
     Route::get('users', [LguController::class, 'users']);
     Route::get('reviews', [PlatformController::class, 'lguReviews']);
     Route::delete('reviews/{review}', [LguController::class, 'destroyReview']);
-    Route::delete('buyer-ratings/{rating}', [LguController::class, 'destroyBuyerRating']);
     Route::get('reports', [PlatformController::class, 'lguReports']);
     Route::get('reports/export', [PlatformController::class, 'exportLguReport']);
     Route::get('earnings', [LguController::class, 'pendingEarnings']);
     // Rejected-but-still-held transactions, and the way back out of a
     // rejection -- see LguController::reopenRejectedEarnings.
     Route::get('earnings/rejected', [LguController::class, 'rejectedEarnings']);
+    Route::get('orders', [LguController::class, 'orders']);
     Route::get('orders/{order:order_number}', [LguController::class, 'showOrder']);
+    // Disputes raised by this municipality's sellers, plus the LGU's own
+    // appeal when the Super Admin rejects its withdrawal.
+    Route::get('disputes', [DisputeController::class, 'index']);
+    Route::patch('disputes/{dispute}/accept', [DisputeController::class, 'accept']);
+    Route::patch('disputes/{dispute}/reject', [DisputeController::class, 'reject']);
+    Route::post('lgu-withdrawals/{withdrawal}/dispute', [DisputeController::class, 'disputeLguWithdrawal']);
+    // Backstop for a buyer who never confirms, which would otherwise leave
+    // the seller's money frozen in escrow -- see markOrderDelivered.
+    Route::patch('orders/{order}/mark-delivered', [LguController::class, 'markOrderDelivered']);
     Route::patch('payments/{payment}/approve', [LguController::class, 'approveEarnings']);
     Route::patch('payments/{payment}/hold', [LguController::class, 'holdEarnings']);
     Route::patch('payments/{payment}/clear-hold', [LguController::class, 'clearHold']);
     Route::patch('payments/{payment}/reject', [LguController::class, 'rejectEarnings']);
     Route::patch('payments/{payment}/reopen', [LguController::class, 'reopenRejectedEarnings']);
+    Route::patch('notifications/read-all', [LguController::class, 'markAllNotificationsRead']);
     Route::patch('notifications/{notification}/read', [LguController::class, 'markNotificationRead']);
     Route::post('profile/picture', [LguController::class, 'uploadProfilePicture']);
     Route::delete('profile/picture', [LguController::class, 'removeProfilePicture']);
@@ -220,6 +239,14 @@ Route::prefix('lgu')->middleware(['auth:sanctum', 'verified', 'role:lgu_admin'])
 Route::prefix('super-admin')->middleware(['auth:sanctum', 'verified', 'role:super_admin'])->group(function () {
     Route::get('dashboard', [SuperAdminController::class, 'dashboard']);
     Route::get('orders/{order:order_number}', [SuperAdminController::class, 'showOrder']);
+    Route::patch('orders/{order}/mark-delivered', [SuperAdminController::class, 'markOrderDelivered']);
+    // Seller Earnings, platform-wide: the LGU's own queue and actions, which
+    // skip the municipality scope for a Super Admin (LguController::reviewsSeller).
+    Route::get('earnings', [LguController::class, 'pendingEarnings']);
+    Route::get('earnings/rejected', [LguController::class, 'rejectedEarnings']);
+    Route::patch('payments/{payment}/approve', [LguController::class, 'approveEarnings']);
+    Route::patch('payments/{payment}/clear-hold', [LguController::class, 'clearHold']);
+    Route::patch('payments/{payment}/reject', [LguController::class, 'rejectEarnings']);
     Route::get('activity-log', [SuperAdminController::class, 'activityLog']);
     Route::get('activity-log/actions', [SuperAdminController::class, 'activityLogActions']);
     Route::get('activity-log/categories', [SuperAdminController::class, 'activityLogCategories']);
@@ -249,9 +276,13 @@ Route::prefix('super-admin')->middleware(['auth:sanctum', 'verified', 'role:supe
     Route::get('moderation-log', [SuperAdminController::class, 'moderationLog']);
     Route::get('reviews', [PlatformController::class, 'superReviews']);
     Route::delete('reviews/{review}', [SuperAdminController::class, 'destroyReview']);
-    Route::delete('buyer-ratings/{rating}', [SuperAdminController::class, 'destroyBuyerRating']);
     Route::get('reports', [PlatformController::class, 'superReports']);
     Route::get('reports/export', [PlatformController::class, 'exportSuperReport']);
+    // Every dispute platform-wide: seller appeals whose LGU is absent, and
+    // LGU appeals against the Super Admin's own withdrawal rejections.
+    Route::get('disputes', [DisputeController::class, 'index']);
+    Route::patch('disputes/{dispute}/accept', [DisputeController::class, 'accept']);
+    Route::patch('disputes/{dispute}/reject', [DisputeController::class, 'reject']);
     Route::get('withdrawals', [SuperAdminController::class, 'withdrawals']);
     Route::patch('withdrawals/{withdrawal}/approve', [SuperAdminController::class, 'approveWithdrawal']);
     Route::patch('withdrawals/{withdrawal}/reject', [SuperAdminController::class, 'rejectWithdrawal']);
@@ -269,6 +300,7 @@ Route::prefix('super-admin')->middleware(['auth:sanctum', 'verified', 'role:supe
     Route::patch('lgu-withdrawals/{withdrawal}/reject', [SuperAdminController::class, 'rejectLguWithdrawal']);
     Route::patch('lgu-withdrawals/{withdrawal}/paid', [SuperAdminController::class, 'markLguWithdrawalPaid']);
     Route::get('notifications', [SuperAdminController::class, 'notifications']);
+    Route::patch('notifications/read-all', [SuperAdminController::class, 'markAllNotificationsRead']);
     Route::patch('notifications/{notification}/read', [SuperAdminController::class, 'markNotificationRead']);
     Route::post('profile/picture', [SuperAdminController::class, 'uploadProfilePicture']);
     Route::delete('profile/picture', [SuperAdminController::class, 'removeProfilePicture']);

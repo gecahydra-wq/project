@@ -89,11 +89,23 @@ class GoogleAuthController extends Controller
         try {
             $googleUser = Socialite::driver('google')->stateless()->user();
         } catch (Throwable $e) {
+            // Logged because this failure is otherwise invisible: the user is
+            // bounced to /login with no session and no clue why, and the most
+            // common causes (a redirect_uri that does not match the one
+            // registered in Google Cloud Console, an expired or reused code,
+            // wrong client credentials) are indistinguishable from outside.
+            Log::warning('Google sign-in failed at the token exchange: '.$e->getMessage(), [
+                'redirect_uri' => config('services.google.redirect'),
+                'callback_query_keys' => array_keys($request->query()),
+            ]);
+
             return redirect($frontend.'/login?google_error=1');
         }
 
         $email = $googleUser->getEmail();
         if (! $email) {
+            Log::warning('Google sign-in returned no email address.', ['google_id' => $googleUser->getId()]);
+
             return redirect($frontend.'/login?google_error=1');
         }
 

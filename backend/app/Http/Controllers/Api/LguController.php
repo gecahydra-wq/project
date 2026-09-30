@@ -7,10 +7,10 @@ use App\Mail\ListingApprovedMail;
 use App\Mail\ListingRejectedMail;
 use App\Mail\SellerEarningsApprovedMail;
 use App\Models\AppNotification;
-use App\Models\BuyerRating;
 use App\Models\FingerlingListing;
 use App\Models\LguWithdrawalRequest;
 use App\Models\MockPayment;
+use App\Http\Controllers\Api\OrderController;
 use App\Models\Order;
 use App\Models\SellerNotice;
 use App\Models\SellerProfile;
@@ -78,6 +78,15 @@ class LguController extends Controller
         return response()->json($notification);
     }
 
+    public function markAllNotificationsRead(Request $request)
+    {
+        $updated = AppNotification::where('user_id', $request->user()->id)
+            ->whereNull('read_at')
+            ->update(['read_at' => now()]);
+
+        return response()->json(['updated' => $updated]);
+    }
+
     /**
      * Profile picture management for the LGU Admin -- the only editable part of
      * their profile (they have no public profile info to maintain, unlike a
@@ -118,19 +127,6 @@ class LguController extends Controller
         return response()->json(['message' => 'Review removed.']);
     }
 
-    /**
-     * Remove a seller's rating of a buyer -- same municipality scoping (by the
-     * rating seller's municipality). Recomputes the buyer's rating and logs it.
-     */
-    public function destroyBuyerRating(Request $request, BuyerRating $rating)
-    {
-        $rating->loadMissing('sellerProfile');
-        abort_if($rating->sellerProfile?->municipality_id !== $request->user()->municipality_id, 403, 'You can only remove ratings for sellers in your municipality.');
-
-        ReviewModeration::deleteBuyerRating($rating, $request->user());
-
-        return response()->json(['message' => 'Rating removed.']);
-    }
 
     /**
      * Same-municipality listings are always viewable (any status) for the
@@ -557,17 +553,24 @@ class LguController extends Controller
         return response()->json(ActivityLog::categoryOptions());
     }
 
+    /**
+     * The earnings-approval queue. Also served to the Super Admin (see the
+     * super-admin routes), who reviews as the platform-wide fallback -- the
+     * same way they back up seller approval and the silent-buyer backstop --
+     * so every earnings action here is scoped by reviewsSeller() rather than
+     * a bare municipality comparison.
+     */
     public function pendingEarnings(Request $request)
     {
-        $municipalityId = $request->user()->municipality_id;
+        $user = $request->user();
 
         return response()->json(
             MockPayment::where('status', 'paid_held')
                 ->whereHas('order', fn ($q) => $q
                     ->where('status', 'completed')
                     ->where(fn ($q3) => $q3->whereNull('lgu_review_status')->orWhere('lgu_review_status', '!=', 'rejected'))
-                    ->whereHas('sellerProfile', fn ($q2) => $q2->where('municipality_id', $municipalityId)))
-                ->with(['order.sellerProfile.user', 'order.buyer', 'order.listing'])
+                    ->when($user->role !== 'super_admin', fn ($q4) => $q4->whereHas('sellerProfile', fn ($q2) => $q2->where('municipality_id', $user->municipality_id))))
+                ->with(['order.sellerProfile.user', 'order.sellerProfile.municipality', 'order.buyer', 'order.listing'])
                 ->latest()
                 ->get()
         );
@@ -585,15 +588,38 @@ class LguController extends Controller
      */
     public function rejectedEarnings(Request $request)
     {
-        $municipalityId = $request->user()->municipality_id;
+        $user = $request->user();
 
         return response()->json(
             MockPayment::where('status', 'paid_held')
                 ->whereHas('order', fn ($q) => $q
                     ->where('status', 'completed')
                     ->where('lgu_review_status', 'rejected')
-                    ->whereHas('sellerProfile', fn ($q2) => $q2->where('municipality_id', $municipalityId)))
-                ->with(['order.sellerProfile.user', 'order.buyer', 'order.listing', 'order.reviewedBy'])
+                    ->when($user->role !== 'super_admin', fn ($q4) => $q4->whereHas('sellerProfile', fn ($q2) => $q2->where('municipality_id', $user->municipality_id))))
+                // latestDispute only so the row can say whether the seller has
+                // answered this rejection and link to it. The dispute is read and
+                // decided on the Disputes tab -- this queue keeps its own single
+                // action (Reopen Review) rather than growing a second way to do
+                // an overlapping thing.
+                ->with(['order.sellerProfile.user', 'order.sellerProfile.municipality', 'order.buyer', 'order.listing', 'order.reviewedBy', 'order.latestDispute'])
+                ->latest()
+                ->get()
+        );
+    }
+
+    /**
+     * Every order placed with a seller in this LGU's municipality, newest
+     * first. The list the Orders tab reads, and where the LGU finds an order
+     * stuck Out for Delivery that the buyer never confirmed (see
+     * markOrderDelivered).
+     */
+    public function orders(Request $request)
+    {
+        $municipalityId = $request->user()->municipality_id;
+
+        return response()->json(
+            Order::whereHas('sellerProfile', fn ($q) => $q->where('municipality_id', $municipalityId))
+                ->with(['listing', 'payment', 'buyer', 'sellerProfile.user'])
                 ->latest()
                 ->get()
         );
@@ -612,12 +638,32 @@ class LguController extends Controller
         return response()->json(OrderTransactionPresenter::present($order, 'lgu_admin'));
     }
 
+    /**
+     * Mark an order received on a silent buyer's behalf.
+     *
+     * Completion moved to the buyer so a seller cannot start their own payout,
+     * but that leaves one failure mode: a buyer who never confirms freezes the
+     * seller's money in escrow with no way out. This is the release valve --
+     * deliberately an LGU decision rather than an automatic timer, so a human
+     * has confirmed the delivery actually happened before money moves. The
+     * completion itself is delegated to OrderController so the buyer's own
+     * confirmation and this one can never diverge.
+     */
+    public function markOrderDelivered(Request $request, Order $order, OrderController $orders)
+    {
+        abort_if($order->sellerProfile?->municipality_id !== $request->user()->municipality_id, 403, 'You can only act on orders for sellers in your municipality.');
+
+        $orders->completeDelivery($order, $request->user());
+
+        return response()->json(OrderTransactionPresenter::present($order->fresh(), 'lgu_admin'));
+    }
+
     public function approveEarnings(Request $request, MockPayment $payment)
     {
         $payment->load(['order.sellerProfile.user', 'order.buyer', 'order.listing']);
         $order = $payment->order;
 
-        abort_if(! $order || $order->sellerProfile?->municipality_id !== $request->user()->municipality_id, 403, 'You can only approve earnings for sellers in your municipality.');
+        abort_if(! $order || ! $this->reviewsSeller($request->user(), $order->sellerProfile), 403, 'You can only approve earnings for sellers in your municipality.');
         abort_unless($order->status === 'completed', 422, 'Only completed (delivered) orders are eligible for earnings approval.');
         abort_unless($payment->status === 'paid_held', 422, 'This payment is not awaiting approval.');
         abort_if($order->lgu_review_status === 'on_hold', 422, 'This order is on hold for investigation. Clear the hold before approving.');
@@ -655,7 +701,8 @@ class LguController extends Controller
             'type' => 'earnings_approved',
             'title' => 'Earnings Approved',
             'body' => sprintf(
-                'Your LGU has approved order #%s. Your seller earnings of ₱%s have moved from your Pending Balance to your Available Balance -- this is not yet a payout, you can request a withdrawal any time.',
+                '%s has approved order #%s. Your seller earnings of ₱%s have moved from your Pending Balance to your Available Balance -- this is not yet a payout, you can request a withdrawal any time.',
+                $this->reviewerLabel($request->user()),
                 $order->order_number,
                 number_format($split['seller_share'], 2)
             ),
@@ -693,12 +740,13 @@ class LguController extends Controller
         ]);
 
         $this->notifySellerOfReview($order, 'earnings_on_hold', 'Earnings Under Investigation', sprintf(
-            'Your LGU has placed order #%s on hold pending investigation and has not yet approved your earnings. Reason: %s',
+            '%s has placed order #%s on hold pending investigation and has not yet approved your earnings. Reason: %s',
+            $this->reviewerLabel($request->user()),
             $order->order_number,
             $data['reason']
         ));
 
-        return response()->json(OrderTransactionPresenter::present($order->fresh(), 'lgu_admin'));
+        return response()->json(OrderTransactionPresenter::present($order->fresh(), $request->user()->role));
     }
 
     public function clearHold(Request $request, MockPayment $payment)
@@ -707,7 +755,7 @@ class LguController extends Controller
 
         $this->clearReviewStatus($order, $request->user());
 
-        return response()->json(OrderTransactionPresenter::present($order->fresh(), 'lgu_admin'));
+        return response()->json(OrderTransactionPresenter::present($order->fresh(), $request->user()->role));
     }
 
     /**
@@ -728,11 +776,12 @@ class LguController extends Controller
         $this->clearReviewStatus($order, $request->user());
 
         $this->notifySellerOfReview($order, 'earnings_reopened', 'Earnings Under Review Again', sprintf(
-            'Your LGU has reopened the rejected earnings review for order #%s. It is back in their approval queue, and your projected earnings for it have been restored to your Pending Balance.',
+            '%s has reopened the rejected earnings review for order #%s. It is back in their approval queue, and your projected earnings for it have been restored to your Pending Balance.',
+            $this->reviewerLabel($request->user()),
             $order->order_number
         ));
 
-        return response()->json(OrderTransactionPresenter::present($order->fresh(), 'lgu_admin'));
+        return response()->json(OrderTransactionPresenter::present($order->fresh(), $request->user()->role));
     }
 
     /**
@@ -773,12 +822,13 @@ class LguController extends Controller
         ]);
 
         $this->notifySellerOfReview($order, 'earnings_rejected', 'Earnings Rejected', sprintf(
-            'Your LGU has rejected earnings approval for order #%s. Reason: %s',
+            '%s has rejected earnings approval for order #%s. Reason: %s',
+            $this->reviewerLabel($request->user()),
             $order->order_number,
             $data['reason']
         ));
 
-        return response()->json(OrderTransactionPresenter::present($order->fresh(), 'lgu_admin'));
+        return response()->json(OrderTransactionPresenter::present($order->fresh(), $request->user()->role));
     }
 
     /**
@@ -795,7 +845,7 @@ class LguController extends Controller
         $payment->load('order.sellerProfile');
         $order = $payment->order;
 
-        abort_if(! $order || $order->sellerProfile?->municipality_id !== $request->user()->municipality_id, 403, 'You can only review earnings for sellers in your municipality.');
+        abort_if(! $order || ! $this->reviewsSeller($request->user(), $order->sellerProfile), 403, 'You can only review earnings for sellers in your municipality.');
         abort_unless($order->status === 'completed', 422, 'Only completed (delivered) orders are eligible for earnings review.');
         abort_unless($payment->status === 'paid_held', 422, 'This payment is not awaiting approval.');
 
@@ -808,6 +858,28 @@ class LguController extends Controller
         }
 
         return $order;
+    }
+
+    /**
+     * Whether this reviewer may act on this seller's earnings: an LGU Admin
+     * only for their own municipality, the Super Admin for every seller.
+     */
+    private function reviewsSeller(User $reviewer, ?SellerProfile $seller): bool
+    {
+        if (! $seller) {
+            return false;
+        }
+
+        return $reviewer->role === 'super_admin' || $seller->municipality_id === $reviewer->municipality_id;
+    }
+
+    /**
+     * Who the seller is told acted on their earnings, so a Super Admin's
+     * decision is not reported to them as their LGU's.
+     */
+    private function reviewerLabel(User $reviewer): string
+    {
+        return $reviewer->role === 'super_admin' ? 'The platform administrator' : 'Your LGU';
     }
 
     private function notifySellerOfReview(Order $order, string $type, string $title, string $body): void

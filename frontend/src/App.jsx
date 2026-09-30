@@ -19,6 +19,7 @@ import {
   Bell,
   Bot,
   CheckCircle,
+  Clock,
   ChevronLeft,
   ChevronRight,
   CircleUserRound,
@@ -29,6 +30,7 @@ import {
   LayoutDashboard,
   LogOut,
   MapPin,
+  Scale,
   Megaphone,
   MessageCircle,
   PlayCircle,
@@ -576,8 +578,8 @@ function AppShell({ user, children }) {
   const menu = {
     buyer: [['Dashboard', '/buyer/dashboard?tab=overview', LayoutDashboard], ['Browse', '/buyer/dashboard?tab=browse', Search], ['Cart', '/buyer/dashboard?tab=cart', ShoppingBag], ['Orders', '/buyer/dashboard?tab=orders', ShoppingCart], ['Messages', '/buyer/dashboard?tab=messages', MessageCircle], ['Notifications', '/buyer/dashboard?tab=notifications', Bell], ['Analytics', '/buyer/dashboard?tab=analytics', BarChart3], ['AI Assistant', '/buyer/dashboard?tab=ai', Bot], ['Profile', '/buyer/dashboard?tab=settings', ShieldCheck]],
     seller: [['Dashboard', '/seller/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/seller/dashboard?tab=marketplace', Search], ['Listings', '/seller/dashboard?tab=listings', Store], ['Orders', '/seller/dashboard?tab=orders', ShoppingCart], ['Messages', '/seller/dashboard?tab=messages', MessageCircle], ['Wallet', '/seller/dashboard?tab=wallet', Wallet], ['Notifications', '/seller/dashboard?tab=notifications', Bell], ['Notices', '/seller/dashboard?tab=notices', ShieldAlert], ['Analytics', '/seller/dashboard?tab=analytics', BarChart3], ['Profile', '/seller/dashboard?tab=profile', ShieldCheck]],
-    lgu_admin: [['Dashboard', '/lgu/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/lgu/dashboard?tab=marketplace', Search], ['Listing Management', '/lgu/dashboard?tab=listings', Store], ['Sellers', '/lgu/dashboard?tab=sellers', ShieldCheck], ['User Reports', '/lgu/dashboard?tab=user-reports', Flag], ['Notices to Explain', '/lgu/dashboard?tab=notices', ShieldAlert], ['Seller Earnings', '/lgu/dashboard?tab=earnings', Wallet], ['LGU Wallet', '/lgu/dashboard?tab=wallet', Wallet], ['Messages', '/lgu/dashboard?tab=messages', MessageCircle], ['Notifications', '/lgu/dashboard?tab=notifications', Bell], ['Reports', '/lgu/dashboard?tab=reports', BarChart3], ['Activity Log', '/lgu/dashboard?tab=activity-log', History], ['Reviews & Ratings', '/lgu/dashboard?tab=reviews', Star], ['Users', '/lgu/dashboard?tab=users', UsersIcon], ['Profile', '/lgu/dashboard?tab=profile', CircleUserRound]],
-    super_admin: [['Dashboard', '/admin/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/admin/dashboard?tab=marketplace', Search], ['Listing Management', '/admin/dashboard?tab=listings', Store], ['LGU Admins', '/admin/dashboard?tab=lgu-admins', ShieldCheck], ['Sellers', '/admin/dashboard?tab=sellers', Store], ['Users', '/admin/dashboard?tab=users', UsersIcon], ['User Reports', '/admin/dashboard?tab=user-reports', Flag], ['Notices to Explain', '/admin/dashboard?tab=notices', ShieldAlert], ['Reviews & Ratings', '/admin/dashboard?tab=reviews', Star], ['Transactions', '/admin/dashboard?tab=transactions', Wallet], ['Payout Management', '/admin/dashboard?tab=payouts', Wallet], ['Municipalities', '/admin/dashboard?tab=municipalities', MapPin], ['Announcements', '/admin/dashboard?tab=announcements', Megaphone], ['Messages', '/admin/dashboard?tab=messages', MessageCircle], ['Notifications', '/admin/dashboard?tab=notifications', Bell], ['Moderation Log', '/admin/dashboard?tab=moderation', ShieldAlert], ['Activity Log', '/admin/dashboard?tab=activity-log', History], ['Reports', '/admin/dashboard?tab=reports', BarChart3], ['Profile', '/admin/dashboard?tab=profile', CircleUserRound]],
+    lgu_admin: [['Dashboard', '/lgu/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/lgu/dashboard?tab=marketplace', Search], ['Listing Management', '/lgu/dashboard?tab=listings', Store], ['Sellers', '/lgu/dashboard?tab=sellers', ShieldCheck], ['User Reports', '/lgu/dashboard?tab=user-reports', Flag], ['Notices to Explain', '/lgu/dashboard?tab=notices', ShieldAlert], ['Disputes', '/lgu/dashboard?tab=disputes', Scale], ['Orders', '/lgu/dashboard?tab=orders', ShoppingCart], ['Seller Earnings', '/lgu/dashboard?tab=earnings', Wallet], ['LGU Wallet', '/lgu/dashboard?tab=wallet', Wallet], ['Messages', '/lgu/dashboard?tab=messages', MessageCircle], ['Notifications', '/lgu/dashboard?tab=notifications', Bell], ['Analytics', '/lgu/dashboard?tab=reports', BarChart3], ['Activity Log', '/lgu/dashboard?tab=activity-log', History], ['Reviews & Ratings', '/lgu/dashboard?tab=reviews', Star], ['Users', '/lgu/dashboard?tab=users', UsersIcon], ['Profile', '/lgu/dashboard?tab=profile', CircleUserRound]],
+    super_admin: [['Dashboard', '/admin/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/admin/dashboard?tab=marketplace', Search], ['Listing Management', '/admin/dashboard?tab=listings', Store], ['LGU Admins', '/admin/dashboard?tab=lgu-admins', ShieldCheck], ['Sellers', '/admin/dashboard?tab=sellers', Store], ['Users', '/admin/dashboard?tab=users', UsersIcon], ['User Reports', '/admin/dashboard?tab=user-reports', Flag], ['Notices to Explain', '/admin/dashboard?tab=notices', ShieldAlert], ['Disputes', '/admin/dashboard?tab=disputes', Scale], ['Seller Earnings', '/admin/dashboard?tab=earnings', Wallet], ['Reviews & Ratings', '/admin/dashboard?tab=reviews', Star], ['Transactions', '/admin/dashboard?tab=transactions', Wallet], ['Payout Management', '/admin/dashboard?tab=payouts', Wallet], ['Municipalities', '/admin/dashboard?tab=municipalities', MapPin], ['Announcements', '/admin/dashboard?tab=announcements', Megaphone], ['Messages', '/admin/dashboard?tab=messages', MessageCircle], ['Notifications', '/admin/dashboard?tab=notifications', Bell], ['Moderation Log', '/admin/dashboard?tab=moderation', ShieldAlert], ['Activity Log', '/admin/dashboard?tab=activity-log', History], ['Analytics', '/admin/dashboard?tab=reports', BarChart3], ['Profile', '/admin/dashboard?tab=profile', CircleUserRound]],
   }[user.role]
 
   async function logout() {
@@ -2222,6 +2224,13 @@ function BuyerDashboard() {
     onSuccess: (data) => window.location.assign(data.checkout_url),
     onError: () => queryClient.invalidateQueries({ queryKey: ['buyer-dashboard'] }),
   })
+  // The buyer confirms the fingerlings arrived. This is what releases the
+  // payment into the seller's LGU earnings queue, so it is the buyer's call
+  // alone -- the seller has no equivalent action.
+  const confirmReceived = useMutation({
+    mutationFn: async (orderId) => (await api.patch(`/orders/${orderId}/confirm-received`)).data,
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['buyer-dashboard'] }),
+  })
   const updateBuyerProfile = useMutation({
     mutationFn: async (form) => (await api.patch('/buyer/profile', {
       name: form.name,
@@ -2288,6 +2297,8 @@ function BuyerDashboard() {
             <OrderTable
               rows={(orders || []).slice(0, 5)}
               onReview={handleReview}
+              onConfirmReceived={(orderId) => confirmReceived.mutate(orderId)}
+              confirmPendingOrderId={confirmReceived.isPending ? confirmReceived.variables : null}
               detailsEndpoint={(orderNumber) => `/orders/${orderNumber}`}
               paymentView="buyer"
               showOrderDate
@@ -2307,6 +2318,8 @@ function BuyerDashboard() {
           <OrderTable
             rows={orders}
             onReview={handleReview}
+            onConfirmReceived={(orderId) => confirmReceived.mutate(orderId)}
+            confirmPendingOrderId={confirmReceived.isPending ? confirmReceived.variables : null}
             onPay={(orderId) => resumePayment.mutate(orderId)}
             payPendingOrderId={resumePayment.isPending ? resumePayment.variables : null}
             detailsEndpoint={(orderNumber) => `/orders/${orderNumber}`}
@@ -2948,7 +2961,12 @@ function SellerDashboard() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['seller-dashboard'] }),
   })
   const updateOrderStatus = useMutation({
-    mutationFn: async ({ orderId, status }) => (await api.patch(`/orders/${orderId}/status`, { status })).data,
+    mutationFn: async ({ orderId, status, cancellationReason }) => (
+      await api.patch(`/orders/${orderId}/status`, {
+        status,
+        ...(cancellationReason ? { cancellation_reason: cancellationReason } : {}),
+      })
+    ).data,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['seller-dashboard'] }),
   })
   // The listing currently open in the edit popup, resolved from the dashboard
@@ -3077,7 +3095,7 @@ function SellerDashboard() {
           <Section title="Order Management">
             <SellerOrderTable
               rows={dashboard.data?.orders || []}
-              onUpdateStatus={(orderId, status) => updateOrderStatus.mutateAsync({ orderId, status })}
+              onUpdateStatus={(orderId, status, cancellationReason) => updateOrderStatus.mutateAsync({ orderId, status, cancellationReason })}
             />
           </Section>
         </>
@@ -3127,7 +3145,8 @@ function SellerDashboard() {
                   <span>Notes</span>
                 </div>
                 {wallet.data.withdrawal_requests.map((request) => (
-                  <div className="table-row" key={request.id}>
+                  <Fragment key={request.id}>
+                  <div className="table-row">
                     <span>{currency(request.amount)}</span>
                     <span>{currency(request.platform_fee)}</span>
                     <span>{currency(request.net_amount)}</span>
@@ -3141,6 +3160,19 @@ function SellerDashboard() {
                       {(request.status === 'pending' || request.status === 'approved') && '—'}
                     </span>
                   </div>
+                  {request.status === 'rejected' && (
+                    <div className="table-row-appeal">
+                      <div className="table-row-appeal-head">
+                        <p className="error">This withdrawal was rejected. If you think it should be reconsidered, explain your side.</p>
+                        <DisputeAction
+                          endpoint={`/withdrawals/${request.id}/dispute`}
+                          invalidateKeys={['seller-wallet']}
+                          label="Dispute This Rejection"
+                        />
+                      </div>
+                    </div>
+                  )}
+                  </Fragment>
                 ))}
               </div>
             ) : <EmptyState message="No withdrawal requests yet." />}
@@ -3384,7 +3416,20 @@ const ORDER_STATUS_TRANSITIONS = {
   placed: [['cancelled', 'Cancel Order']],
   paid: [['confirmed', 'Confirm Order'], ['cancelled', 'Cancel Order']],
   confirmed: [['in_transit', 'Mark Out for Delivery'], ['cancelled', 'Cancel Order']],
-  in_transit: [['completed', 'Mark Completed'], ['cancelled', 'Cancel Order']],
+  /* No 'Mark Completed' here on purpose. Completing an order is what releases
+     its payment into the LGU earnings queue, so a seller who could mark their
+     own delivery complete could start their own payout without the buyer ever
+     confirming the fingerlings arrived. Only the buyer confirms receipt (see
+     OrderController::confirmReceived), with an LGU/Super Admin backstop for a
+     buyer who goes silent. The API rejects 'completed' from this endpoint
+     outright, so offering it here would only produce a validation error. */
+  /* Nothing here either. Once the order is out for delivery the fingerlings
+     have left the farm, so cancelling would hand the seller back stock that is
+     no longer in their pond and -- on a paid order -- refund a buyer who is
+     about to receive the fish. From here the order ends with the buyer
+     confirming receipt (or the LGU/Super Admin backstop). The API refuses a
+     cancellation from in_transit for the same reason. */
+  in_transit: [],
 }
 
 /**
@@ -3489,28 +3534,25 @@ function SellerOrderTable({ rows, onUpdateStatus }) {
 function SellerOrderRow({ order, onUpdateStatus }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [rating, setRating] = useState(false)
   const [showDetails, setShowDetails] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
+  const [cancelReason, setCancelReason] = useState('')
   const transitions = ORDER_STATUS_TRANSITIONS[order.status] || []
-  // Mirrors the buyer's ReviewCell rules exactly, and the server enforces the
-  // same two (completed only, once per order) in SellerController::rateBuyer.
-  const canRateBuyer = order.status === 'completed' && !order.buyerRating
 
-  const applyStatus = async (status) => {
-    if (status === 'cancelled') {
-      const paid = order.payment?.status === 'paid_held'
-      // Deliberately does not name the Super Admin: on test keys the refund
-      // settles immediately (services.paymongo.auto_refund) and never reaches
-      // their queue, so the wording has to be true either way.
-      const message = paid
-        ? "Cancel this paid order? The stock goes back to your listing and the buyer's payment is refunded to them."
-        : 'Cancel this order? The stock goes back to your listing. This cannot be undone.'
-      if (!window.confirm(message)) return
+  const applyStatus = async (status, cancellationReason = null) => {
+    // Cancelling needs a reason, which a confirm() dialog cannot collect, so
+    // it opens the inline form below instead of a browser prompt. The API
+    // requires the reason too, so this is not merely a UI courtesy.
+    if (status === 'cancelled' && !cancellationReason) {
+      setCancelling(true)
+      return
     }
     setSaving(true)
     setError('')
     try {
-      await onUpdateStatus(order.id, status)
+      await onUpdateStatus(order.id, status, cancellationReason)
+      setCancelling(false)
+      setCancelReason('')
     } catch (err) {
       setError(err?.response?.data?.message || 'Could not update order.')
     } finally {
@@ -3519,7 +3561,7 @@ function SellerOrderRow({ order, onUpdateStatus }) {
   }
 
   return (
-    <div className={`card action${rating || showDetails ? ' action-stacked' : ''}`}>
+    <div className={`card action${showDetails || cancelling ? ' action-stacked' : ''}`}>
       <div>
         <strong>{order.order_number}</strong>
         <p>
@@ -3538,14 +3580,45 @@ function SellerOrderRow({ order, onUpdateStatus }) {
             <Badge status={order.payment.status}>{statusChartLabel(order.payment.status)}</Badge>
           )}
         </span>
-        {order.payment?.status === 'paid_held' && order.status === 'completed' && (
-          <p className="muted">Delivered. Waiting for your LGU to approve the earnings before the payment is released.</p>
+        {/* A rejected review leaves the payment in 'paid_held' too, so without
+            excluding it the card claimed to be waiting on an approval that had
+            already been refused -- directly contradicting the notice below. */}
+        {order.payment?.status === 'paid_held' && order.status === 'completed' && order.lgu_review_status !== 'rejected' && (
+          <p className="muted">The buyer confirmed delivery. Waiting for your LGU to approve the earnings before the payment is released.</p>
         )}
         {order.status === 'placed' && (
           <p className="muted">Waiting for the buyer's payment. You can confirm this order once the payment is held in escrow.</p>
         )}
-        {order.buyerRating && (
-          <p className="review-given">You rated this buyer: {renderStars(order.buyerRating.rating)} ({order.buyerRating.rating}/5)</p>
+        {order.lgu_review_status === 'rejected' && (
+          <div className="dispute-notice">
+            <p className="error">
+              Your LGU declined to approve the earnings for this order.
+              {order.lgu_review_reason ? ` Reason: ${order.lgu_review_reason}` : ''}
+            </p>
+            {/* An open appeal replaces the button: re-offering it would invite a
+                duplicate the API refuses, and say nothing about the one already
+                filed. A rejected appeal allows another, since the seller may
+                have new information -- that is the API's rule too. */}
+            {order.latestDispute?.status === 'open' ? (
+              <span className="dispute-submitted">
+                <Clock size={15} /> Dispute submitted -- waiting for your LGU's response.
+              </span>
+            ) : (
+              <>
+                {order.latestDispute?.status === 'rejected' && (
+                  <p className="helper-text dispute-outcome">
+                    Your previous dispute was reviewed and declined.
+                    {order.latestDispute.resolution_note ? ` Note: ${order.latestDispute.resolution_note}` : ''}
+                  </p>
+                )}
+                <DisputeAction
+                  endpoint={`/orders/${order.id}/dispute-earnings`}
+                  invalidateKeys={['seller-dashboard']}
+                  label={order.latestDispute?.status === 'rejected' ? 'Dispute Again' : 'Explain My Side'}
+                />
+              </>
+            )}
+          </div>
         )}
         {error && <p className="error">{error}</p>}
       </div>
@@ -3555,9 +3628,6 @@ function SellerOrderRow({ order, onUpdateStatus }) {
             {label}
           </button>
         ))}
-        {canRateBuyer && !rating && (
-          <button type="button" className="ghost" onClick={() => setRating(true)}><Star size={15} /> Rate Buyer</button>
-        )}
         {/* GET /orders/{order_number} is scoped to the caller in
             OrderController::show, so a seller reads their own listings' orders
             through the very same endpoint and panel the buyer uses. */}
@@ -3565,16 +3635,35 @@ function SellerOrderRow({ order, onUpdateStatus }) {
           {showDetails ? 'Hide Details' : 'View Details'}
         </button>
       </div>
+      {cancelling && (
+        <div className="card cancel-form">
+          <p className="helper-text">
+            {order.payment?.status === 'paid_held'
+              ? "Cancelling a paid order returns the stock to your listing and refunds the buyer. Tell them why -- they will see this reason."
+              : 'Cancelling returns the stock to your listing. Tell the buyer why -- they will see this reason.'}
+          </p>
+          <textarea
+            value={cancelReason}
+            onChange={(e) => setCancelReason(e.target.value)}
+            placeholder="e.g. Our pond had a fish kill overnight and we cannot fulfil this order."
+          />
+          <div className="row-actions">
+            <button
+              type="button"
+              className="danger"
+              disabled={!cancelReason.trim() || saving}
+              onClick={() => applyStatus('cancelled', cancelReason.trim())}
+            >
+              {saving ? 'Cancelling...' : 'Confirm Cancellation'}
+            </button>
+            <button type="button" className="ghost" onClick={() => { setCancelling(false); setCancelReason('') }}>
+              Keep Order
+            </button>
+          </div>
+        </div>
+      )}
       {showDetails && (
         <OrderTableDetailRow orderNumber={order.order_number} detailsEndpoint={(orderNumber) => `/orders/${orderNumber}`} />
-      )}
-      {rating && (
-        <BuyerRateOrderForm
-          order={order}
-          invalidateKey="seller-dashboard"
-          showHeader={false}
-          onDone={() => setRating(false)}
-        />
       )}
     </div>
   )
@@ -3594,7 +3683,7 @@ function SellerOrderRow({ order, onUpdateStatus }) {
  * be released -- the /lgu/payments/{payment}/hold endpoint is likewise left
  * intact for backwards compatibility.
  */
-function LguEarningsRow({ payment, onApprove, approvingId, onClearHold, onReject }) {
+function LguEarningsRow({ payment, onApprove, approvingId, onClearHold, onReject, base = '/lgu' }) {
   const [expanded, setExpanded] = useState(false)
   const [rejecting, setRejecting] = useState(false)
   const [reasonDraft, setReasonDraft] = useState('')
@@ -3602,8 +3691,8 @@ function LguEarningsRow({ payment, onApprove, approvingId, onClearHold, onReject
   const isOnHold = payment.order?.lgu_review_status === 'on_hold'
 
   const detail = useQuery({
-    queryKey: ['lgu-order-detail', orderNumber],
-    queryFn: async () => (await api.get(`/lgu/orders/${orderNumber}`)).data,
+    queryKey: [`${base}-order-detail`, orderNumber],
+    queryFn: async () => (await api.get(`${base}/orders/${orderNumber}`)).data,
     enabled: expanded && Boolean(orderNumber),
   })
 
@@ -3615,11 +3704,12 @@ function LguEarningsRow({ payment, onApprove, approvingId, onClearHold, onReject
   }
 
   return (
-    <div className="card action">
+    <div className={`card action${expanded ? ' action-stacked' : ''}`}>
       <div>
         <div className="card-row">
           <Avatar src={payment.order?.sellerProfile?.profile_picture} alt={payment.order?.sellerProfile?.hatchery_name} className="listing-seller-avatar" />
           <strong>{payment.order?.sellerProfile?.hatchery_name || payment.order?.sellerProfile?.user?.name || 'Unknown seller'}</strong>
+          {base !== '/lgu' && payment.order?.sellerProfile?.municipality?.name && <span className="muted">{payment.order.sellerProfile.municipality.name}</span>}
           {isOnHold && <Badge status="on_hold">On Hold</Badge>}
         </div>
         <p>
@@ -3671,23 +3761,24 @@ function LguEarningsRow({ payment, onApprove, approvingId, onClearHold, onReject
  * returns the order to the approval queue (see
  * LguController::reopenRejectedEarnings).
  */
-function LguRejectedEarningsRow({ payment, onReopen, reopeningId }) {
+function LguRejectedEarningsRow({ payment, base = '/lgu', dashboardPath = '/lgu/dashboard' }) {
   const [expanded, setExpanded] = useState(false)
   const order = payment.order
   const orderNumber = order?.order_number
 
   const detail = useQuery({
-    queryKey: ['lgu-order-detail', orderNumber],
-    queryFn: async () => (await api.get(`/lgu/orders/${orderNumber}`)).data,
+    queryKey: [`${base}-order-detail`, orderNumber],
+    queryFn: async () => (await api.get(`${base}/orders/${orderNumber}`)).data,
     enabled: expanded && Boolean(orderNumber),
   })
 
   return (
-    <div className="card action">
+    <div className={`card action${expanded ? ' action-stacked' : ''}`}>
       <div>
         <div className="card-row">
           <Avatar src={order?.sellerProfile?.profile_picture} alt={order?.sellerProfile?.hatchery_name} className="listing-seller-avatar" />
           <strong>{order?.sellerProfile?.hatchery_name || order?.sellerProfile?.user?.name || 'Unknown seller'}</strong>
+          {base !== '/lgu' && order?.sellerProfile?.municipality?.name && <span className="muted">{order.sellerProfile.municipality.name}</span>}
           <Badge status="rejected">Rejected</Badge>
         </div>
         <p>
@@ -3707,11 +3798,127 @@ function LguRejectedEarningsRow({ payment, onReopen, reopeningId }) {
         <button type="button" className="ghost" onClick={() => setExpanded((current) => !current)}>
           {expanded ? 'Hide Details' : 'View Details'}
         </button>
-        <button type="button" onClick={() => onReopen(payment.id)} disabled={reopeningId === payment.id}>
-          {reopeningId === payment.id ? 'Reopening...' : 'Reopen Review'}
-        </button>
+        {/* The seller has answered this rejection. The appeal is read and
+            decided on the Disputes tab, so this only points there rather than
+            duplicating accept/reject beside the existing Reopen action. */}
+        {order?.latestDispute?.status === 'open' && (
+          <Link className="button dispute-pending-link" to={`${dashboardPath}?tab=disputes&dispute=${order.latestDispute.id}`}>
+            Review Dispute
+          </Link>
+        )}
       </div>
     </div>
+  )
+}
+
+/**
+ * The Seller Earnings queue: completed orders awaiting approval, plus the
+ * rejected-but-still-held list. The LGU sees its own municipality; the Super
+ * Admin (scope 'super-admin') sees every municipality and acts as the
+ * platform-wide fallback -- see LguController::reviewsSeller.
+ */
+function SellerEarningsPanel({ scope = 'lgu' }) {
+  const queryClient = useQueryClient()
+  const isSuperAdmin = scope === 'super-admin'
+  const base = isSuperAdmin ? '/super-admin' : '/lgu'
+  const dashboardPath = isSuperAdmin ? '/admin/dashboard' : '/lgu/dashboard'
+  const earningsKey = `${scope}-earnings`
+  const rejectedKey = `${scope}-rejected-earnings`
+  const dashboardKey = `${scope}-dashboard`
+
+  const pendingEarnings = useQuery({
+    queryKey: [earningsKey],
+    queryFn: async () => (await api.get(`${base}/earnings`)).data,
+    retry: false,
+    placeholderData: [],
+  })
+  const rejectedEarnings = useQuery({
+    queryKey: [rejectedKey],
+    queryFn: async () => (await api.get(`${base}/earnings/rejected`)).data,
+    retry: false,
+    placeholderData: [],
+  })
+  const approveEarnings = useMutation({
+    mutationFn: async (paymentId) => (await api.patch(`${base}/payments/${paymentId}/approve`)).data,
+    onSuccess: (data, paymentId) => {
+      // Remove the row instantly rather than waiting on the invalidated
+      // query's network refetch -- that gap is what let a second click land
+      // on an already-approved (now stale) row and surface a confusing
+      // "not awaiting approval" error right after the first click succeeded.
+      queryClient.setQueryData([earningsKey], (old) => (old || []).filter((payment) => payment.id !== paymentId))
+      queryClient.invalidateQueries({ queryKey: [earningsKey] })
+      queryClient.invalidateQueries({ queryKey: [dashboardKey] })
+    },
+    onError: (error, paymentId) => {
+      // A 422 here almost always means this payment was already approved
+      // (e.g. a second click on a row before the list refreshed) -- refresh
+      // the list so the stale, already-approved row disappears immediately
+      // instead of leaving it clickable.
+      if (error.response?.status === 422) {
+        queryClient.setQueryData([earningsKey], (old) => (old || []).filter((payment) => payment.id !== paymentId))
+        queryClient.invalidateQueries({ queryKey: [earningsKey] })
+        queryClient.invalidateQueries({ queryKey: [dashboardKey] })
+      }
+    },
+  })
+  const clearHoldEarnings = useMutation({
+    mutationFn: async (paymentId) => (await api.patch(`${base}/payments/${paymentId}/clear-hold`)).data,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [earningsKey] }),
+  })
+  const rejectEarnings = useMutation({
+    mutationFn: async ({ paymentId, reason }) => (await api.patch(`${base}/payments/${paymentId}/reject`, { reason })).data,
+    onSuccess: (data, { paymentId }) => {
+      queryClient.setQueryData([earningsKey], (old) => (old || []).filter((payment) => payment.id !== paymentId))
+      queryClient.invalidateQueries({ queryKey: [earningsKey] })
+      queryClient.invalidateQueries({ queryKey: [rejectedKey] })
+    },
+  })
+
+  return (
+    <>
+      <Section title="Seller Earnings Awaiting Approval">
+        <p className="helper-text">
+          {isSuperAdmin
+            ? 'Completed (delivered) orders from sellers in every municipality. Each LGU normally approves its own sellers; you can act on any of them, for example where a municipality has no active LGU Admin.'
+            : 'Only completed (delivered) orders from sellers in your municipality appear here.'}
+          {' '}Approving moves the earnings from the seller&apos;s Pending Balance into their Available Balance.
+        </p>
+        {(pendingEarnings.data || []).length ? (
+          <div className="item-list">
+            {pendingEarnings.data.map((payment) => (
+              <LguEarningsRow
+                key={payment.id}
+                payment={payment}
+                base={base}
+                onApprove={(id) => approveEarnings.mutate(id)}
+                approvingId={approveEarnings.isPending ? approveEarnings.variables : null}
+                onClearHold={(id) => clearHoldEarnings.mutate(id)}
+                onReject={(vars) => rejectEarnings.mutate(vars)}
+              />
+            ))}
+          </div>
+        ) : <EmptyState message="No completed orders awaiting earnings approval." />}
+        {approveEarnings.error && approveEarnings.error.response?.status !== 422 && (
+          <p className="error">{approveEarnings.error.response?.data?.message || 'Could not approve earnings.'}</p>
+        )}
+        {clearHoldEarnings.error && <p className="error">{clearHoldEarnings.error.response?.data?.message || 'Could not clear the hold.'}</p>}
+        {rejectEarnings.error && <p className="error">{rejectEarnings.error.response?.data?.message || 'Could not reject this order.'}</p>}
+      </Section>
+      {(rejectedEarnings.data || []).length > 0 && (
+        <Section title="Rejected Transactions">
+          <p className="helper-text">
+            {isSuperAdmin ? 'Rejected orders across every municipality.' : 'Orders you rejected.'} The buyer&apos;s payment is still held for these -- rejecting doesn&apos;t refund it or release it to the seller,
+            and no revenue is distributed. If a seller disputes one, accepting their explanation on the Disputes tab reopens it and puts it
+            back in the queue above.
+          </p>
+          <div className="item-list">
+            {rejectedEarnings.data.map((payment) => (
+              <LguRejectedEarningsRow key={payment.id} payment={payment} base={base} dashboardPath={dashboardPath} />
+            ))}
+          </div>
+        </Section>
+      )}
+    </>
   )
 }
 
@@ -3822,7 +4029,11 @@ function BuyerRatingCard({ rating, onRemove, scope }) {
  * rating buyers (BuyerRatingCard). Backed by GET {scope}/reviews, which now
  * returns { buyer_reviews, seller_ratings }.
  */
-const REVIEW_FILTERS = [['all', 'All'], ['review', 'Buyer Reviews'], ['rating', 'Seller Ratings']]
+/* Feedback runs one way: buyers review sellers. Sellers rating buyers was
+   removed, so the filter no longer offers a direction that cannot exist. The
+   payload still returns an empty seller_ratings list (see
+   PlatformController::lguReviews), which is why nothing here has to guard. */
+const REVIEW_FILTERS = [['all', 'All'], ['review', 'Buyer Reviews']]
 
 function ReviewsAndRatingsSection({ data, scope, scopeLabel = 'on the platform' }) {
   const [filter, setFilter] = useState('all')
@@ -4261,6 +4472,13 @@ function LguDashboard() {
     retry: false,
     placeholderData: [],
   })
+  const lguOrders = useQuery({
+    queryKey: ['lgu-orders'],
+    queryFn: async () => (await api.get('/lgu/orders')).data,
+    enabled: tab === 'orders',
+    retry: false,
+    placeholderData: [],
+  })
   const notifications = (lgu.data?.notifications || []).filter((notification) => !visibleNotificationIds.includes(notification.id))
   const handleMarkRead = (id) => {
     setVisibleNotificationIds((current) => (current.includes(id) ? current : [...current, id]))
@@ -4269,6 +4487,13 @@ function LguDashboard() {
   const markRead = useMutation({
     mutationFn: async (id) => (await api.patch(`/lgu/notifications/${id}/read`)).data,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['lgu-dashboard'] }),
+  })
+  const markAllRead = useMutation({
+    mutationFn: async () => (await api.patch('/lgu/notifications/read-all')).data,
+    onSuccess: () => {
+      setVisibleNotificationIds((current) => [...current, ...notifications.map((n) => n.id)])
+      queryClient.invalidateQueries({ queryKey: ['lgu-dashboard'] })
+    },
   })
   const notificationLink = (notification) => (notification.type?.startsWith('earnings_pending_approval') ? '/lgu/dashboard?tab=earnings' : null)
   const reviews = useQuery({
@@ -4302,57 +4527,6 @@ function LguDashboard() {
     queryFn: async () => (await api.get('/lgu/earnings')).data,
     retry: false,
     placeholderData: [],
-  })
-  const rejectedEarnings = useQuery({
-    queryKey: ['lgu-rejected-earnings'],
-    queryFn: async () => (await api.get('/lgu/earnings/rejected')).data,
-    retry: false,
-    placeholderData: [],
-  })
-  const reopenEarnings = useMutation({
-    mutationFn: async (paymentId) => (await api.patch(`/lgu/payments/${paymentId}/reopen`)).data,
-    onSuccess: () => {
-      // The row moves from the rejected list back into the approval queue, and
-      // the seller's projected earnings return to their Pending Balance, so
-      // both lists and the dashboard counts are refetched.
-      queryClient.invalidateQueries({ queryKey: ['lgu-rejected-earnings'] })
-      queryClient.invalidateQueries({ queryKey: ['lgu-earnings'] })
-      queryClient.invalidateQueries({ queryKey: ['lgu-dashboard'] })
-    },
-  })
-  const approveEarnings = useMutation({
-    mutationFn: async (paymentId) => (await api.patch(`/lgu/payments/${paymentId}/approve`)).data,
-    onSuccess: (data, paymentId) => {
-      // Remove the row instantly rather than waiting on the invalidated
-      // query's network refetch -- that gap is what let a second click land
-      // on an already-approved (now stale) row and surface a confusing
-      // "not awaiting approval" error right after the first click succeeded.
-      queryClient.setQueryData(['lgu-earnings'], (old) => (old || []).filter((payment) => payment.id !== paymentId))
-      queryClient.invalidateQueries({ queryKey: ['lgu-earnings'] })
-      queryClient.invalidateQueries({ queryKey: ['lgu-dashboard'] })
-    },
-    onError: (error, paymentId) => {
-      // A 422 here almost always means this payment was already approved
-      // (e.g. a second click on a row before the list refreshed) -- refresh
-      // the list so the stale, already-approved row disappears immediately
-      // instead of leaving it clickable.
-      if (error.response?.status === 422) {
-        queryClient.setQueryData(['lgu-earnings'], (old) => (old || []).filter((payment) => payment.id !== paymentId))
-        queryClient.invalidateQueries({ queryKey: ['lgu-earnings'] })
-        queryClient.invalidateQueries({ queryKey: ['lgu-dashboard'] })
-      }
-    },
-  })
-  const clearHoldEarnings = useMutation({
-    mutationFn: async (paymentId) => (await api.patch(`/lgu/payments/${paymentId}/clear-hold`)).data,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['lgu-earnings'] }),
-  })
-  const rejectEarnings = useMutation({
-    mutationFn: async ({ paymentId, reason }) => (await api.patch(`/lgu/payments/${paymentId}/reject`, { reason })).data,
-    onSuccess: (data, { paymentId }) => {
-      queryClient.setQueryData(['lgu-earnings'], (old) => (old || []).filter((payment) => payment.id !== paymentId))
-      queryClient.invalidateQueries({ queryKey: ['lgu-earnings'] })
-    },
   })
   const pendingEarningsCount = pendingEarnings.data?.length ?? 0
   const pendingEarningsAmount = (pendingEarnings.data || []).reduce((sum, payment) => sum + Number(payment.amount || 0), 0)
@@ -4499,48 +4673,14 @@ function LguDashboard() {
         />
       )}
       {tab === 'notices' && <SellerNoticesPanel />}
-      {tab === 'earnings' && (
-        <Section title="Seller Earnings Awaiting Approval">
-          <p className="helper-text">Only completed (delivered) orders from sellers in your municipality appear here. Approving moves the earnings from the seller&apos;s Pending Balance into their Available Balance.</p>
-          {(pendingEarnings.data || []).length ? (
-            <div className="item-list">
-              {pendingEarnings.data.map((payment) => (
-                <LguEarningsRow
-                  key={payment.id}
-                  payment={payment}
-                  onApprove={(id) => approveEarnings.mutate(id)}
-                  approvingId={approveEarnings.isPending ? approveEarnings.variables : null}
-                  onClearHold={(id) => clearHoldEarnings.mutate(id)}
-                  onReject={(vars) => rejectEarnings.mutate(vars)}
-                />
-              ))}
-            </div>
-          ) : <EmptyState message="No completed orders awaiting earnings approval." />}
-          {approveEarnings.error && approveEarnings.error.response?.status !== 422 && (
-            <p className="error">{approveEarnings.error.response?.data?.message || 'Could not approve earnings.'}</p>
-          )}
-          {clearHoldEarnings.error && <p className="error">{clearHoldEarnings.error.response?.data?.message || 'Could not clear the hold.'}</p>}
-          {rejectEarnings.error && <p className="error">{rejectEarnings.error.response?.data?.message || 'Could not reject this order.'}</p>}
+      {tab === 'disputes' && <DisputesPanel />}
+      {tab === 'orders' && (
+        <Section title="Orders">
+          <p className="helper-text">Every order placed with a seller in your municipality. If a buyer never confirms a delivery that is Out for Delivery, you can mark it as received on their behalf once you have confirmed it arrived. It then moves to Seller Earnings for approval.</p>
+          <AdminOrderTable rows={lguOrders.data || []} base="/lgu" invalidateKeys={['lgu-orders', 'lgu-earnings', 'lgu-dashboard']} />
         </Section>
       )}
-      {tab === 'earnings' && (rejectedEarnings.data || []).length > 0 && (
-        <Section title="Rejected Transactions">
-          <p className="helper-text">
-            Orders you rejected. The buyer&apos;s payment is still held for these -- rejecting doesn&apos;t refund it or release it to the seller, and no revenue is distributed. Reopening one puts it back in the queue above so it can be approved after all, and restores the seller&apos;s projected earnings for it.
-          </p>
-          <div className="item-list">
-            {rejectedEarnings.data.map((payment) => (
-              <LguRejectedEarningsRow
-                key={payment.id}
-                payment={payment}
-                onReopen={(id) => reopenEarnings.mutate(id)}
-                reopeningId={reopenEarnings.isPending ? reopenEarnings.variables : null}
-              />
-            ))}
-          </div>
-          {reopenEarnings.error && <p className="error">{reopenEarnings.error.response?.data?.message || 'Could not reopen this transaction.'}</p>}
-        </Section>
-      )}
+      {tab === 'earnings' && <SellerEarningsPanel />}
       {tab === 'wallet' && (
         <>
           <StatsRow items={[['Available Balance', currency(wallet.data?.available_balance ?? 0), true], ['Pending Balance', currency(wallet.data?.pending_balance ?? 0)], ['Processing Withdrawal', currency(wallet.data?.processing_amount ?? 0)], ['Total Revenue', currency(wallet.data?.total_revenue ?? 0)], ['Withdrawn Amount', currency(wallet.data?.withdrawn_amount ?? 0)]]} />
@@ -4575,7 +4715,8 @@ function LguDashboard() {
                   <span>Notes</span>
                 </div>
                 {wallet.data.withdrawal_requests.map((request) => (
-                  <div className="table-row" key={request.id}>
+                  <Fragment key={request.id}>
+                  <div className="table-row">
                     <span>{currency(request.amount)}</span>
                     <span>{withdrawalMethodLabel(request.method)}</span>
                     <span>{request.account_name} · {request.account_number}</span>
@@ -4588,6 +4729,19 @@ function LguDashboard() {
                       {(request.status === 'pending' || request.status === 'approved') && '—'}
                     </span>
                   </div>
+                  {request.status === 'rejected' && (
+                    <div className="table-row-appeal">
+                      <div className="table-row-appeal-head">
+                        <p className="error">This withdrawal was rejected by the Super Admin. If you think it should be reconsidered, explain your side.</p>
+                        <DisputeAction
+                          endpoint={`/lgu/lgu-withdrawals/${request.id}/dispute`}
+                          invalidateKeys={['lgu-wallet']}
+                          label="Dispute This Rejection"
+                        />
+                      </div>
+                    </div>
+                  )}
+                  </Fragment>
                 ))}
               </div>
             ) : <EmptyState message="No withdrawal requests yet." />}
@@ -4627,7 +4781,7 @@ function LguDashboard() {
         </>
       )}
       {tab === 'reports' && (
-        <Section title="Reports" actions={<PeriodFilter period={reportsPeriod} onChange={setReportsPeriod} />}>
+        <Section title="Analytics" actions={<PeriodFilter period={reportsPeriod} onChange={setReportsPeriod} />}>
           <p className="helper-text">Graphs reflect activity in your municipality for the selected period. The summary below remains all-time.</p>
           <div className="charts-grid">
             <CategoryBarChart title="Listings by Status" data={(reports.data?.listings_by_status || []).map((row) => ({ ...row, label: statusChartLabel(row.approval_status) }))} dataKey="total" nameKey="label" colorFor={(entry) => statusChartColor(entry.approval_status)} />
@@ -4666,7 +4820,14 @@ function LguDashboard() {
       )}
       {tab === 'activity-log' && <ActivityLogPanel scope="lgu" />}
       {tab === 'reviews' && <ReviewsAndRatingsSection data={reviews.data} scope="lgu" scopeLabel="in your municipality" />}
-      {tab === 'notifications' && <Section title="Notifications"><NotificationStack notifications={notifications} onMarkRead={handleMarkRead} getLink={notificationLink} /></Section>}
+      {tab === 'notifications' && (
+        <Section
+          title="Notifications"
+          actions={<MarkAllReadButton unreadCount={notifications.length} loading={markAllRead.isPending} onClick={() => markAllRead.mutate()} />}
+        >
+          <NotificationStack notifications={notifications} onMarkRead={handleMarkRead} getLink={notificationLink} />
+        </Section>
+      )}
       {tab === 'profile' && <AdminProfilePanel endpointBase="/lgu" />}
     </Dashboard>
   )
@@ -5452,6 +5613,13 @@ function SuperAdminDashboard() {
     mutationFn: async (id) => (await api.patch(`/super-admin/notifications/${id}/read`)).data,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['super-admin-notifications'] }),
   })
+  const markAllNotificationsRead = useMutation({
+    mutationFn: async () => (await api.patch('/super-admin/notifications/read-all')).data,
+    onSuccess: () => {
+      setVisibleNotificationIds((current) => [...current, ...notifications.map((n) => n.id)])
+      queryClient.invalidateQueries({ queryKey: ['super-admin-notifications'] })
+    },
+  })
   const handleMarkRead = (id) => {
     setVisibleNotificationIds((current) => (current.includes(id) ? current : [...current, id]))
     markNotificationRead.mutate(id)
@@ -5488,7 +5656,7 @@ function SuperAdminDashboard() {
               ['Pending LGU Withdrawals', dashboard.data?.pending_lgu_withdrawals ?? 0],
             ]} />
           </Section>
-          <Section title="Marketplace Revenue" actions={<Link className="ghost" to="/admin/dashboard?tab=reports">View Reports</Link>}>
+          <Section title="Marketplace Revenue" actions={<Link className="ghost" to="/admin/dashboard?tab=reports">View Analytics</Link>}>
             <p className="helper-text">Platform Revenue is a 6% payout fee charged when a seller withdraws -- it is realized only once the Super Admin marks that withdrawal Paid, never taken from the order at settlement time. Gross Marketplace Revenue is the full value paid by buyers before revenue sharing, recognized at settlement.</p>
             <StatsRow items={[
               ["Today's Platform Revenue", currency(dashboard.data?.platform_revenue?.today_platform_revenue ?? 0)],
@@ -5607,7 +5775,14 @@ function SuperAdminDashboard() {
         </>
       )}
       {tab === 'messages' && <Section title="Messages"><MessagesPanel initialUserId={searchParams.get('with') ? Number(searchParams.get('with')) : null} /></Section>}
-      {tab === 'notifications' && <Section title="Notifications"><NotificationStack notifications={notifications} onMarkRead={handleMarkRead} /></Section>}
+      {tab === 'notifications' && (
+        <Section
+          title="Notifications"
+          actions={<MarkAllReadButton unreadCount={notifications.length} loading={markAllNotificationsRead.isPending} onClick={() => markAllNotificationsRead.mutate()} />}
+        >
+          <NotificationStack notifications={notifications} onMarkRead={handleMarkRead} />
+        </Section>
+      )}
       {tab === 'moderation' && (
         <Section title="Moderation Log">
           <p className="helper-text">Complete audit trail of every account suspension and reinstatement across Buyers, Sellers, and LGU Admins.</p>
@@ -5736,11 +5911,13 @@ function SuperAdminDashboard() {
         />
       )}
       {tab === 'notices' && <SellerNoticesPanel scope="super_admin" />}
+      {tab === 'disputes' && <DisputesPanel scope="super-admin" />}
+      {tab === 'earnings' && <SellerEarningsPanel scope="super-admin" />}
       {tab === 'transactions' && (
         <>
           <SuperAdminOrderLookup />
           <Section title="All Transactions">
-            <OrderTable rows={dashboard.data?.transactions || []} detailsEndpoint={(orderNumber) => `/super-admin/orders/${orderNumber}`} showOrderDate />
+            <AdminOrderTable rows={dashboard.data?.transactions || []} base="/super-admin" invalidateKeys={['super-admin-dashboard']} />
           </Section>
         </>
       )}
@@ -5790,7 +5967,7 @@ function SuperAdminDashboard() {
         </>
       )}
       {tab === 'reports' && (
-        <Section title="Platform Reports" actions={<PeriodFilter period={reportsPeriod} onChange={setReportsPeriod} />}>
+        <Section title="Platform Analytics" actions={<PeriodFilter period={reportsPeriod} onChange={setReportsPeriod} />}>
           <p className="helper-text">Graphs reflect platform-wide activity for the selected period, across every municipality. The summary below remains all-time.</p>
           <div className="charts-grid">
             <CategoryBarChart title="Listings by Status" data={(reports.data?.listings_by_status || []).map((row) => ({ ...row, label: statusChartLabel(row.approval_status) }))} dataKey="total" nameKey="label" colorFor={(entry) => statusChartColor(entry.approval_status)} />
@@ -6782,8 +6959,12 @@ function OrderTableDetailRow({ orderNumber, detailsEndpoint, paymentView = 'escr
  * declined keeps a reserved, payable order until its window closes, and this
  * is the way back into PayMongo. Buyer Dashboard only -- the Super Admin's
  * transaction list passes no handler and renders no column.
+ *
+ * onMarkReceived adds the Action column for the LGU / Super Admin backstop:
+ * a paid order stuck Out for Delivery because the buyer never confirmed it.
+ * See AdminOrderTable.
  */
-function OrderTable({ rows, onReview, onPay, payPendingOrderId, detailsEndpoint, initialExpandedOrderNumber, showPaymentStatus = true, paymentView = 'escrow', counterparty = 'seller', showOrderDate = false }) {
+function OrderTable({ rows, onReview, onConfirmReceived, confirmPendingOrderId, onMarkReceived, markReceivedPendingOrderId, onPay, payPendingOrderId, detailsEndpoint, initialExpandedOrderNumber, showPaymentStatus = true, paymentView = 'escrow', counterparty = 'seller', showOrderDate = false }) {
   const [expandedOrderNumber, setExpandedOrderNumber] = useState(initialExpandedOrderNumber || null)
 
   const normalized = (rows || []).map((row) => {
@@ -6826,7 +7007,8 @@ function OrderTable({ rows, onReview, onPay, payPendingOrderId, detailsEndpoint,
         {showOrderDate && <span>Order Date</span>}
         <span>Status</span>
         {(showPaymentStatus || onPay) && <span>Payment</span>}
-        {onReview && <span>Review</span>}
+        {onReview && <span>Review</span>}{/* also holds Confirm Received -- see ReviewCell */}
+        {onMarkReceived && <span>Action</span>}
         {detailsEndpoint && <span>Details</span>}
       </div>
       {normalized.map((row) => (
@@ -6861,7 +7043,29 @@ function OrderTable({ rows, onReview, onPay, payPendingOrderId, detailsEndpoint,
                 pending={payPendingOrderId === row.orderId}
               />
             )}
-            {onReview && <ReviewCell row={row} onReview={onReview} />}
+            {onReview && (
+              <ReviewCell
+                row={row}
+                onReview={onReview}
+                onConfirmReceived={onConfirmReceived}
+                confirmPendingOrderId={confirmPendingOrderId}
+              />
+            )}
+            {onMarkReceived && (
+              row.status === 'in_transit' && ['paid_held', 'released'].includes(row.payment_status) ? (
+                <span>
+                  <button
+                    type="button"
+                    className="table-row-action"
+                    onClick={() => onMarkReceived(row)}
+                    disabled={markReceivedPendingOrderId === row.orderId}
+                    title="The buyer has not confirmed this delivery. Marking it received sends it to Seller Earnings for approval."
+                  >
+                    {markReceivedPendingOrderId === row.orderId ? 'Marking...' : 'Mark as Received'}
+                  </button>
+                </span>
+              ) : <span className="muted">—</span>
+            )}
             {detailsEndpoint && (
               <span>
                 <button type="button" className="ghost" onClick={() => toggleExpanded(row.order_number)}>
@@ -6876,6 +7080,38 @@ function OrderTable({ rows, onReview, onPay, payPendingOrderId, detailsEndpoint,
         </Fragment>
       ))}
     </div>
+  )
+}
+
+/**
+ * The LGU / Super Admin Orders list, with the backstop for a silent buyer:
+ * "Mark as Received" completes a paid order that is Out for Delivery on the
+ * buyer's behalf (LguController / SuperAdminController::markOrderDelivered),
+ * which puts it in the Seller Earnings queue. It does not release any money
+ * itself -- earnings approval is still a separate step.
+ */
+function AdminOrderTable({ rows, base, invalidateKeys }) {
+  const queryClient = useQueryClient()
+  const markReceived = useMutation({
+    mutationFn: async (orderId) => (await api.patch(`${base}/orders/${orderId}/mark-delivered`)).data,
+    onSuccess: () => invalidateKeys.forEach((key) => queryClient.invalidateQueries({ queryKey: [key] })),
+  })
+  const handleMarkReceived = (row) => {
+    if (!window.confirm(`Mark order ${row.order_number} as received on the buyer's behalf? Only do this once you have confirmed the fingerlings were delivered. The order will move to Seller Earnings for approval.`)) return
+    markReceived.mutate(row.orderId)
+  }
+
+  return (
+    <>
+      {markReceived.error && <p className="error">{markReceived.error.response?.data?.message || 'Could not mark this order as received.'}</p>}
+      <OrderTable
+        rows={rows}
+        detailsEndpoint={(orderNumber) => `${base}/orders/${orderNumber}`}
+        onMarkReceived={handleMarkReceived}
+        markReceivedPendingOrderId={markReceived.isPending ? markReceived.variables : null}
+        showOrderDate
+      />
+    </>
   )
 }
 
@@ -6971,6 +7207,15 @@ function OrderDetailPanel({ detail, paymentView = 'escrow' }) {
         {detail.seller_notes && (
           <div className="order-detail-field"><span className="order-detail-field-label">Seller Notes</span><span>{detail.seller_notes}</span></div>
         )}
+        {/* This panel is the same component for the buyer, the LGU and the
+            Super Admin -- they differ only in which endpoint fills it -- so
+            stating the reason once here shows it to all three. */}
+        {detail.cancellation_reason && (
+          <div className="order-detail-field">
+            <span className="order-detail-field-label">Cancellation Reason</span>
+            <span className="error">{detail.cancellation_reason}</span>
+          </div>
+        )}
       </div>
       {detail.revenue_distribution_preview && (
         <div className="order-detail-grid">
@@ -7057,7 +7302,235 @@ function PaymentCell({ row, view, onPay, pending }) {
   )
 }
 
-function ReviewCell({ row, onReview }) {
+/**
+ * The buyer's end of an order: confirm it arrived, then rate the seller.
+ *
+ * Confirming receipt lives here rather than in its own column because the two
+ * actions are strictly sequential -- an order cannot be rated until it is
+ * confirmed -- so one cell is never asking for both at once, and the orders
+ * table (which already scrolls sideways) gains no extra width.
+ *
+ * Only the buyer sees this: completing an order is what releases its payment
+ * into the LGU earnings queue, so the seller must not be able to declare their
+ * own delivery complete. See OrderController::confirmReceived.
+ */
+/**
+ * Appeal a rejection.
+ *
+ * A rejected earnings review or withdrawal used to be the end of the
+ * conversation -- the party was told the reason and had no way to answer it.
+ * `endpoint` differs per subject (order, seller withdrawal, LGU withdrawal);
+ * the backend decides who may file, so this only collects the explanation.
+ */
+function DisputeAction({ endpoint, invalidateKeys = [], label = 'Dispute This' }) {
+  const [open, setOpen] = useState(false)
+  const [reason, setReason] = useState('')
+  // Submitting used to just close the form, which was indistinguishable from
+  // the click not registering. The refetch below usually replaces this with
+  // the order's own "awaiting review" state, but the acknowledgement must not
+  // depend on that having arrived yet.
+  const [submitted, setSubmitted] = useState(false)
+
+  const file = useMutation({
+    mutationFn: async () => (await api.post(endpoint, { reason: reason.trim() })).data,
+    onSuccess: () => {
+      invalidateKeys.forEach((key) => queryClient.invalidateQueries({ queryKey: [key] }))
+      setOpen(false)
+      setReason('')
+      setSubmitted(true)
+    },
+  })
+
+  if (submitted) {
+    return (
+      <span className="dispute-submitted">
+        <CheckCircle size={15} /> Dispute submitted -- waiting for a response.
+      </span>
+    )
+  }
+
+  if (!open) {
+    return <button type="button" className="ghost" onClick={() => setOpen(true)}>{label}</button>
+  }
+
+  return (
+    <div className="form grid-form dispute-form">
+      <p className="helper-text full-span">
+        Explain your side. Your LGU (or the Super Admin) will read this and either reopen the decision or let it stand.
+      </p>
+      <textarea
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        placeholder="What happened, and why you think the decision should be reconsidered."
+      />
+      {file.error && <p className="error full-span">{file.error.response?.data?.message || 'Could not submit your dispute.'}</p>}
+      <button type="button" onClick={() => file.mutate()} disabled={!reason.trim() || file.isPending}>
+        {file.isPending ? 'Submitting...' : 'Submit Dispute'}
+      </button>
+      <button type="button" className="ghost" onClick={() => { setOpen(false); setReason('') }}>Cancel</button>
+    </div>
+  )
+}
+
+/* The backend sends the model class as disputable_type; these are the only
+   three things that can be rejected and therefore disputed. */
+const DISPUTE_SUBJECT_LABEL = {
+  'App\\Models\\Order': 'Rejected earnings approval',
+  'App\\Models\\WithdrawalRequest': 'Rejected withdrawal',
+  'App\\Models\\LguWithdrawalRequest': 'Rejected LGU withdrawal',
+}
+
+/**
+ * The reviewer's side: read the explanation, then accept (which REOPENS the
+ * rejected item so it can be decided again -- it does not approve it) or
+ * reject (the original decision stands). Shared by the LGU and Super Admin
+ * dashboards, which differ only in scope; `scope` picks the API prefix.
+ */
+function DisputesPanel({ scope = 'lgu' }) {
+  const [note, setNote] = useState({})
+  const base = scope === 'super-admin' ? '/super-admin' : '/lgu'
+  const queryKey = `${scope}-disputes`
+  // Arriving from a specific rejected transaction ("Review Dispute"), so the
+  // reviewer lands on the one they clicked rather than hunting a queue for it.
+  const [searchParams] = useSearchParams()
+  const focusId = searchParams.get('dispute')
+  const focusRef = useRef(null)
+
+  const disputes = useQuery({
+    queryKey: [queryKey],
+    queryFn: async () => (await api.get(`${base}/disputes`)).data,
+    placeholderData: [],
+  })
+
+  // Runs once the list has actually rendered -- the row does not exist on the
+  // first pass, while the query is still resolving.
+  useEffect(() => {
+    if (!focusId || !focusRef.current) return
+    focusRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [focusId, disputes.data])
+
+  const resolve = useMutation({
+    mutationFn: async ({ id, action }) => (await api.patch(`${base}/disputes/${id}/${action}`, { note: note[id]?.trim() || undefined })).data,
+    onSettled: () => queryClient.invalidateQueries({ queryKey: [queryKey] }),
+  })
+
+  const rows = disputes.data || []
+  const openRows = rows.filter((row) => row.status === 'open')
+  const resolvedRows = rows.filter((row) => row.status !== 'open')
+
+  return (
+    <>
+      <Section title="Open Disputes">
+        <p className="helper-text">
+          Accepting a dispute <strong>reopens</strong> the rejected item so it comes back to you for a fresh decision -- it does
+          not approve it, and no money moves. Rejecting leaves your original decision exactly as it was.
+        </p>
+        {openRows.length ? (
+          <div className="item-list">
+            {openRows.map((row) => (
+              <div
+                className={`card dispute-item${String(row.id) === focusId ? ' is-focused' : ''}`}
+                key={row.id}
+                ref={String(row.id) === focusId ? focusRef : null}
+              >
+                <div className="dispute-head">
+                  <Avatar src={row.filedBy?.profile_picture} alt={row.filedBy?.name} className="dispute-avatar" />
+                  <div className="dispute-head-text">
+                    <div className="card-row">
+                      <strong>{row.filedBy?.name || 'Unknown'}</strong>
+                      {row.filedBy?.role && <RoleBadge role={row.filedBy.role} />}
+                      <Badge tone="warning">Open</Badge>
+                    </div>
+                    <p className="muted">
+                      {row.subject_label || DISPUTE_SUBJECT_LABEL[row.disputable_type] || 'Rejected item'}
+                      {row.subject_reference ? ` · ${row.subject_reference}` : ''}
+                      {` · filed ${formatOrderDate(row.created_at)}`}
+                    </p>
+                  </div>
+                </div>
+                {/* The appeal reads as an answer, so the decision it answers
+                    has to be next to it -- otherwise the reviewer is recalling
+                    their own wording from memory. */}
+                {row.subject_rejection_reason && (
+                  <p className="dispute-original">
+                    <span className="dispute-field-label">Reason given for rejecting</span>
+                    {row.subject_rejection_reason}
+                  </p>
+                )}
+                <blockquote className="dispute-letter">
+                  <span className="dispute-field-label">Their explanation</span>
+                  {row.reason}
+                </blockquote>
+                <div className="form grid-form dispute-decision">
+                  <textarea
+                    value={note[row.id] || ''}
+                    onChange={(e) => setNote({ ...note, [row.id]: e.target.value })}
+                    placeholder="Your note (required to reject, optional to accept)"
+                  />
+                  {resolve.error && <p className="error full-span">{resolve.error.response?.data?.message || 'Could not resolve this dispute.'}</p>}
+                  <button type="button" disabled={resolve.isPending} onClick={() => resolve.mutate({ id: row.id, action: 'accept' })}>
+                    Accept &amp; Reopen
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost danger"
+                    disabled={resolve.isPending || !(note[row.id] || '').trim()}
+                    onClick={() => resolve.mutate({ id: row.id, action: 'reject' })}
+                  >
+                    Reject Dispute
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : <EmptyState message="No open disputes." />}
+      </Section>
+      <Section title="Resolved Disputes">
+        {resolvedRows.length ? (
+          <div className="item-list">
+            {resolvedRows.map((row) => (
+              <div
+                className={`card dispute-item is-resolved${String(row.id) === focusId ? ' is-focused' : ''}`}
+                key={row.id}
+                ref={String(row.id) === focusId ? focusRef : null}
+              >
+                <div className="dispute-head">
+                  <Avatar src={row.filedBy?.profile_picture} alt={row.filedBy?.name} className="dispute-avatar" />
+                  <div className="dispute-head-text">
+                    <div className="card-row">
+                      <strong>{row.filedBy?.name || 'Unknown'}</strong>
+                      {row.filedBy?.role && <RoleBadge role={row.filedBy.role} />}
+                      <Badge status={row.status} tone={row.status === 'accepted' ? 'success' : undefined}>{row.status === 'accepted' ? 'Accepted' : 'Rejected'}</Badge>
+                    </div>
+                    <p className="muted">
+                      {row.subject_label || DISPUTE_SUBJECT_LABEL[row.disputable_type] || 'Rejected item'}
+                      {row.subject_reference ? ` · ${row.subject_reference}` : ''}
+                      {row.resolvedBy?.name ? ` · resolved by ${row.resolvedBy.name}` : ''}
+                      {row.resolved_at ? ` on ${formatOrderDate(row.resolved_at)}` : ''}
+                    </p>
+                  </div>
+                </div>
+                <blockquote className="dispute-letter">
+                  <span className="dispute-field-label">Their explanation</span>
+                  {row.reason}
+                </blockquote>
+                {row.resolution_note && (
+                  <p className="dispute-original">
+                    <span className="dispute-field-label">Decision note</span>
+                    {row.resolution_note}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : <EmptyState message="No resolved disputes yet." />}
+      </Section>
+    </>
+  )
+}
+
+
+function ReviewCell({ row, onReview, onConfirmReceived, confirmPendingOrderId }) {
   const [open, setOpen] = useState(false)
   const [rating, setRating] = useState(5)
   const [title, setTitle] = useState('')
@@ -7065,7 +7538,31 @@ function ReviewCell({ row, onReview }) {
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  if (row.status !== 'completed') return <span className="muted">Not yet eligible</span>
+  if (row.status !== 'completed') {
+    // Paid and on its way, so the buyer is the one who says it arrived.
+    // The payment must actually have reached escrow, not merely have a
+    // checkout session open -- the API refuses to complete an unpaid order,
+    // so offering the button would only produce an error. 'paid_held' and
+    // 'released' are the only two captured states (see MockPayment).
+    const awaitingReceipt = onConfirmReceived
+      && ['confirmed', 'in_transit'].includes(row.status)
+      && ['paid_held', 'released'].includes(row.payment_status)
+    if (!awaitingReceipt) return <span className="muted">Not yet eligible</span>
+
+    return (
+      <span>
+        <button
+          type="button"
+          className="table-row-action"
+          onClick={() => onConfirmReceived(row.orderId)}
+          disabled={confirmPendingOrderId === row.orderId}
+          title="Confirm you received the fingerlings. This releases the payment to your seller's LGU for approval."
+        >
+          {confirmPendingOrderId === row.orderId ? 'Confirming...' : 'Confirm Received'}
+        </button>
+      </span>
+    )
+  }
   if (row.review) return <span className="review-given">Reviewed: {'★'.repeat(row.review.rating)}{'☆'.repeat(5 - row.review.rating)} ({row.review.rating}/5)</span>
   if (!open) return <span><button type="button" className="ghost" onClick={() => setOpen(true)}>Rate Seller</button></span>
 
@@ -7238,7 +7735,13 @@ function BuyerInvestmentPanel({ data, assumptions, setAssumptions, updating = fa
   const investment = data?.investment
   if (!investment) return null
 
-  const { investment: money, turnout, units = [], projection, assumptions: applied, purchase_history: history = [] } = investment
+  const { investment: money, turnout, units = [], projection, assumptions: applied, purchase_history: history = [], has_orders: hasOrders = true } = investment
+  // With nothing bought, every figure the projection produces is a multiple of
+  // zero -- which renders as a real, and terrible, forecast rather than "no
+  // data yet". So the calculator is locked until there is at least one order.
+  // Deliberately all-time (see BuyerInvestmentReport): the inputs must not
+  // enable and disable themselves as the buyer changes the period filter.
+  const calculatorLocked = !hasOrders
   const survivalPercent = Math.round((applied?.survival_rate ?? 0.8) * 100)
   const harvestValue = applied?.harvest_value_per_piece ?? 0
   const returnPositive = (projection?.projected_return ?? 0) >= 0
@@ -7285,7 +7788,19 @@ function BuyerInvestmentPanel({ data, assumptions, setAssumptions, updating = fa
       </Section>
 
       <Section title="Earnings Calculator">
-        <div className="card roi-assumptions">
+        {calculatorLocked && (
+          <div className="card roi-locked">
+            <p>
+              <strong>Buy your first batch of fingerlings to unlock this.</strong>
+            </p>
+            <p className="helper-text">
+              The calculator projects what a batch you already own might return at harvest, so it needs a real purchase to
+              work from -- it cannot forecast from nothing. Place an order and it turns on by itself.
+            </p>
+            <Link className="button" to="/browse">Browse Listings</Link>
+          </div>
+        )}
+        <div className={`card roi-assumptions${calculatorLocked ? ' is-locked' : ''}`} aria-disabled={calculatorLocked}>
           <p className="helper-text">
             <strong>These are estimates, not earnings.</strong> AbaiMarket only records what you buy -- it cannot know what you sell your
             grown fish for. Enter your own survival rate and farm-gate price below and the projection recalculates. This maths needs a
@@ -7302,6 +7817,7 @@ function BuyerInvestmentPanel({ data, assumptions, setAssumptions, updating = fa
                 value={assumptions.survival_rate}
                 onChange={(e) => setAssumptions({ ...assumptions, survival_rate: e.target.value })}
                 placeholder={String(Math.round((applied?.defaults?.survival_rate ?? 0.8) * 100))}
+                disabled={calculatorLocked}
               />
               <span className="helper-text">Share of fingerlings you expect to reach harvest.</span>
             </label>
@@ -7314,13 +7830,16 @@ function BuyerInvestmentPanel({ data, assumptions, setAssumptions, updating = fa
                 value={assumptions.harvest_value_per_piece}
                 onChange={(e) => setAssumptions({ ...assumptions, harvest_value_per_piece: e.target.value })}
                 placeholder={String(applied?.defaults?.harvest_value_per_piece ?? 25)}
+                disabled={calculatorLocked}
               />
               <span className="helper-text">What one grown fish sells for in your area.</span>
             </label>
           </div>
           <p className="helper-text roi-applied-line">
             <span>
-              Currently projecting at <strong>{survivalPercent}% survival</strong> and <strong>{currency(harvestValue)} per fish</strong>.
+              {calculatorLocked
+                ? 'Projection unavailable until you have an order.'
+                : <>Currently projecting at <strong>{survivalPercent}% survival</strong> and <strong>{currency(harvestValue)} per fish</strong>.</>}
             </span>
             {updating && <span className="muted">Updating…</span>}
             {(assumptions.survival_rate || assumptions.harvest_value_per_piece) && (
@@ -8261,58 +8780,7 @@ function SellerReviewsSection({ reviews = [], fallbackAverage }) {
   )
 }
 
-function StarRatingInput({ value, onChange }) {
-  return (
-    <div className="star-input" role="radiogroup" aria-label="Rating">
-      {[1, 2, 3, 4, 5].map((n) => (
-        <button
-          type="button"
-          key={n}
-          className={`star-btn ${n <= value ? 'on' : ''}`}
-          onClick={() => onChange(n)}
-          aria-label={`${n} star${n > 1 ? 's' : ''}`}
-          aria-pressed={n <= value}
-        >★</button>
-      ))}
-    </div>
-  )
-}
 
-/**
- * The seller's side of feedback: rate a buyer for one completed order (the
- * mirror of a buyer's Review -- see ReviewCell and SellerController::rateBuyer).
- *
- * Used from two places, hence the props: the Buyer Profile page's "Rate this
- * Buyer" list, and inline on a completed row in Order Management. invalidateKey
- * says which cached query the new rating invalidates, since each entry point
- * reads its orders from a different endpoint.
- */
-function BuyerRateOrderForm({ order, invalidateKey = 'seller-buyer-profile', showHeader = true, onDone }) {
-  const [rating, setRating] = useState(0)
-  const [comment, setComment] = useState('')
-  const submit = useMutation({
-    mutationFn: async () => (await api.post(`/orders/${order.id}/rate-buyer`, { rating, comment: comment.trim() || null })).data,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [invalidateKey] })
-      onDone?.()
-    },
-  })
-
-  return (
-    <div className="card buyer-rate-form">
-      {showHeader && (
-        <div className="card-row"><strong>Order {order.order_number}</strong><span className="muted">{order.listing?.species || order.listing?.title}</span></div>
-      )}
-      <StarRatingInput value={rating} onChange={setRating} />
-      <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Optional note (payment reliability, communication, pickup, etc.)" />
-      {submit.error && <p className="error">{submit.error.response?.data?.message || 'Could not submit rating.'}</p>}
-      <div className="row-actions">
-        <button type="button" onClick={() => submit.mutate()} disabled={!rating || submit.isPending}>{submit.isPending ? 'Submitting...' : 'Submit Rating'}</button>
-        {onDone && <button type="button" className="ghost" onClick={onDone}>Cancel</button>}
-      </div>
-    </div>
-  )
-}
 
 function BuyerProfileForSellerPage() {
   const { id } = useParams()
@@ -8339,10 +8807,7 @@ function BuyerProfileForSellerPage() {
   const buyer = data.buyer
   const stats = data.stats
   const reviews = data.reviews || []
-  const buyerRating = data.buyer_rating || { average: 0, count: 0 }
-  const buyerRatings = data.buyer_ratings || []
   const sellerOrders = data.seller_orders || []
-  const completedUnrated = sellerOrders.filter((order) => order.status === 'completed' && !order.buyerRating)
 
   return (
     <main className="seller-profile-page">
@@ -8352,7 +8817,7 @@ function BuyerProfileForSellerPage() {
           <div>
             <div className="card-row"><h1>{buyer.name}</h1><RoleBadge role="buyer" /></div>
             <div className="stats-inline">
-              <Stat value={renderStars(buyerRating.average)} label={`${Number(buyerRating.average).toFixed(1)}/5 · ${buyerRating.count} buyer rating${buyerRating.count === 1 ? '' : 's'}`} />
+              <Stat value={stats.completed_orders} label="Completed with you" />
               <Stat value={stats.total_orders} label="Orders with you" />
               <Stat value={stats.completed_orders_all} label="Completed orders (all sellers)" />
             </div>
@@ -8372,37 +8837,30 @@ function BuyerProfileForSellerPage() {
         </div>
       </section>
 
-      <Section title="Rate this Buyer">
-        <p className="helper-text">Rate a buyer after a completed order so other sellers can tell they&apos;re reliable. One rating per completed order.</p>
-        {completedUnrated.length ? (
-          <div className="item-list">
-            {completedUnrated.map((order) => <BuyerRateOrderForm key={order.id} order={order} />)}
-          </div>
-        ) : (
-          <EmptyState message={stats.completed_orders ? 'You have rated all your completed orders with this buyer.' : 'You can rate this buyer once you have a completed order with them.'} />
-        )}
-      </Section>
 
-      <Section title="Buyer Ratings from Sellers">
-        <p className="helper-text">How sellers across the platform have rated this buyer.</p>
-        {buyerRatings.length ? (
-          <div className="review-list">
-            {buyerRatings.map((entry) => (
-              <div className="card review-item" key={entry.id}>
-                <div className="card-row">
-                  <p className="review-author"><Avatar src={entry.sellerProfile?.profile_picture} alt={entry.sellerProfile?.hatchery_name} className="review-avatar" />{entry.sellerProfile?.hatchery_name || 'Seller'} <RoleBadge role="seller" /></p>
-                  <strong>{renderStars(entry.rating)}</strong>
-                </div>
-                {entry.comment && <p>{entry.comment}</p>}
-                <div className="detail-meta">
-                  {entry.order?.listing?.species && <span><strong>Species:</strong> {entry.order.listing.species}</span>}
-                  {entry.order?.order_number && <span><strong>Order ID:</strong> #{entry.order.order_number}</span>}
-                  <span className="muted">{new Date(entry.created_at).toLocaleDateString()}</span>
+      <Section title="Order History with You">
+        <p className="helper-text">
+          Whether a buyer completes what they start is the useful signal about them -- more so than a score, which a seller
+          could leave out of irritation at a cancelled order.
+        </p>
+        {sellerOrders.length ? (
+          <div className="item-list">
+            {sellerOrders.map((order) => (
+              <div className="card action" key={order.id}>
+                <div>
+                  <div className="card-row">
+                    <strong>{order.order_number}</strong>
+                    <Badge status={order.status}>{statusChartLabel(order.status)}</Badge>
+                  </div>
+                  <p className="muted">
+                    {order.listing?.species || order.listing?.title || 'Listing'} · {currency(order.total_amount)}
+                    {order.created_at ? ` · ${new Date(order.created_at).toLocaleDateString()}` : ''}
+                  </p>
                 </div>
               </div>
             ))}
           </div>
-        ) : <EmptyState message="No seller has rated this buyer yet." />}
+        ) : <EmptyState message="No orders with this buyer yet." />}
       </Section>
 
       <Section title="Reviews from this Buyer">

@@ -80,6 +80,16 @@ class BuyerInvestmentReport
             'units' => $units,
             'projection' => $projection,
             'purchase_history' => self::purchaseHistory($completed),
+            // Whether this buyer has ever ordered at all -- the gate for the
+            // harvest projection, which is meaningless with nothing bought:
+            // every figure it produces would be a multiple of zero, which
+            // reads like a real (and terrible) forecast rather than "no data".
+            //
+            // All-time and status-agnostic on purpose. Everything else here is
+            // scoped to the selected period, but the calculator must not blink
+            // in and out of existence as the buyer changes the date filter, and
+            // an order still in transit is a real purchase already made.
+            'has_orders' => Order::where('buyer_id', $buyerId)->exists(),
         ];
     }
 

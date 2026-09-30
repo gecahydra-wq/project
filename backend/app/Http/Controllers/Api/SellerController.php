@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AppNotification;
-use App\Models\BuyerRating;
 use App\Models\FingerlingListing;
 use App\Models\Message;
 use App\Models\MockPayment;
@@ -14,11 +13,9 @@ use App\Models\SellerNotice;
 use App\Models\SellerProfile;
 use App\Models\User;
 use App\Models\WithdrawalRequest;
-use App\Support\ActivityLog;
 use App\Support\AnalyticsPeriod;
 use App\Support\CommissionCalculator;
 use App\Support\ImageUploader;
-use App\Support\ReviewModeration;
 use App\Support\SellerWallet;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -41,11 +38,9 @@ class SellerController extends Controller
             'ratings' => $seller->rating,
             'unread_messages' => Message::where('receiver_id', $request->user()->id)->whereNull('read_at')->count(),
             'listings' => FingerlingListing::with('media')->where('seller_profile_id', $seller->id)->latest()->get(),
-            // buyerRating is what lets Order Management show "Rate Buyer" on a
-            // completed order and the given stars once it's rated -- the mirror
-            // of the buyer's own review column, which reads order.review the
-            // same way (see OrderController::index).
-            'orders' => Order::with(['listing', 'payment', 'buyer', 'buyerRating'])->where('seller_profile_id', $seller->id)->latest()->get(),
+            // latestDispute so a rejected order shows the appeal's state instead
+            // of silently re-offering the button (see App\Models\Order).
+            'orders' => Order::with(['listing', 'payment', 'buyer', 'latestDispute'])->where('seller_profile_id', $seller->id)->latest()->get(),
             'notifications' => AppNotification::where('user_id', $request->user()->id)->whereNull('read_at')->latest()->get(),
             // Open Notices to Explain, so the dashboard can surface one the
             // seller still has to answer (App\Support\SellerReputation).
@@ -285,19 +280,12 @@ class SellerController extends Controller
 
         $orders = Order::where('seller_profile_id', $seller->id)->where('buyer_id', $buyer->id);
 
-        // Platform-wide buyer reputation (across every seller) so the viewing
-        // seller can judge whether this is a reliable buyer, not just how they
-        // behaved on this one seller's orders.
-        $buyerRatings = BuyerRating::where('buyer_id', $buyer->id)
-            ->with(['sellerProfile:id,hatchery_name,profile_picture', 'order:id,order_number,listing_id', 'order.listing:id,species,title'])
-            ->latest()
-            ->get();
-
-        // This seller's own orders with the buyer, each carrying its existing
-        // rating (if any) so the frontend can show a rate form on completed,
-        // as-yet-unrated orders and the given rating on the rest.
+        // Sellers no longer rate buyers, so what is left here is the order
+        // history itself -- which is the substantive signal about a buyer
+        // anyway (do they complete what they start?), unlike a score a seller
+        // could leave out of irritation at a cancelled order.
         $sellerOrders = (clone $orders)
-            ->with(['listing:id,species,title', 'buyerRating'])
+            ->with(['listing:id,species,title'])
             ->latest()
             ->get();
 
@@ -313,11 +301,6 @@ class SellerController extends Controller
                 'total_orders_all' => Order::where('buyer_id', $buyer->id)->count(),
                 'completed_orders_all' => Order::where('buyer_id', $buyer->id)->where('status', 'completed')->count(),
             ],
-            'buyer_rating' => [
-                'average' => round((float) $buyerRatings->avg('rating'), 2),
-                'count' => $buyerRatings->count(),
-            ],
-            'buyer_ratings' => $buyerRatings,
             'seller_orders' => $sellerOrders,
             // Reviews this buyer left FOR THIS SELLER, now with the order/listing
             // each one is about.
@@ -384,40 +367,4 @@ class SellerController extends Controller
         return response()->json($notice->fresh());
     }
 
-    public function rateBuyer(Request $request, Order $order)
-    {
-        $seller = SellerProfile::where('user_id', $request->user()->id)->firstOrFail();
-
-        abort_if($order->seller_profile_id !== $seller->id, 403, 'You can only rate buyers on your own orders.');
-        abort_if($order->status !== 'completed', 422, 'You can only rate a buyer after the order is completed.');
-        abort_if($order->buyerRating()->exists(), 422, 'You have already rated the buyer for this order.');
-
-        $data = $request->validate([
-            'rating' => ['required', 'integer', 'min:1', 'max:5'],
-            'comment' => ['nullable', 'string', 'max:2000'],
-        ]);
-
-        $rating = BuyerRating::create([
-            'order_id' => $order->id,
-            'seller_profile_id' => $seller->id,
-            'buyer_id' => $order->buyer_id,
-            'rating' => $data['rating'],
-            'comment' => $data['comment'] ?? null,
-        ]);
-
-        ReviewModeration::refreshBuyerRating($order->buyer_id);
-
-        ActivityLog::record([
-            'actor_id' => $request->user()->id,
-            'actor_role' => 'seller',
-            'action' => 'buyer_rating_submitted',
-            'target_user_id' => $order->buyer_id,
-            'municipality_id' => $seller->municipality_id,
-            'reference_type' => 'ORD',
-            'reference_number' => $order->order_number,
-            'description' => "Rated buyer {$data['rating']}/5 for order {$order->order_number}.",
-        ]);
-
-        return response()->json($rating->load('sellerProfile:id,hatchery_name,profile_picture', 'order:id,order_number,listing_id', 'order.listing:id,species,title'), 201);
-    }
 }

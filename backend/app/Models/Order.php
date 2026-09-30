@@ -20,6 +20,7 @@ class Order extends Model
         'unit_price',
         'total_amount',
         'status',
+        'cancellation_reason',
         'pickup_notes',
         'seller_notes',
         'lgu_review_status',
@@ -82,9 +83,20 @@ class Order extends Model
         return $this->hasOne(Review::class);
     }
 
-    public function buyerRating()
+    /**
+     * Appeals against this order's rejected earnings review. `latestDispute`
+     * is what the seller's own dashboard reads, so their order card can say
+     * "submitted, awaiting review" instead of offering the button again as
+     * though nothing had happened.
+     */
+    public function disputes()
     {
-        return $this->hasOne(BuyerRating::class);
+        return $this->morphMany(Dispute::class, 'disputable');
+    }
+
+    public function latestDispute()
+    {
+        return $this->morphOne(Dispute::class, 'disputable')->latestOfMany();
     }
 
     public function settlement()

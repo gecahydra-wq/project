@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\BuyerRating;
 use App\Models\FingerlingListing;
 use App\Models\ModerationLog;
 use App\Models\Municipality;
@@ -171,11 +170,15 @@ class PlatformController extends Controller
     }
 
     /**
-     * Reviews & Ratings for one municipality (LGU) -- BOTH directions of
-     * feedback in one place: buyer_reviews are buyers reviewing sellers, and
-     * seller_ratings are sellers rating buyers (see App\Models\BuyerRating).
-     * Both are scoped by the SELLER's municipality (the party in this LGU),
-     * exactly like every other LGU-scoped view.
+     * Reviews for one municipality (LGU): buyers reviewing sellers, scoped by
+     * the SELLER's municipality (the party in this LGU), exactly like every
+     * other LGU-scoped view.
+     *
+     * Feedback runs one way only. Sellers rating buyers was removed: a buyer's
+     * order history already shows whether they complete what they start, and a
+     * score a seller could leave out of irritation at a cancelled order added
+     * nothing a moderator could act on. The payload key is kept as an empty
+     * list so an older cached frontend bundle cannot crash on its absence.
      */
     public function lguReviews(Request $request)
     {
@@ -186,17 +189,14 @@ class PlatformController extends Controller
                 ->with(['buyer', 'sellerProfile.user', 'order.listing'])
                 ->latest()
                 ->get(),
-            'seller_ratings' => BuyerRating::whereHas('sellerProfile', fn ($q) => $q->where('municipality_id', $municipalityId))
-                ->with(['buyer', 'sellerProfile.user', 'order.listing'])
-                ->latest()
-                ->get(),
+            'seller_ratings' => [],
         ]);
     }
 
     /**
-     * Platform-wide Reviews & Ratings for the Super Admin -- the unscoped
-     * counterpart of lguReviews() above. Same two directions (buyer reviews of
-     * sellers + seller ratings of buyers), across every municipality.
+     * Platform-wide Reviews for the Super Admin -- the unscoped counterpart of
+     * lguReviews() above, across every municipality. One direction only; see
+     * that method for why sellers no longer rate buyers.
      */
     public function superReviews()
     {
@@ -204,9 +204,7 @@ class PlatformController extends Controller
             'buyer_reviews' => Review::with(['buyer', 'sellerProfile.user', 'sellerProfile.municipality', 'order.listing'])
                 ->latest()
                 ->get(),
-            'seller_ratings' => BuyerRating::with(['buyer', 'sellerProfile.user', 'sellerProfile.municipality', 'order.listing'])
-                ->latest()
-                ->get(),
+            'seller_ratings' => [],
         ]);
     }
 

@@ -10,11 +10,11 @@ use App\Mail\LguWithdrawalReleasedMail;
 use App\Mail\SellerWithdrawalApprovedMail;
 use App\Mail\WithdrawalReleasedMail;
 use App\Models\AppNotification;
-use App\Models\BuyerRating;
 use App\Models\FingerlingListing;
 use App\Models\LguWithdrawalRequest;
 use App\Models\MockPayment;
 use App\Models\ModerationLog;
+use App\Http\Controllers\Api\OrderController;
 use App\Models\Order;
 use App\Models\PaymentLog;
 use App\Models\SellerProfile;
@@ -124,6 +124,19 @@ class SuperAdminController extends Controller
     public function showOrder(Order $order)
     {
         return response()->json(OrderTransactionPresenter::present($order, 'super_admin'));
+    }
+
+    /**
+     * Platform-wide backstop for an order a buyer never confirmed -- the same
+     * release valve as LguController::markOrderDelivered, unscoped, for when a
+     * municipality has no active LGU Admin to act. See that method for why this
+     * is a human decision rather than a timer.
+     */
+    public function markOrderDelivered(Request $request, Order $order, OrderController $orders)
+    {
+        $orders->completeDelivery($order, $request->user());
+
+        return response()->json(OrderTransactionPresenter::present($order->fresh(), 'super_admin'));
     }
 
     /**
@@ -759,16 +772,6 @@ class SuperAdminController extends Controller
         return response()->json(['message' => 'Review removed.']);
     }
 
-    /**
-     * Remove a seller's rating of a buyer (unfair/abusive), platform-wide.
-     * Recomputes the buyer's rating and logs it.
-     */
-    public function destroyBuyerRating(Request $request, BuyerRating $rating)
-    {
-        ReviewModeration::deleteBuyerRating($rating, $request->user());
-
-        return response()->json(['message' => 'Rating removed.']);
-    }
 
     /**
      * Profile picture management for the Super Admin -- the only editable part
@@ -814,6 +817,15 @@ class SuperAdminController extends Controller
         $notification->update(['read_at' => now()]);
 
         return response()->json($notification);
+    }
+
+    public function markAllNotificationsRead(Request $request)
+    {
+        $updated = AppNotification::where('user_id', $request->user()->id)
+            ->whereNull('read_at')
+            ->update(['read_at' => now()]);
+
+        return response()->json(['updated' => $updated]);
     }
 
     /**

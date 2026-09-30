@@ -68,11 +68,13 @@ class ActivityLog
             'actions' => [
                 'seller_earnings_approved', 'seller_payout_requested', 'seller_payout_approved',
                 'seller_payout_completed', 'lgu_payout_requested', 'lgu_payout_approved', 'lgu_payout_completed',
-                'order_refunded',
+                'order_refunded', 'order_cancelled',
             ],
         ],
         'reviews' => [
             'label' => 'Reviews & Ratings',
+            // buyer_rating_* are retained here so historical log rows written before
+            // sellers stopped rating buyers still resolve to a category.
             'actions' => ['review_submitted', 'buyer_rating_submitted', 'review_removed', 'buyer_rating_removed'],
         ],
         // User Reports (buyer <-> seller complaints) and the automatic

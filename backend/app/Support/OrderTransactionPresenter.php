@@ -57,6 +57,9 @@ class OrderTransactionPresenter
             'quantity' => $order->quantity,
             'unit_price' => (float) $order->unit_price,
             'total_amount' => (float) $order->total_amount,
+            // Why the seller cancelled. Null for every other status, and for
+            // orders that expired unpaid -- the status already says which.
+            'cancellation_reason' => $order->cancellation_reason,
             'review' => $order->review ? [
                 'rating' => $order->review->rating,
                 'comment' => $order->review->comment,

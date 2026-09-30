@@ -453,6 +453,14 @@ button:disabled:hover,
   white-space: nowrap;
 }
 
+/* A filled action sitting in an order-table row (Confirm Received / Mark as
+   Received). Same shape as the ghost Rate Seller / View Details buttons beside
+   it, so the row reads as one set of controls -- the fill alone marks it as the
+   primary action instead of a pill that stands out from its neighbours. */
+.table-row .table-row-action {
+  border-radius: var(--radius-sm);
+}
+
 .ghost:hover {
   background: var(--color-primary-soft);
   border-color: var(--color-primary);
@@ -556,7 +564,10 @@ select {
 textarea {
   line-height: 1.6;
   min-height: 88px;
-  resize: vertical;
+  /* No drag handle anywhere. Stretching a field distorts the card or table row
+     it is in, and the grip reads as a rendering artefact. Each field below is
+     sized for what it holds; longer text scrolls. */
+  resize: none;
 }
 
 label {
@@ -1844,12 +1855,14 @@ body,
    completed order): let the form drop onto its own full-width line instead of
    being squeezed in beside the row's buttons. Scoped to the rows that opt in,
    so every other .action card keeps its single-line layout. */
+/* `.action` centres its children, which reads fine on a one-line row. Once the
+   row expands -- details panel, cancel form, dispute callout -- the actions
+   column stayed vertically centred and drifted into the middle of a now-tall
+   card, so "View Details" appeared to move when clicked. Pinning to the top
+   keeps it where it was before the expansion. */
 .action-stacked {
+  align-items: flex-start;
   flex-wrap: wrap;
-}
-
-.action-stacked .buyer-rate-form {
-  flex-basis: 100%;
 }
 
 .withdrawal-row {
@@ -1867,10 +1880,6 @@ body,
   flex-direction: column;
   gap: 0.4rem;
   min-width: 220px;
-}
-
-.moderation-form textarea {
-  resize: vertical;
 }
 
 .action svg {
@@ -3232,6 +3241,15 @@ a.activity-log-item:hover {
   font-weight: var(--fw-semibold);
 }
 
+/* `.card p` sets a muted colour and outranks a bare `.error` on specificity
+   (0,1,1 against 0,1,0), so every error message written as a paragraph inside
+   a card rendered grey -- including the LGU's earnings-rejection notice on a
+   seller's order, which is exactly the text that must not be missed. A state
+   colour has to win over the card's default body colour. */
+.card p.error {
+  color: var(--color-danger);
+}
+
 /* Seafoam is the palette's empty-state colour. Used as a wash rather than a
    flat fill so the message stays quiet, with the icon carrying the hue. */
 .empty-state {
@@ -3946,7 +3964,6 @@ a.activity-log-item:hover {
 
 .profile-field textarea {
   min-height: 0;
-  resize: vertical;
 }
 
 .profile-field input:disabled {
@@ -4746,6 +4763,259 @@ body.modal-open {
    Shop by Species -- the reference's category row: artwork above a bold,
    centred label, no card around it.
    -------------------------------------------------------------------------- */
+/* Seller cancelling an order: a reason is required, and a confirm() dialog
+   cannot collect one, so the row opens this inline instead. */
+.cancel-form {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.cancel-form textarea {
+  min-height: 84px;
+  width: 100%;
+}
+
+/* Disputes: filing one (seller/LGU) and reviewing one (LGU/Super Admin). */
+/* An appeal against a rejected withdrawal, on its own full-width strip under
+   the table row. It cannot live in the Notes cell: `.table-row` is
+   grid-auto-flow: column at 130px, which squeezed the textarea to a scroller
+   and cut the button's label in half. The strip also matches the row's own
+   min-width so it does not break the table's horizontal scroll. */
+.table-row-appeal {
+  border-bottom: 1px solid var(--color-border-subtle);
+  min-width: 760px;
+  padding: 0 1.1rem 0.9rem;
+}
+
+/* The trigger sat on an otherwise empty row, reading as a stray button rather
+   than as this rejection's one available action. Banding it with a line of
+   explanation -- the same callout shape used on a seller's rejected order --
+   ties it to the row above and gives it an edge to align against. */
+.table-row-appeal-head {
+  align-items: center;
+  background: var(--color-danger-bg);
+  border-left: 3px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  padding: 0.6rem 0.8rem;
+}
+
+.table-row-appeal-head p {
+  flex: 1 1 320px;
+  margin: 0;
+}
+
+.table-row-appeal-head > button {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+/* Same rule as .dispute-notice: the callout is a flex row, so without this the
+   form becomes a flex item beside the message and gets half the width. It
+   takes a line of its own under the message instead, which is how the identical
+   form on a seller's rejected order already behaves. */
+.table-row-appeal-head .dispute-form {
+  flex: 1 1 100%;
+  margin-top: 0.2rem;
+  max-width: none;
+}
+
+/* Textareas in a dispute form carry real prose, so they get the roomier radius
+   and a clearer focus ring than the compact default control. */
+.dispute-form textarea,
+.dispute-decision textarea,
+.table-row-appeal textarea {
+  border-radius: var(--radius-md);
+  line-height: 1.6;
+  padding: 0.75rem 0.9rem;
+}
+
+/* Anything that should break out of .grid-form's two columns: helper text, an
+   error, a textarea meant to run the full width. */
+.full-span {
+  grid-column: 1 / -1;
+}
+
+/* The dispute forms reuse .form.grid-form -- the same shape as the withdrawal
+   rejection form -- so a textarea spans both columns and the two actions sit
+   side by side under it, rather than a bare textarea with a loose button row. */
+.dispute-form {
+  margin-top: 0.5rem;
+}
+
+.dispute-decision {
+  margin-top: 0.2rem;
+}
+
+.dispute-form textarea,
+.dispute-decision textarea {
+  min-height: 96px;
+}
+
+.dispute-item {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.dispute-item p {
+  margin: 0;
+}
+
+/* A resolved dispute is reference material, not work -- muted so the open
+   queue above it stays the thing that draws the eye. */
+.dispute-item.is-resolved {
+  opacity: 0.85;
+}
+
+/* Link, not a button, but it sits in a row of buttons -- so it has to line up
+   with them rather than look like stray text with an icon. */
+.dispute-pending-link {
+  align-items: center;
+  display: inline-flex;
+  gap: 0.35rem;
+  white-space: nowrap;
+}
+
+/* The dispute the reviewer arrived for, via "Review Dispute" on a rejected
+   transaction. Scrolled to and ringed so it is obvious which of a long queue
+   the link meant. */
+.dispute-item.is-focused {
+  box-shadow: 0 0 0 2px var(--color-teal);
+}
+
+.dispute-head {
+  align-items: flex-start;
+  display: flex;
+  gap: 0.65rem;
+}
+
+.dispute-avatar {
+  border-radius: 50%;
+  flex-shrink: 0;
+  height: 40px;
+  object-fit: cover;
+  width: 40px;
+}
+
+.dispute-head-text {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+/* Tiny caps label above each quoted passage, so "their explanation" and "your
+   reason" are told apart at a glance rather than by reading both. */
+.dispute-field-label {
+  color: var(--color-text-muted);
+  display: block;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.04em;
+  margin-bottom: 0.15rem;
+  text-transform: uppercase;
+}
+
+/* The appeal itself: the one thing on the card that must be read in full. */
+.dispute-letter {
+  background: var(--color-gray-100);
+  border-left: 3px solid var(--color-teal);
+  border-radius: var(--radius-md);
+  line-height: 1.55;
+  margin: 0;
+  padding: 0.6rem 0.8rem;
+  white-space: pre-wrap;
+}
+
+/* The decision it answers, or the note that closed it -- context, so quieter. */
+.dispute-original {
+  background: var(--color-danger-bg);
+  border-radius: var(--radius-md);
+  line-height: 1.5;
+  padding: 0.5rem 0.75rem;
+  white-space: pre-wrap;
+}
+
+.dispute-item.is-resolved .dispute-original {
+  background: var(--color-gray-100);
+}
+
+/* The rejection notice on a seller's order.
+   Styled as a callout rather than loose text with a button after it: the
+   button previously floated mid-card, aligned to nothing, while the row's real
+   action column sat in the top-right. Banding the message and its one action
+   together makes the pairing obvious and gives the button an edge to sit against. */
+.dispute-notice {
+  align-items: center;
+  background: var(--color-danger-bg);
+  border-left: 3px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  margin-top: 0.5rem;
+  padding: 0.6rem 0.8rem;
+}
+
+.dispute-notice p {
+  flex: 1 1 260px;
+  margin: 0;
+}
+
+/* Pushes the action to the right edge of the callout, so it lines up with the
+   card's own actions instead of trailing the sentence. */
+.dispute-notice > button {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+/* Acknowledgement in place of the appeal button, once one is filed. Sits in
+   the same slot the button occupied so the callout keeps its shape. */
+.dispute-submitted {
+  align-items: center;
+  color: var(--color-text-muted);
+  display: inline-flex;
+  font-size: var(--fs-sm);
+  gap: 0.35rem;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.dispute-outcome {
+  flex: 1 1 100%;
+  margin: 0;
+}
+
+/* The appeal form is a card with a textarea, so it takes a row of its own
+   rather than being squeezed alongside the rejection text it answers. */
+.dispute-notice .dispute-form {
+  flex: 1 1 100%;
+}
+
+/* Earnings Calculator before the buyer's first order. The inputs stay visible
+   rather than hidden so the feature is discoverable, but are visibly inert --
+   a projection built from no purchases would read as a real forecast of zero. */
+.roi-locked {
+  border: 1px dashed var(--color-border);
+  display: grid;
+  gap: 0.5rem;
+  justify-items: start;
+}
+
+.roi-locked p {
+  margin: 0;
+}
+
+.roi-assumptions.is-locked {
+  opacity: 0.55;
+}
+
+.roi-assumptions.is-locked input {
+  cursor: not-allowed;
+}
+
 /* Partnered LGUs on the storefront. Same auto-fit rhythm as .species-row so
    the two rows below each other line up at every breakpoint. Not links: there
    is no public per-municipality page to open yet. */

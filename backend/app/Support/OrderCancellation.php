@@ -32,15 +32,47 @@ class OrderCancellation
     public const REFUNDED = 'refunded';
 
     /** Seller cancels an order (OrderController::updateStatus). */
-    public static function cancel(Order $order): void
+    /**
+     * $reason is why the SELLER cancelled. It is null for expiry and for any
+     * automated cancellation -- the order's own status already distinguishes
+     * those -- and is passed straight through to the buyer, who otherwise
+     * learned only that their order had vanished.
+     */
+    public static function cancel(Order $order, ?string $reason = null, ?User $actor = null): void
     {
         $payment = $order->payment;
 
-        $order->update(['status' => 'cancelled']);
+        $order->update(array_filter([
+            'status' => 'cancelled',
+            'cancellation_reason' => $reason,
+        ], fn ($value) => $value !== null));
+
+        // Recorded here rather than at the call site so an expired order and a
+        // seller cancellation both leave a trail, and so the LGU and Super
+        // Admin logs carry the reason without either dashboard having to go
+        // looking for it. $actor is null for the scheduler's expiry run.
+        $order->loadMissing('sellerProfile');
+        ActivityLog::record([
+            'actor_id' => $actor?->id,
+            'actor_role' => $actor?->role,
+            'action' => 'order_cancelled',
+            'target_user_id' => $order->buyer_id,
+            'municipality_id' => $order->sellerProfile?->municipality_id,
+            'reference_type' => 'ORD',
+            'reference_number' => $order->order_number,
+            'description' => $reason
+                ? sprintf('Cancelled order %s. Reason: %s', $order->order_number, $reason)
+                : sprintf('Order %s was cancelled.', $order->order_number),
+        ]);
         self::restock($order);
 
         if ($payment?->status === 'paid_held') {
-            self::queueRefund($payment, $order, 'order.cancelled', 'The seller cancelled the order after it was paid.');
+            self::queueRefund(
+                $payment,
+                $order,
+                'order.cancelled',
+                'The seller cancelled the order after it was paid.'.($reason ? " Reason: {$reason}" : '')
+            );
 
             return;
         }
@@ -51,7 +83,8 @@ class OrderCancellation
         }
 
         self::notify($order->buyer_id, 'order_cancelled', 'Order cancelled',
-            "Order #{$order->order_number} was cancelled by the seller. No payment was captured.");
+            "Order #{$order->order_number} was cancelled by the seller. No payment was captured."
+            .($reason ? " Reason: {$reason}" : ''));
     }
 
     /** An unpaid order passed its payment window (orders:expire-unpaid). */

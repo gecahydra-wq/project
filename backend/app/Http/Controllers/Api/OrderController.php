@@ -15,11 +15,13 @@ use App\Models\PaymentLog;
 use App\Models\SellerProfile;
 use App\Models\User;
 use App\Services\PayMongoService;
+use App\Support\ActivityLog;
 use App\Support\OrderCancellation;
 use App\Support\OrderTransactionPresenter;
 use App\Support\PaymentReturnToken;
 use App\Support\SafeMailer;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
@@ -230,8 +232,22 @@ class OrderController extends Controller
             return response()->json(['message' => 'You can only update your own orders.'], 403);
         }
 
+        // 'completed' is deliberately absent. Marking an order delivered is
+        // what releases it into the LGU earnings queue and, from there, to the
+        // seller's balance -- so letting the seller declare their own delivery
+        // complete let them start their own payout without the buyer ever
+        // confirming receipt. That confirmation now belongs to the buyer alone
+        // (see confirmReceived), with an LGU/Super Admin backstop
+        // (LguController/SuperAdminController::markOrderDelivered) for the case
+        // where a buyer goes silent and would otherwise strand the seller's
+        // money in escrow indefinitely.
         $data = $request->validate([
-            'status' => ['required', 'in:placed,confirmed,in_transit,completed,cancelled'],
+            'status' => ['required', 'in:placed,confirmed,in_transit,cancelled'],
+            // Required only when cancelling. Cancelling was previously silent:
+            // the buyer was told their order was gone and never why, and on a
+            // PAID order this is the one seller action that sends money back
+            // through the refund queue -- it should be on the record.
+            'cancellation_reason' => [Rule::requiredIf(fn () => $request->input('status') === 'cancelled'), 'string', 'max:1000'],
         ]);
 
         $previousStatus = $order->status;
@@ -242,6 +258,18 @@ class OrderController extends Controller
         // LGU earnings flow -- none of them may be moved again.
         if ($statusChanged && in_array($previousStatus, ['cancelled', 'failed', 'completed'], true)) {
             return response()->json(['message' => "This order is already {$previousStatus} and can no longer be changed."], 422);
+        }
+
+        // Out for delivery is the point of no return for the seller. The fish
+        // have left the farm, so restocking the listing would credit stock that
+        // is not there and, on a paid order, refund a buyer who is about to
+        // take delivery. The seller's own screen stops offering Cancel Order at
+        // in_transit (ORDER_STATUS_TRANSITIONS); this is the same rule enforced
+        // where it counts, so it cannot be skipped by calling the API directly.
+        if ($statusChanged && $previousStatus === 'in_transit' && $data['status'] === 'cancelled') {
+            return response()->json([
+                'message' => 'This order is already out for delivery and can no longer be cancelled.',
+            ], 422);
         }
 
         // Advancing an unpaid order is a one-way trap: once it leaves 'placed',
@@ -263,11 +291,12 @@ class OrderController extends Controller
         }
 
         if ($statusChanged && $data['status'] === 'cancelled') {
-            OrderCancellation::cancel($order);
+            OrderCancellation::cancel($order, $data['cancellation_reason'], $request->user());
 
             return response()->json($order->fresh()->load('payment'));
         }
 
+        unset($data['cancellation_reason']);
         $order->update($data);
 
         if ($statusChanged && $data['status'] === 'confirmed') {
@@ -290,22 +319,87 @@ class OrderController extends Controller
             );
         }
 
-        if ($data['status'] === 'completed') {
-            $this->notifyLguOfCompletedDelivery($order, $seller);
-
-            if ($statusChanged) {
-                $order->loadMissing('buyer');
-                SafeMailer::send($order->buyer?->email, new OrderDeliveredMail($order));
-                $this->notifyOnce(
-                    $order->buyer_id,
-                    "order_delivered:{$order->id}",
-                    'Order delivered',
-                    "Order #{$order->order_number} has been marked delivered. You can now rate the seller."
-                );
-            }
-        }
-
         return response()->json($order->load('payment'));
+    }
+
+    /**
+     * The buyer confirms the fingerlings actually arrived.
+     *
+     * This is the only ordinary route to 'completed', and completing is what
+     * makes the payment eligible for LGU earnings approval -- so the person who
+     * paid is the one who decides the delivery happened. The seller cannot do
+     * it for them (see updateStatus).
+     */
+    public function confirmReceived(Request $request, Order $order)
+    {
+        abort_if($order->buyer_id !== $request->user()->id, 403, 'You can only confirm your own orders.');
+
+        return response()->json($this->completeDelivery($order));
+    }
+
+    /**
+     * Move an order to 'completed' and fan out everything that depends on it.
+     *
+     * Shared by the buyer's own confirmation and the LGU/Super Admin backstop,
+     * so the two can never drift into completing an order by different rules.
+     * $confirmedBy names the admin acting for a silent buyer; null means the
+     * buyer confirmed it themselves.
+     */
+    public function completeDelivery(Order $order, ?User $confirmedBy = null): Order
+    {
+        abort_if(in_array($order->status, ['cancelled', 'failed'], true), 422, "This order is {$order->status} and can no longer be completed.");
+        abort_if($order->status === 'completed', 422, 'This order is already marked as received.');
+
+        // The same rule updateStatus enforces: an order whose money never
+        // reached escrow has nothing to release, and completing it anyway
+        // would push an unpaid order into the LGU earnings queue.
+        abort_unless(
+            in_array($order->payment?->status, ['paid_held', 'released'], true),
+            422,
+            'This order has not been paid yet, so it cannot be marked as received.'
+        );
+
+        $order->update(['status' => 'completed']);
+        $order->loadMissing(['buyer', 'sellerProfile.user']);
+
+        $this->notifyLguOfCompletedDelivery($order, $order->sellerProfile);
+
+        SafeMailer::send($order->buyer?->email, new OrderDeliveredMail($order));
+
+        // The seller is told too: they no longer mark delivery themselves, so
+        // without this the first they would hear of it is the money appearing.
+        $this->notifyOnce(
+            $order->sellerProfile?->user_id,
+            "order_received:{$order->id}",
+            'Order confirmed as received',
+            $confirmedBy
+                ? sprintf('Order #%s was marked received by %s on the buyer\'s behalf. It is now with your LGU for earnings approval.', $order->order_number, $confirmedBy->name)
+                : sprintf('The buyer confirmed they received order #%s. It is now with your LGU for earnings approval.', $order->order_number)
+        );
+
+        $this->notifyOnce(
+            $order->buyer_id,
+            "order_delivered:{$order->id}",
+            'Order completed',
+            $confirmedBy
+                ? sprintf('Order #%s was marked received by %s. You can now rate the seller.', $order->order_number, $confirmedBy->name)
+                : sprintf('Order #%s is complete. You can now rate the seller.', $order->order_number)
+        );
+
+        ActivityLog::record([
+            'actor_id' => $confirmedBy?->id ?? $order->buyer_id,
+            'actor_role' => $confirmedBy?->role ?? 'buyer',
+            'action' => $confirmedBy ? 'order_marked_received_by_admin' : 'order_confirmed_received',
+            'target_user_id' => $order->sellerProfile?->user_id,
+            'municipality_id' => $order->sellerProfile?->municipality_id,
+            'reference_type' => 'ORD',
+            'reference_number' => $order->order_number,
+            'description' => $confirmedBy
+                ? sprintf('Marked order %s as received on the buyer\'s behalf.', $order->order_number)
+                : sprintf('Buyer confirmed receipt of order %s.', $order->order_number),
+        ]);
+
+        return $order->fresh()->load('payment');
     }
 
     /**
