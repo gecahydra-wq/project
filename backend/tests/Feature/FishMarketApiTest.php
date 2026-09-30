@@ -2694,6 +2694,21 @@ class FishMarketApiTest extends TestCase
         $this->assertSame(3, BuyerProfile::count());
     }
 
+    public function test_reset_test_data_with_no_accounts_only_wipes(): void
+    {
+        $roido = $this->makeSeller([], ['hatchery_name' => "Roido's Fisheries"]);
+        $buyer = $this->makeBuyer();
+
+        $this->artisan('app:reset-test-data', ['--no-accounts' => true, '--execute' => true])
+            ->expectsConfirmation('Permanently delete the data above and create the test accounts?', 'yes')
+            ->assertSuccessful();
+
+        $this->assertDatabaseMissing('users', ['id' => $buyer->id]);
+        $this->assertSame(0, User::whereIn('role', ['buyer', 'lgu_admin'])->count());
+        $this->assertDatabaseHas('users', ['id' => $roido->user_id]);
+        $this->assertSame(1, User::where('role', 'super_admin')->count());
+    }
+
     public function test_reset_test_data_refuses_without_exactly_one_kept_seller(): void
     {
         $buyer = $this->makeBuyer();

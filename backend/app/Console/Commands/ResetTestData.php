@@ -35,6 +35,7 @@ class ResetTestData extends Command
         {--email= : Base inbox for the test accounts, e.g. you@gmail.com (accounts become you+buyer1@gmail.com, ...)}
         {--keep-seller=Roido\'s Fisheries : Hatchery name of the only seller to keep}
         {--buyers=3 : How many test buyers to create}
+        {--no-accounts : Only wipe; do not create the LGU Admin and buyer test accounts}
         {--execute : Actually perform the reset (otherwise a dry run)}';
 
     protected $description = 'Wipe test accounts and transactions, keep one seller, and create fresh LGU + buyer test accounts';
@@ -64,8 +65,9 @@ class ResetTestData extends Command
 
     public function handle(): int
     {
+        $createAccounts = ! $this->option('no-accounts');
         $email = (string) $this->option('email');
-        if (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        if ($createAccounts && ! filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $this->error('Pass --email=you@example.com (the inbox the test accounts will use).');
 
             return self::FAILURE;
@@ -85,7 +87,7 @@ class ResetTestData extends Command
         $municipalities = Municipality::orderBy('name')->get();
         $buyerCount = max(0, (int) $this->option('buyers'));
 
-        $newAccounts = $this->plannedAccounts($email, $municipalities, $buyerCount);
+        $newAccounts = $createAccounts ? $this->plannedAccounts($email, $municipalities, $buyerCount) : [];
         $clashes = User::whereIn('id', $keepUserIds)->whereIn('email', array_column($newAccounts, 'email'))->pluck('email');
         if ($clashes->isNotEmpty()) {
             $this->error('These test emails already belong to an account being kept: '.$clashes->implode(', '));
@@ -103,7 +105,9 @@ class ResetTestData extends Command
             ->filter(fn ($t) => Schema::hasTable($t))
             ->map(fn ($t) => [$t, DB::table($t)->count()])
             ->values()->all());
-        $this->line('Accounts to create: '.count($newAccounts).' ('.$municipalities->count()." LGU Admins, {$buyerCount} buyers)");
+        $this->line($createAccounts
+            ? 'Accounts to create: '.count($newAccounts).' ('.$municipalities->count()." LGU Admins, {$buyerCount} buyers)"
+            : 'Accounts to create: none (--no-accounts)');
         $this->line('Orphaned upload files to delete: '.count($orphanFiles));
 
         if (! $this->option('execute')) {
@@ -163,6 +167,12 @@ class ResetTestData extends Command
 
         Storage::disk('public')->delete($orphanFiles);
 
+        if ($credentials === []) {
+            $this->info('Done. No accounts were created.');
+
+            return self::SUCCESS;
+        }
+
         $this->info('Done. Save these now -- the passwords are not shown again:');
         $this->table(['Account', 'Email', 'Password'], $credentials);
 
@@ -210,7 +220,6 @@ class ResetTestData extends Command
     {
         $references = collect()
             ->merge(User::whereIn('id', $keepUserIds)->pluck('profile_picture'))
-            ->merge(BuyerProfile::whereIn('user_id', $keepUserIds)->pluck('profile_picture'))
             ->merge([$keptSeller->profile_picture, $keptSeller->cover_photo, json_encode($keptSeller->gallery, JSON_UNESCAPED_SLASHES)])
             ->merge(DB::table('listing_media')
                 ->join('listings', 'listings.id', '=', 'listing_media.listing_id')
