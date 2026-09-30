@@ -2647,6 +2647,62 @@ class FishMarketApiTest extends TestCase
         $this->assertNull($otherNotification->fresh()->read_at);
     }
 
+    public function test_reset_test_data_keeps_one_seller_and_rebuilds_test_accounts(): void
+    {
+        Storage::fake('public');
+        $superAdmin = User::where('role', 'super_admin')->firstOrFail();
+        $roido = $this->makeSeller(['name' => 'Roido'], ['hatchery_name' => "Roido's Fisheries", 'rating' => 4.5]);
+        $roidoListing = $this->makeListing($roido);
+        Storage::disk('public')->put('listings/'.$roidoListing->id.'/keep.jpg', 'x');
+        ListingMedia::create(['listing_id' => $roidoListing->id, 'type' => 'image', 'title' => 'Fingerlings', 'url' => '/storage/listings/'.$roidoListing->id.'/keep.jpg']);
+        $other = $this->makeSeller();
+        $otherListing = $this->makeListing($other);
+        Storage::disk('public')->put('listings/'.$otherListing->id.'/gone.jpg', 'x');
+        $buyer = $this->makeBuyer();
+        $order = $this->makeOrder($buyer, $roidoListing, ['status' => 'completed']);
+        $this->makePayment($order, ['status' => 'paid_held']);
+
+        // Dry run changes nothing.
+        $this->artisan('app:reset-test-data', ['--email' => 'tester@example.test'])->assertSuccessful();
+        $this->assertDatabaseHas('users', ['id' => $buyer->id]);
+        $this->assertSame(1, Order::count());
+
+        $this->artisan('app:reset-test-data', ['--email' => 'tester@example.test', '--execute' => true])
+            ->expectsConfirmation('Permanently delete the data above and create the test accounts?', 'yes')
+            ->assertSuccessful();
+
+        // Kept: the Super Admin, Roido's Fisheries and its listing + image.
+        $this->assertDatabaseHas('users', ['id' => $superAdmin->id]);
+        $this->assertDatabaseHas('seller_profiles', ['id' => $roido->id, 'rating' => 0]);
+        $this->assertDatabaseHas('listings', ['id' => $roidoListing->id]);
+        Storage::disk('public')->assertExists('listings/'.$roidoListing->id.'/keep.jpg');
+
+        // Gone: other accounts, their listings and files, every transaction.
+        $this->assertDatabaseMissing('users', ['id' => $buyer->id]);
+        $this->assertDatabaseMissing('users', ['id' => $other->user_id]);
+        $this->assertDatabaseMissing('listings', ['id' => $otherListing->id]);
+        Storage::disk('public')->assertMissing('listings/'.$otherListing->id.'/gone.jpg');
+        $this->assertSame(0, Order::count());
+        $this->assertSame(0, MockPayment::count());
+
+        // Rebuilt: one verified LGU Admin per municipality, three buyers.
+        $this->assertSame(Municipality::count(), User::where('role', 'lgu_admin')->count());
+        $this->assertSame(0, User::where('role', 'lgu_admin')->where('email', 'lgu@gmail.com')->count());
+        $this->assertSame(3, User::where('role', 'buyer')->whereNotNull('email_verified_at')->count());
+        $this->assertDatabaseHas('users', ['email' => 'tester+buyer1@example.test', 'role' => 'buyer']);
+        $this->assertDatabaseHas('users', ['email' => 'tester+lgu.lapulapu@example.test', 'role' => 'lgu_admin']);
+        $this->assertSame(3, BuyerProfile::count());
+    }
+
+    public function test_reset_test_data_refuses_without_exactly_one_kept_seller(): void
+    {
+        $buyer = $this->makeBuyer();
+
+        $this->artisan('app:reset-test-data', ['--email' => 'tester@example.test', '--execute' => true])->assertFailed();
+
+        $this->assertDatabaseHas('users', ['id' => $buyer->id]);
+    }
+
     public function test_lgu_and_super_admin_can_mark_all_their_own_notifications_read(): void
     {
         $lguAdmin = $this->makeLguAdmin();
