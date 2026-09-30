@@ -579,7 +579,7 @@ function AppShell({ user, children }) {
     buyer: [['Dashboard', '/buyer/dashboard?tab=overview', LayoutDashboard], ['Browse', '/buyer/dashboard?tab=browse', Search], ['Cart', '/buyer/dashboard?tab=cart', ShoppingBag], ['Orders', '/buyer/dashboard?tab=orders', ShoppingCart], ['Messages', '/buyer/dashboard?tab=messages', MessageCircle], ['Notifications', '/buyer/dashboard?tab=notifications', Bell], ['Analytics', '/buyer/dashboard?tab=analytics', BarChart3], ['AI Assistant', '/buyer/dashboard?tab=ai', Bot], ['Profile', '/buyer/dashboard?tab=settings', ShieldCheck]],
     seller: [['Dashboard', '/seller/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/seller/dashboard?tab=marketplace', Search], ['Listings', '/seller/dashboard?tab=listings', Store], ['Orders', '/seller/dashboard?tab=orders', ShoppingCart], ['Messages', '/seller/dashboard?tab=messages', MessageCircle], ['Wallet', '/seller/dashboard?tab=wallet', Wallet], ['Notifications', '/seller/dashboard?tab=notifications', Bell], ['Notices', '/seller/dashboard?tab=notices', ShieldAlert], ['Analytics', '/seller/dashboard?tab=analytics', BarChart3], ['Profile', '/seller/dashboard?tab=profile', ShieldCheck]],
     lgu_admin: [['Dashboard', '/lgu/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/lgu/dashboard?tab=marketplace', Search], ['Listing Management', '/lgu/dashboard?tab=listings', Store], ['Sellers', '/lgu/dashboard?tab=sellers', ShieldCheck], ['User Reports', '/lgu/dashboard?tab=user-reports', Flag], ['Notices to Explain', '/lgu/dashboard?tab=notices', ShieldAlert], ['Disputes', '/lgu/dashboard?tab=disputes', Scale], ['Orders', '/lgu/dashboard?tab=orders', ShoppingCart], ['Seller Earnings', '/lgu/dashboard?tab=earnings', Wallet], ['LGU Wallet', '/lgu/dashboard?tab=wallet', Wallet], ['Messages', '/lgu/dashboard?tab=messages', MessageCircle], ['Notifications', '/lgu/dashboard?tab=notifications', Bell], ['Analytics', '/lgu/dashboard?tab=reports', BarChart3], ['Activity Log', '/lgu/dashboard?tab=activity-log', History], ['Reviews & Ratings', '/lgu/dashboard?tab=reviews', Star], ['Users', '/lgu/dashboard?tab=users', UsersIcon], ['Profile', '/lgu/dashboard?tab=profile', CircleUserRound]],
-    super_admin: [['Dashboard', '/admin/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/admin/dashboard?tab=marketplace', Search], ['Listing Management', '/admin/dashboard?tab=listings', Store], ['LGU Admins', '/admin/dashboard?tab=lgu-admins', ShieldCheck], ['Sellers', '/admin/dashboard?tab=sellers', Store], ['Users', '/admin/dashboard?tab=users', UsersIcon], ['User Reports', '/admin/dashboard?tab=user-reports', Flag], ['Notices to Explain', '/admin/dashboard?tab=notices', ShieldAlert], ['Disputes', '/admin/dashboard?tab=disputes', Scale], ['Seller Earnings', '/admin/dashboard?tab=earnings', Wallet], ['Reviews & Ratings', '/admin/dashboard?tab=reviews', Star], ['Transactions', '/admin/dashboard?tab=transactions', Wallet], ['Payout Management', '/admin/dashboard?tab=payouts', Wallet], ['Municipalities', '/admin/dashboard?tab=municipalities', MapPin], ['Announcements', '/admin/dashboard?tab=announcements', Megaphone], ['Messages', '/admin/dashboard?tab=messages', MessageCircle], ['Notifications', '/admin/dashboard?tab=notifications', Bell], ['Moderation Log', '/admin/dashboard?tab=moderation', ShieldAlert], ['Activity Log', '/admin/dashboard?tab=activity-log', History], ['Analytics', '/admin/dashboard?tab=reports', BarChart3], ['Profile', '/admin/dashboard?tab=profile', CircleUserRound]],
+    super_admin: [['Dashboard', '/admin/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/admin/dashboard?tab=marketplace', Search], ['Listing Management', '/admin/dashboard?tab=listings', Store], ['LGU Admins', '/admin/dashboard?tab=lgu-admins', ShieldCheck], ['Sellers', '/admin/dashboard?tab=sellers', Store], ['Users', '/admin/dashboard?tab=users', UsersIcon], ['User Reports', '/admin/dashboard?tab=user-reports', Flag], ['Notices to Explain', '/admin/dashboard?tab=notices', ShieldAlert], ['Disputes', '/admin/dashboard?tab=disputes', Scale], ['Seller Earnings', '/admin/dashboard?tab=earnings', Wallet], ['Reviews & Ratings', '/admin/dashboard?tab=reviews', Star], ['Orders', '/admin/dashboard?tab=transactions', ShoppingCart], ['Payout Management', '/admin/dashboard?tab=payouts', Wallet], ['Municipalities', '/admin/dashboard?tab=municipalities', MapPin], ['Announcements', '/admin/dashboard?tab=announcements', Megaphone], ['Messages', '/admin/dashboard?tab=messages', MessageCircle], ['Notifications', '/admin/dashboard?tab=notifications', Bell], ['Moderation Log', '/admin/dashboard?tab=moderation', ShieldAlert], ['Activity Log', '/admin/dashboard?tab=activity-log', History], ['Analytics', '/admin/dashboard?tab=reports', BarChart3], ['Profile', '/admin/dashboard?tab=profile', CircleUserRound]],
   }[user.role]
 
   async function logout() {
@@ -3047,16 +3047,14 @@ function SellerDashboard() {
           <SellerApprovalNotice seller={dashboard.data?.seller} />
           {canManageListings && (
             <Section title="Create Listing">
-              <ListingDetailsFields form={form} setForm={setForm} />
-              <p className="helper-text">At least one photo is required. Add up to 5 photos or videos (JPG, PNG, WEBP up to 25MB; MP4, MOV, WEBM up to 25MB). They&apos;ll be uploaded together with the listing when you save.</p>
-              <StagedImagePicker files={stagedImages} onAdd={addStagedImages} onRemove={removeStagedImage} />
-              {!stagedImages.length && <p className="helper-text">Buyers pay before they ever see the fingerlings, so a listing cannot be posted without at least one photo.</p>}
-              <p className="helper-text">
-                Listings are posted automatically under your registered municipality, {dashboard.data?.seller?.municipality?.name || 'your account municipality'},
-                and go live straight away — your LGU no longer approves them one by one. They can still review and take down anything that breaks the rules.
-              </p>
-              <button onClick={() => saveListing.mutate()} type="button" disabled={saveListing.isPending || !stagedImages.length}>{saveListing.isPending ? 'Saving...' : 'Save Listing'}</button>
-              {saveListing.error && <p className="error">{saveListing.error.response?.data?.message || 'Could not save listing.'}</p>}
+              <div className="card listing-create-card">
+                <ListingDetailsFields form={form} setForm={setForm} />
+                <p className="helper-text">At least one photo is required. Add up to 5 photos or videos (JPG, PNG, WEBP up to 25MB; MP4, MOV, WEBM up to 25MB). They&apos;ll be uploaded together with the listing when you save.</p>
+                <StagedImagePicker files={stagedImages} onAdd={addStagedImages} onRemove={removeStagedImage} />
+                {!stagedImages.length && <p className="helper-text">Buyers pay before they ever see the fingerlings, so a listing cannot be posted without at least one photo.</p>}
+                <button onClick={() => saveListing.mutate()} type="button" disabled={saveListing.isPending || !stagedImages.length}>{saveListing.isPending ? 'Saving...' : 'Save Listing'}</button>
+                {saveListing.error && <p className="error">{saveListing.error.response?.data?.message || 'Could not save listing.'}</p>}
+              </div>
             </Section>
           )}
           <Section title="My Listings">
@@ -3706,7 +3704,7 @@ function LguEarningsRow({ payment, onApprove, approvingId, onClearHold, onReject
   return (
     <div className={`card action${expanded ? ' action-stacked' : ''}`}>
       <div>
-        <div className="card-row">
+        <div className="card-row earnings-seller-row">
           <Avatar src={payment.order?.sellerProfile?.profile_picture} alt={payment.order?.sellerProfile?.hatchery_name} className="listing-seller-avatar" />
           <strong>{payment.order?.sellerProfile?.hatchery_name || payment.order?.sellerProfile?.user?.name || 'Unknown seller'}</strong>
           {base !== '/lgu' && payment.order?.sellerProfile?.municipality?.name && <span className="muted">{payment.order.sellerProfile.municipality.name}</span>}
@@ -3775,7 +3773,7 @@ function LguRejectedEarningsRow({ payment, base = '/lgu', dashboardPath = '/lgu/
   return (
     <div className={`card action${expanded ? ' action-stacked' : ''}`}>
       <div>
-        <div className="card-row">
+        <div className="card-row earnings-seller-row">
           <Avatar src={order?.sellerProfile?.profile_picture} alt={order?.sellerProfile?.hatchery_name} className="listing-seller-avatar" />
           <strong>{order?.sellerProfile?.hatchery_name || order?.sellerProfile?.user?.name || 'Unknown seller'}</strong>
           {base !== '/lgu' && order?.sellerProfile?.municipality?.name && <span className="muted">{order.sellerProfile.municipality.name}</span>}
@@ -3974,69 +3972,11 @@ function LguReviewCard({ review, onRemove, scope }) {
 }
 
 /**
- * A seller's rating of a buyer (the reverse of LguReviewCard) -- shown in the
- * LGU / Super Admin "Reviews & Ratings" view so admins see both directions of
- * feedback. Same layout as LguReviewCard, with the rater (seller) and the
- * rated party (buyer) labelled explicitly.
+ * "Reviews & Ratings" view for LGU Admin and Super Admin. Feedback runs one
+ * way: buyers review sellers. Sellers rating buyers was removed, so there is no
+ * second direction to filter or merge. Backed by GET {scope}/reviews.
  */
-function BuyerRatingCard({ rating, onRemove, scope }) {
-  const buyer = rating.buyer
-  const seller = rating.sellerProfile
-  const listing = rating.order?.listing
-  const listingPath = reviewListingPath(scope, listing?.id)
-
-  return (
-    <div className="card review-card review-card-seller">
-      <div className="review-card-head">
-        <span className="review-badge"><RoleBadge role="seller" /> rated buyer</span>
-        <span className="muted">{new Date(rating.created_at).toLocaleDateString()}</span>
-      </div>
-      <div className="review-rating-line">
-        {renderStars(rating.rating)}
-        <strong className="review-score">{Number(rating.rating).toFixed(1)}<span>/5</span></strong>
-      </div>
-      <blockquote className="review-quote">{rating.comment || 'No comment left.'}</blockquote>
-      <div className="lgu-review-parties">
-        <div className="lgu-review-party">
-          <span className="lgu-review-party-label">Seller (rater)</span>
-          <Avatar src={seller?.profile_picture} alt={seller?.hatchery_name} className="review-avatar" />
-          <span>
-            {seller?.hatchery_name || 'Unknown seller'}
-            {seller?.user?.name && seller.user.name !== seller?.hatchery_name ? ` (${seller.user.name})` : ''}
-          </span>
-        </div>
-        <div className="lgu-review-party">
-          <span className="lgu-review-party-label">Buyer (rated)</span>
-          <Avatar src={buyer?.profile_picture} alt={buyer?.name} className="review-avatar" />
-          <span>{buyer?.name || 'Unknown buyer'}</span>
-        </div>
-      </div>
-      <div className="detail-meta">
-        {listing?.species && <span><strong>Species:</strong> {listing.species}</span>}
-        {rating.order?.order_number && <span><strong>Order ID:</strong> #{rating.order.order_number}</span>}
-      </div>
-      <div className="review-card-footer">
-        {listingPath && <Link className="ghost" to={listingPath}><Store size={15} /> View Listing</Link>}
-        {onRemove && <button type="button" className="ghost danger" onClick={onRemove}><Trash2 size={15} /> Remove</button>}
-      </div>
-    </div>
-  )
-}
-
-/**
- * Unified "Reviews & Ratings" view for LGU Admin and Super Admin -- shows both
- * directions of feedback: buyers reviewing sellers (LguReviewCard) and sellers
- * rating buyers (BuyerRatingCard). Backed by GET {scope}/reviews, which now
- * returns { buyer_reviews, seller_ratings }.
- */
-/* Feedback runs one way: buyers review sellers. Sellers rating buyers was
-   removed, so the filter no longer offers a direction that cannot exist. The
-   payload still returns an empty seller_ratings list (see
-   PlatformController::lguReviews), which is why nothing here has to guard. */
-const REVIEW_FILTERS = [['all', 'All'], ['review', 'Buyer Reviews']]
-
 function ReviewsAndRatingsSection({ data, scope, scopeLabel = 'on the platform' }) {
-  const [filter, setFilter] = useState('all')
   const apiBase = scope === 'lgu' ? '/lgu' : '/super-admin'
   const queryKey = scope === 'lgu' ? ['lgu-reviews'] : ['super-admin-reviews']
 
@@ -4044,53 +3984,25 @@ function ReviewsAndRatingsSection({ data, scope, scopeLabel = 'on the platform' 
     mutationFn: async (id) => (await api.delete(`${apiBase}/reviews/${id}`)).data,
     onSuccess: () => queryClient.invalidateQueries({ queryKey }),
   })
-  const removeRating = useMutation({
-    mutationFn: async (id) => (await api.delete(`${apiBase}/buyer-ratings/${id}`)).data,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey }),
-  })
 
-  // Merge both directions into one uniform, newest-first feed, tagged by type
-  // so the filter and the right card/remove action can be picked per entry.
-  const entries = [
-    ...(data?.buyer_reviews || []).map((item) => ({ type: 'review', item })),
-    ...(data?.seller_ratings || []).map((item) => ({ type: 'rating', item })),
-  ].sort((a, b) => new Date(b.item.created_at) - new Date(a.item.created_at))
-  const filtered = filter === 'all' ? entries : entries.filter((entry) => entry.type === filter)
-
-  const emptyLabel = filter === 'review' ? 'buyer reviews' : filter === 'rating' ? 'seller ratings' : 'reviews or ratings'
+  const reviews = [...(data?.buyer_reviews || [])].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
 
   return (
-    <Section
-      title="Reviews & Ratings"
-      actions={(
-        <div className="tab-bar">
-          {REVIEW_FILTERS.map(([value, label]) => (
-            <button key={value} type="button" className={filter === value ? 'tab active' : 'tab'} onClick={() => setFilter(value)}>{label}</button>
-          ))}
-        </div>
-      )}
-    >
-      <p className="helper-text">Both directions of feedback -- buyers reviewing sellers and sellers rating buyers. Remove any entry that isn&apos;t fair to either party; the affected rating is recalculated automatically.</p>
-      {(removeReview.error || removeRating.error) && <p className="error">{removeReview.error?.response?.data?.message || removeRating.error?.response?.data?.message || 'Could not remove that entry.'}</p>}
-      {filtered.length ? (
+    <Section title="Reviews & Ratings">
+      <p className="helper-text">Buyers reviewing sellers. Remove any review that isn&apos;t fair to the seller; their rating is recalculated automatically.</p>
+      {removeReview.error && <p className="error">{removeReview.error?.response?.data?.message || 'Could not remove that review.'}</p>}
+      {reviews.length ? (
         <div className="review-list">
-          {filtered.map((entry) => entry.type === 'review' ? (
+          {reviews.map((review) => (
             <LguReviewCard
-              key={`review-${entry.item.id}`}
-              review={entry.item}
+              key={`review-${review.id}`}
+              review={review}
               scope={scope}
-              onRemove={() => { if (window.confirm('Remove this buyer review? The seller’s rating will be recalculated.')) removeReview.mutate(entry.item.id) }}
-            />
-          ) : (
-            <BuyerRatingCard
-              key={`rating-${entry.item.id}`}
-              rating={entry.item}
-              scope={scope}
-              onRemove={() => { if (window.confirm('Remove this seller rating? The buyer’s rating will be recalculated.')) removeRating.mutate(entry.item.id) }}
+              onRemove={() => { if (window.confirm('Remove this buyer review? The seller’s rating will be recalculated.')) removeReview.mutate(review.id) }}
             />
           ))}
         </div>
-      ) : <EmptyState message={`No ${emptyLabel} yet ${scopeLabel}.`} />}
+      ) : <EmptyState message={`No buyer reviews yet ${scopeLabel}.`} />}
     </Section>
   )
 }
@@ -5741,7 +5653,6 @@ function SuperAdminDashboard() {
                   <div>
                     <div className="card-row"><strong>{user.name}</strong><Badge status={user.status === 'suspended' ? 'suspended' : 'active'} /></div>
                     <p>{user.email} · {user.phone || 'Not Available'}</p>
-                    <p className="muted">{user.buyerProfile?.ratings_count > 0 ? <>Buyer rating: {renderStars(user.buyerProfile.rating)} {Number(user.buyerProfile.rating).toFixed(1)}/5 · {user.buyerProfile.ratings_count} rating{user.buyerProfile.ratings_count === 1 ? '' : 's'}</> : 'No buyer ratings yet'}</p>
                     <p className="muted">Joined {user.created_at ? new Date(user.created_at).toLocaleDateString() : 'Not Available'}</p>
                   </div>
                   <div className="row-actions">
@@ -5916,7 +5827,7 @@ function SuperAdminDashboard() {
       {tab === 'transactions' && (
         <>
           <SuperAdminOrderLookup />
-          <Section title="All Transactions">
+          <Section title="All Orders">
             <AdminOrderTable rows={dashboard.data?.transactions || []} base="/super-admin" invalidateKeys={['super-admin-dashboard']} />
           </Section>
         </>
@@ -6900,7 +6811,6 @@ function UserDirectoryList({ users, messageBasePath, emptyMessage = 'No users fo
               <Badge status={user.status || 'unknown'} />
             </div>
             <p>{user.email} · {user.phone || 'Not Available'}</p>
-            {user.buyerProfile?.ratings_count > 0 && <p className="muted">Buyer rating: {renderStars(user.buyerProfile.rating)} {Number(user.buyerProfile.rating).toFixed(1)}/5 · {user.buyerProfile.ratings_count} rating{user.buyerProfile.ratings_count === 1 ? '' : 's'}</p>}
             <p className="muted">Joined {user.created_at ? new Date(user.created_at).toLocaleDateString() : 'Not Available'}</p>
           </div>
           <div className="row-actions">

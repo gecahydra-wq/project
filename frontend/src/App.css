@@ -1312,6 +1312,13 @@ footer {
   grid-column: 1 / -1;
 }
 
+/* A label is a grid, so in a two-column form the label without a helper line
+   stretched to its neighbour's height and took its input with it (Species
+   next to Price on the listing form). Pin the contents to the top instead. */
+.grid-form > label {
+  align-content: start;
+}
+
 .shell {
   display: grid;
   grid-template-columns: 280px 1fr;
@@ -1863,6 +1870,13 @@ body,
 .action-stacked {
   align-items: flex-start;
   flex-wrap: wrap;
+}
+
+/* Seller line on the earnings rows: avatar, name, municipality and badge read as
+   one label. The shared .card-row spreads its children with space-between,
+   which floated the name into the middle of the card. */
+.earnings-seller-row {
+  justify-content: flex-start;
 }
 
 .withdrawal-row {
@@ -4515,6 +4529,21 @@ body.modal-open {
   color: var(--color-text-muted);
   font-size: var(--fs-xs);
   margin: 0.15rem 0 0;
+}
+
+/* Create Listing sits in a card like the profile form and the post composer,
+   rather than floating on the page background. */
+.listing-create-card {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.listing-create-card > .form {
+  margin-top: 0;
+}
+
+.listing-create-card > button {
+  justify-self: start;
 }
 
 /* The description field spans the full width of the listing form grid. */
