@@ -328,7 +328,34 @@ function withdrawalFormIsIncomplete(form) {
     || !form.account_name.trim()
     || !form.account_number.trim()
     || !String(form.amount).trim()
-    || Number(form.amount) <= 0
+}
+
+/** Spaces and dashes people type into account numbers ("0995 475 7102"). */
+function normalizeAccountNumber(value) {
+  return String(value || '').replace(/[\s-]/g, '')
+}
+
+/**
+ * The first problem with a filled-in withdrawal form, or null. Mirrors
+ * App\Support\PayoutAccount on the server -- same patterns, same messages:
+ * GCash / Maya need an 11-digit mobile number starting with 09, a bank
+ * transfer needs a 10-16 digit account number, and the amount must be a
+ * positive number.
+ */
+function withdrawalFormIssue(form) {
+  const accountNumber = normalizeAccountNumber(form.account_number)
+  if (form.method === 'bank_transfer') {
+    if (!/^\d{10,16}$/.test(accountNumber)) return 'Enter a valid bank account number (10 to 16 digits, numbers only).'
+  } else if (!/^09\d{9}$/.test(accountNumber)) {
+    return 'Enter a valid 11-digit mobile number starting with 09 (e.g. 09954757102).'
+  }
+  const amount = Number(form.amount)
+  if (!Number.isFinite(amount) || amount <= 0) return 'Please enter a valid amount.'
+  return null
+}
+
+function accountNumberPlaceholder(method) {
+  return method === 'bank_transfer' ? 'Bank account number' : 'Mobile number (09XXXXXXXXX)'
 }
 
 const BADGE_TONES = {
@@ -845,7 +872,6 @@ function ListingCard({ item, mode = 'public', onSelect, detailPath }) {
     <article className="card listing">
       <div className="listing-media">
         <img className="listing-image" src={resolveListingImage(item)} alt={item.title || item.species || 'Fingerlings listing'} />
-        <span className="listing-status-tag"><Badge status={item.status} /></span>
       </div>
       <h3>{item.title}</h3>
       <p className="listing-seller-row">
@@ -1009,6 +1035,19 @@ function ListingDetailPanel({ item, isBuyer = false, checkout, qty, setQty, onPa
                     : `Minimum ${minimum.toLocaleString()} · ${available.toLocaleString()} available · ${currency(item.price)} each`}
                 </span>
               </label>
+              {/* Takes the whole remaining stock in one click. Always switches to
+                  plain quantity: the stock need not be a whole number of bulks. */}
+              <button
+                type="button"
+                className="ghost buy-all-button"
+                disabled={!buyingInBulk && enteredQty === available}
+                onClick={() => {
+                  setOrderMode('quantity')
+                  setQty(String(available))
+                }}
+              >
+                Buy all stock ({available.toLocaleString()})
+              </button>
             </>
           )}
           {quantityError && <p className="error">{quantityError}</p>}
@@ -2891,7 +2930,7 @@ function SellerDashboard() {
     mutationFn: async () => (await api.post('/seller/withdrawals', {
       method: withdrawForm.method,
       account_name: withdrawForm.account_name,
-      account_number: withdrawForm.account_number,
+      account_number: normalizeAccountNumber(withdrawForm.account_number),
       amount: Number(withdrawForm.amount),
     })).data,
     onSuccess: () => {
@@ -2902,6 +2941,11 @@ function SellerDashboard() {
   const submitWithdrawal = () => {
     if (withdrawalFormIsIncomplete(withdrawForm)) {
       setWithdrawFormError(REQUIRED_FIELDS_MESSAGE)
+      return
+    }
+    const issue = withdrawalFormIssue(withdrawForm)
+    if (issue) {
+      setWithdrawFormError(issue)
       return
     }
     setWithdrawFormError('')
@@ -3111,7 +3155,7 @@ function SellerDashboard() {
                 <option value="bank_transfer">Bank Transfer</option>
               </select>
               <input value={withdrawForm.account_name} onChange={(e) => setWithdrawForm({ ...withdrawForm, account_name: e.target.value })} placeholder="Account name" />
-              <input value={withdrawForm.account_number} onChange={(e) => setWithdrawForm({ ...withdrawForm, account_number: e.target.value })} placeholder="Account number" />
+              <input value={withdrawForm.account_number} onChange={(e) => setWithdrawForm({ ...withdrawForm, account_number: e.target.value })} placeholder={accountNumberPlaceholder(withdrawForm.method)} inputMode="numeric" />
               <input value={withdrawForm.amount} onChange={(e) => setWithdrawForm({ ...withdrawForm, amount: e.target.value })} placeholder="Amount to withdraw" type="number" min="0" step="0.01" />
             </div>
             <p className="helper-text">Available to withdraw: {currency(wallet.data?.available_balance ?? 0)}</p>
@@ -4455,7 +4499,7 @@ function LguDashboard() {
     mutationFn: async () => (await api.post('/lgu/withdrawals', {
       method: lguWithdrawForm.method,
       account_name: lguWithdrawForm.account_name,
-      account_number: lguWithdrawForm.account_number,
+      account_number: normalizeAccountNumber(lguWithdrawForm.account_number),
       amount: Number(lguWithdrawForm.amount),
     })).data,
     onSuccess: () => {
@@ -4466,6 +4510,11 @@ function LguDashboard() {
   const submitLguWithdrawal = () => {
     if (withdrawalFormIsIncomplete(lguWithdrawForm)) {
       setLguWithdrawFormError(REQUIRED_FIELDS_MESSAGE)
+      return
+    }
+    const issue = withdrawalFormIssue(lguWithdrawForm)
+    if (issue) {
+      setLguWithdrawFormError(issue)
       return
     }
     setLguWithdrawFormError('')
@@ -4605,7 +4654,7 @@ function LguDashboard() {
                 <option value="bank_transfer">Bank Transfer</option>
               </select>
               <input value={lguWithdrawForm.account_name} onChange={(e) => setLguWithdrawForm({ ...lguWithdrawForm, account_name: e.target.value })} placeholder="Account name" />
-              <input value={lguWithdrawForm.account_number} onChange={(e) => setLguWithdrawForm({ ...lguWithdrawForm, account_number: e.target.value })} placeholder="Account number" />
+              <input value={lguWithdrawForm.account_number} onChange={(e) => setLguWithdrawForm({ ...lguWithdrawForm, account_number: e.target.value })} placeholder={accountNumberPlaceholder(lguWithdrawForm.method)} inputMode="numeric" />
               <input value={lguWithdrawForm.amount} onChange={(e) => setLguWithdrawForm({ ...lguWithdrawForm, amount: e.target.value })} placeholder="Amount to withdraw" type="number" min="0" step="0.01" />
             </div>
             <p className="helper-text">Available to withdraw: {currency(wallet.data?.available_balance ?? 0)}</p>

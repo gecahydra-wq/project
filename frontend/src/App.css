@@ -866,12 +866,6 @@ main {
   position: relative;
 }
 
-.listing-status-tag {
-  left: 0.75rem;
-  position: absolute;
-  top: 0.75rem;
-}
-
 .listing h3 {
   font-size: var(--fs-md);
   font-weight: var(--fw-semibold);
@@ -1962,6 +1956,10 @@ body,
 .listing-detail-panel {
   display: grid;
   gap: 0.9rem;
+}
+
+.buy-all-button {
+  justify-self: start;
 }
 
 .detail-meta {

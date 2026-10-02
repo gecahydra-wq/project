@@ -16,6 +16,7 @@ use App\Models\WithdrawalRequest;
 use App\Support\AnalyticsPeriod;
 use App\Support\CommissionCalculator;
 use App\Support\ImageUploader;
+use App\Support\PayoutAccount;
 use App\Support\SellerWallet;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -215,12 +216,8 @@ class SellerController extends Controller
     {
         $seller = SellerProfile::where('user_id', $request->user()->id)->firstOrFail();
 
-        $data = $request->validate([
-            'method' => ['required', Rule::in(['gcash', 'maya', 'bank_transfer'])],
-            'account_name' => ['required', 'string'],
-            'account_number' => ['required', 'string'],
-            'amount' => ['required', 'numeric', 'min:0.01'],
-        ]);
+        $method = $request->input('method');
+        $data = $request->validate(PayoutAccount::rules($method), PayoutAccount::messages($method));
 
         if ($data['amount'] > SellerWallet::availableBalance($seller)) {
             return response()->json(['message' => 'Withdrawal amount exceeds your available balance.'], 422);

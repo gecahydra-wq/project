@@ -38,6 +38,7 @@ use App\Models\WithdrawalRequest;
 use App\Support\AccountModeration;
 use App\Support\CommissionCalculator;
 use App\Support\PaymentReturnToken;
+use App\Support\PayoutAccount;
 use App\Support\SellerApproval;
 use App\Support\SellerReputation;
 use App\Support\SellerSanctions;
@@ -1066,6 +1067,51 @@ class FishMarketApiTest extends TestCase
         $wallet->assertOk()->assertJsonPath('available_balance', 92);
     }
 
+    public function test_withdrawal_account_number_must_match_the_payout_method(): void
+    {
+        $buyer = $this->makeBuyer();
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller);
+        $order = $this->makeOrder($buyer, $listing, ['status' => 'completed']);
+        $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 200]);
+        $this->makeSettlement($order, $payment);
+
+        Sanctum::actingAs($seller->user);
+        $request = fn (string $method, string $number) => $this->postJson('/api/seller/withdrawals', [
+            'method' => $method, 'account_name' => 'Test Seller', 'account_number' => $number, 'amount' => 10,
+        ]);
+
+        // GCash / Maya: an 11-digit mobile number starting with 09.
+        foreach (['9954757102', '08954757102', '0995475710', '099547571023', '0995-475-7102'] as $bad) {
+            $request('gcash', $bad)->assertStatus(422)
+                ->assertJsonPath('errors.account_number.0', PayoutAccount::MOBILE_MESSAGE);
+        }
+        $request('maya', '12345678901')->assertStatus(422);
+
+        // Bank transfer: 10 to 16 digits, numbers only.
+        foreach (['123456789', '12345678901234567', '12345abcde12'] as $bad) {
+            $request('bank_transfer', $bad)->assertStatus(422)
+                ->assertJsonPath('errors.account_number.0', PayoutAccount::BANK_MESSAGE);
+        }
+
+        $request('gcash', '09954757102')->assertCreated();
+        $request('maya', '09954757102')->assertCreated();
+        $request('bank_transfer', '001234567890')->assertCreated();
+    }
+
+    public function test_withdrawal_rejects_negative_or_zero_amount_with_a_clear_message(): void
+    {
+        $seller = $this->makeSeller();
+        Sanctum::actingAs($seller->user);
+
+        foreach ([-50, 0, 'abc'] as $amount) {
+            $this->postJson('/api/seller/withdrawals', [
+                'method' => 'gcash', 'account_name' => 'Test Seller', 'account_number' => '09171234567', 'amount' => $amount,
+            ])->assertStatus(422)->assertJsonPath('errors.amount.0', PayoutAccount::AMOUNT_MESSAGE);
+        }
+        $this->assertDatabaseCount('withdrawal_requests', 0);
+    }
+
     public function test_seller_cannot_submit_withdrawal_request_exceeding_available_balance(): void
     {
         $buyer = $this->makeBuyer();
@@ -1293,7 +1339,7 @@ class FishMarketApiTest extends TestCase
         // 9. Seller requests a partial payout.
         Sanctum::actingAs($seller->user);
         $withdrawalResponse = $this->postJson('/api/seller/withdrawals', [
-            'method' => 'gcash', 'account_name' => 'Seller', 'account_number' => '0900000000', 'amount' => 54,
+            'method' => 'gcash', 'account_name' => 'Seller', 'account_number' => '09000000000', 'amount' => 54,
         ])->assertCreated()->json();
         // Platform Payout Fee: 6% of ₱54 = ₱3.24, so the seller nets ₱50.76.
         $this->assertEquals(3.24, $withdrawalResponse['platform_fee']);

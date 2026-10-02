@@ -25,6 +25,7 @@ use App\Support\ImageUploader;
 use App\Support\ListingModeration;
 use App\Support\LguWallet;
 use App\Support\OrderTransactionPresenter;
+use App\Support\PayoutAccount;
 use App\Support\ReviewModeration;
 use App\Support\RevenueReport;
 use App\Support\SafeMailer;
@@ -930,12 +931,8 @@ class LguController extends Controller
     {
         $municipalityId = $request->user()->municipality_id;
 
-        $data = $request->validate([
-            'method' => ['required', Rule::in(['gcash', 'maya', 'bank_transfer'])],
-            'account_name' => ['required', 'string'],
-            'account_number' => ['required', 'string'],
-            'amount' => ['required', 'numeric', 'min:0.01'],
-        ]);
+        $method = $request->input('method');
+        $data = $request->validate(PayoutAccount::rules($method), PayoutAccount::messages($method));
 
         $alreadyPending = LguWithdrawalRequest::where('municipality_id', $municipalityId)
             ->whereIn('status', ['pending', 'approved'])
