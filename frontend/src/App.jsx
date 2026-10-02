@@ -961,7 +961,6 @@ function ListingDetailPanel({ item, isBuyer = false, checkout, qty, setQty, onPa
       <div className="card-row">
         <h3>{item.title}</h3>
         {outOfStock && <Badge tone="danger">Out of Stock</Badge>}
-        <Badge status={item.status} />
       </div>
       {item.description ? (
         <p className="listing-description">{item.description}</p>
@@ -1350,10 +1349,12 @@ function ListingEditModal({ listing, onClose }) {
         </>
       }
     >
-      <div className="card-row modal-status-row">
-        <Badge status={listing.approval_status} />
-        <span className="muted">Edits are re-checked by your LGU before they appear in the marketplace.</span>
-      </div>
+      {listing.approval_status !== 'approved' && (
+        <div className="card-row modal-status-row">
+          <Badge status={listing.approval_status} />
+          <span className="muted">Edits are re-checked by your LGU before they appear in the marketplace.</span>
+        </div>
+      )}
       {listing.approval_status === 'rejected' && listing.rejection_reason && (
         <p className="error">Reason for rejection: {listing.rejection_reason}</p>
       )}
@@ -3155,7 +3156,7 @@ function SellerDashboard() {
                 <div className="card action" key={listing.id}>
                   <img className="listing-thumb" src={resolveListingImage(listing)} alt={listing.title} />
                   <div>
-                    <div className="card-row"><strong>{listing.title}</strong><Badge status={listing.approval_status} /></div>
+                    <div className="card-row"><strong>{listing.title}</strong>{listing.approval_status !== 'approved' && <Badge status={listing.approval_status} />}</div>
                     <p>
                       {listing.species} · {formatQuantity(listing.quantity, listing)} · {currency(listing.price_per_piece)}/{unitLabel(listing)}
                       {minimumOrder(listing) > 1 ? ` · min ${formatQuantity(minimumOrder(listing), listing)}` : ''}
@@ -4630,7 +4631,7 @@ function LguDashboard() {
               {listingManagement.data.map((item) => (
                 <div className="card action" key={item.id}>
                   <div>
-                    <div className="card-row"><Link className="seller-name-link" to={`/lgu/listings/${item.id}`}><strong>{item.title}</strong></Link><Badge status={item.approval_status} /></div>
+                    <div className="card-row"><Link className="seller-name-link" to={`/lgu/listings/${item.id}`}><strong>{item.title}</strong></Link>{item.approval_status !== 'approved' && <Badge status={item.approval_status} />}</div>
                     <p>{item.sellerProfile?.hatchery_name} · {item.species}</p>
                   </div>
                   <div className="row-actions">
@@ -5739,7 +5740,7 @@ function SuperAdminDashboard() {
               {listingManagement.data.map((item) => (
                 <div className="card action" key={item.id}>
                   <div>
-                    <div className="card-row"><Link className="seller-name-link" to={`/admin/listings/${item.id}`}><strong>{item.title}</strong></Link><Badge status={item.approval_status} /></div>
+                    <div className="card-row"><Link className="seller-name-link" to={`/admin/listings/${item.id}`}><strong>{item.title}</strong></Link>{item.approval_status !== 'approved' && <Badge status={item.approval_status} />}</div>
                     <p>{item.sellerProfile?.hatchery_name} · {item.species} · {item.municipality?.name}</p>
                   </div>
                   <div className="row-actions">
