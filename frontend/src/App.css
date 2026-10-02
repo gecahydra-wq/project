@@ -4364,6 +4364,18 @@ body.modal-open {
   padding: 1.35rem;
 }
 
+.withdrawal-confirm-list {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 560px) {
+  .withdrawal-confirm-list {
+    grid-template-columns: 1fr;
+  }
+}
+
 .modal-footer {
   border-top: 1px solid var(--color-border);
   display: flex;

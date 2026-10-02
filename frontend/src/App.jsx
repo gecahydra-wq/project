@@ -1178,6 +1178,49 @@ function Modal({ title, subtitle, onClose, children, footer }) {
   )
 }
 
+/**
+ * "Are these details correct?" step before a withdrawal request is sent, for
+ * both the seller and the LGU wallet. Money sent to a mistyped account cannot
+ * be pulled back, so the requester sees exactly what will be submitted first.
+ * `fee` is the seller's platform payout fee; LGU payouts have none (null).
+ */
+function WithdrawalConfirmModal({ form, fee = null, pending = false, onConfirm, onClose }) {
+  const amount = Number(form.amount) || 0
+  const rows = [
+    ['Payout method', withdrawalMethodLabel(form.method)],
+    ['Account name', form.account_name.trim()],
+    [form.method === 'bank_transfer' ? 'Bank account number' : 'Mobile number', normalizeAccountNumber(form.account_number)],
+    ['Amount requested', currency(amount)],
+  ]
+  if (fee !== null) {
+    rows.push(['Platform payout fee (6%)', currency(fee)])
+    rows.push(['You will receive', currency(Math.round((amount - fee) * 100) / 100)])
+  }
+  return (
+    <Modal
+      title="Are these details correct?"
+      subtitle="Check everything before you send the request."
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" disabled={pending} onClick={onConfirm}>{pending ? 'Submitting...' : 'Yes, submit request'}</button>
+          <button type="button" className="ghost" disabled={pending} onClick={onClose}>Go back and edit</button>
+        </>
+      }
+    >
+      <div className="withdrawal-confirm-list">
+        {rows.map(([label, value]) => (
+          <div key={label} className="order-detail-field">
+            <span className="order-detail-field-label">{label}</span>
+            <strong>{value}</strong>
+          </div>
+        ))}
+      </div>
+      <p className="helper-text">Money sent to a wrong account number may not be recoverable, so make sure the name and number match the account exactly.</p>
+    </Modal>
+  )
+}
+
 /** A blank listing form, shared by the create form and the edit popup. */
 const EMPTY_LISTING_FORM = {
   species: '',
@@ -2926,6 +2969,7 @@ function SellerDashboard() {
     },
   })
   const [withdrawFormError, setWithdrawFormError] = useState('')
+  const [confirmingWithdrawal, setConfirmingWithdrawal] = useState(false)
   const requestWithdrawal = useMutation({
     mutationFn: async () => (await api.post('/seller/withdrawals', {
       method: withdrawForm.method,
@@ -2949,6 +2993,10 @@ function SellerDashboard() {
       return
     }
     setWithdrawFormError('')
+    setConfirmingWithdrawal(true)
+  }
+  const confirmWithdrawal = () => {
+    setConfirmingWithdrawal(false)
     requestWithdrawal.mutate()
   }
   // Platform payout fee is fixed (see CommissionCalculator::WITHDRAWAL_FEE_PERCENT
@@ -3166,6 +3214,9 @@ function SellerDashboard() {
             )}
             <button type="button" onClick={submitWithdrawal} disabled={requestWithdrawal.isPending}>{requestWithdrawal.isPending ? 'Submitting...' : 'Submit Withdrawal Request'}</button>
             {withdrawFormError && <p className="error">{withdrawFormError}</p>}
+            {confirmingWithdrawal && (
+              <WithdrawalConfirmModal form={withdrawForm} fee={withdrawFeePreview} onConfirm={confirmWithdrawal} onClose={() => setConfirmingWithdrawal(false)} />
+            )}
             {requestWithdrawal.error && <p className="error">{apiErrorMessage(requestWithdrawal.error, 'Could not submit withdrawal request.')}</p>}
             {requestWithdrawal.isSuccess && (
               <p className="helper-text">
@@ -4495,6 +4546,7 @@ function LguDashboard() {
   })
   const [lguWithdrawForm, setLguWithdrawForm] = useState({ method: 'gcash', account_name: '', account_number: '', amount: '' })
   const [lguWithdrawFormError, setLguWithdrawFormError] = useState('')
+  const [confirmingLguWithdrawal, setConfirmingLguWithdrawal] = useState(false)
   const requestLguWithdrawal = useMutation({
     mutationFn: async () => (await api.post('/lgu/withdrawals', {
       method: lguWithdrawForm.method,
@@ -4518,6 +4570,10 @@ function LguDashboard() {
       return
     }
     setLguWithdrawFormError('')
+    setConfirmingLguWithdrawal(true)
+  }
+  const confirmLguWithdrawal = () => {
+    setConfirmingLguWithdrawal(false)
     requestLguWithdrawal.mutate()
   }
 
@@ -4660,6 +4716,9 @@ function LguDashboard() {
             <p className="helper-text">Available to withdraw: {currency(wallet.data?.available_balance ?? 0)}</p>
             <button type="button" onClick={submitLguWithdrawal} disabled={requestLguWithdrawal.isPending}>{requestLguWithdrawal.isPending ? 'Submitting...' : 'Submit Withdrawal Request'}</button>
             {lguWithdrawFormError && <p className="error">{lguWithdrawFormError}</p>}
+            {confirmingLguWithdrawal && (
+              <WithdrawalConfirmModal form={lguWithdrawForm} onConfirm={confirmLguWithdrawal} onClose={() => setConfirmingLguWithdrawal(false)} />
+            )}
             {requestLguWithdrawal.error && <p className="error">{apiErrorMessage(requestLguWithdrawal.error, 'Could not submit withdrawal request.')}</p>}
             {requestLguWithdrawal.isSuccess && <p className="helper-text">Withdrawal request submitted for {currency(requestLguWithdrawal.data?.amount)}. You&apos;ll be notified once the Super Admin pays it out.</p>}
           </Section>
