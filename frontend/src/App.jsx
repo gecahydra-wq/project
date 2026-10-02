@@ -1352,7 +1352,7 @@ function ListingEditModal({ listing, onClose }) {
       {listing.approval_status !== 'approved' && (
         <div className="card-row modal-status-row">
           <Badge status={listing.approval_status} />
-          <span className="muted">Edits are re-checked by your LGU before they appear in the marketplace.</span>
+          <span className="muted">This listing was taken off the marketplace after review. Contact your LGU if you have questions.</span>
         </div>
       )}
       {listing.approval_status === 'rejected' && listing.rejection_reason && (
@@ -4625,7 +4625,7 @@ function LguDashboard() {
       )}
       {tab === 'listings' && (
         <Section title="Listing Management">
-          <p className="helper-text">All listings from sellers in your municipality, including already-approved ones. Open a listing to review it and approve, reject, or delete it.</p>
+          <p className="helper-text">All listings from sellers in your municipality. Listings go live as soon as they are posted. Open one to review it, or delete it if it breaks the rules.</p>
           {(listingManagement.data || []).length ? (
             <div className="item-list">
               {listingManagement.data.map((item) => (
@@ -5734,7 +5734,7 @@ function SuperAdminDashboard() {
       )}
       {tab === 'listings' && (
         <Section title="Listing Management">
-          <p className="helper-text">All listings platform-wide, across every municipality. Open a listing to review it and approve, reject, or delete it.</p>
+          <p className="helper-text">All listings platform-wide, across every municipality. Listings go live as soon as they are posted. Open one to review it, or delete it if it breaks the rules.</p>
           {(listingManagement.data || []).length ? (
             <div className="item-list">
               {listingManagement.data.map((item) => (
