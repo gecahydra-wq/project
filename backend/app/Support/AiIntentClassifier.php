@@ -136,18 +136,18 @@ class AiIntentClassifier
         [
             'category' => 'Payments',
             'keywords' => ['refund'],
-            'English' => 'If a paid order is cancelled or expires, its payment shows Refund Pending until the refund is sent back to you, then Refunded. Only the seller can cancel a paid order, before it is out for delivery, so message them first about any problem. If a refund is taking too long, open Help & Support in your sidebar and send a ticket under "Payment or refund" -- the AbaiMarket support team handles refunds.',
-            'Tagalog' => 'Kapag na-cancel o nag-expire ang isang bayad na order, Refund Pending ang makikita sa bayad hanggang maibalik sa iyo ang refund, pagkatapos ay Refunded. Ang seller lang ang makaka-cancel ng bayad na order bago ito ma-deliver, kaya i-message muna sila kung may problema. Kung matagal ang refund, buksan ang Help & Support sa sidebar at magpadala ng ticket sa "Payment or refund" -- ang AbaiMarket support team ang humahawak ng refund.',
-            'Bisaya' => 'Kung ma-cancel o ma-expire ang bayad na nga order, Refund Pending ang makita sa bayad hangtod mabalik nimo ang refund, unya Refunded. Ang seller ra ang maka-cancel sa bayad na nga order ayha kini ma-deliver, mao nga i-message una sila kung naay problema. Kung dugay ang refund, ablihi ang Help & Support sa sidebar ug pagpadala og ticket sa "Payment or refund" -- ang AbaiMarket support team ang nagdumala sa refund.',
+            'English' => 'If a paid order is cancelled or expires, its payment shows Refund Pending until the refund is sent back to you, then Refunded. Only the seller can cancel a paid order, before it is out for delivery, so message them first about any problem. If a refund is taking too long, send a support ticket from Help & Support (Contact Support) under "Payment or refund" with your order number.',
+            'Tagalog' => 'Kapag na-cancel o nag-expire ang isang bayad na order, Refund Pending ang makikita sa bayad hanggang maibalik sa iyo ang refund, pagkatapos ay Refunded. Ang seller lang ang makaka-cancel ng bayad na order bago ito ma-deliver, kaya i-message muna sila kung may problema. Kung matagal ang refund, magpadala ng support ticket mula sa Help & Support (Contact Support) sa "Payment or refund" kasama ang order number mo.',
+            'Bisaya' => 'Kung ma-cancel o ma-expire ang bayad na nga order, Refund Pending ang makita sa bayad hangtod mabalik nimo ang refund, unya Refunded. Ang seller ra ang maka-cancel sa bayad na nga order ayha kini ma-deliver, mao nga i-message una sila kung naay problema. Kung dugay ang refund, pagpadala og support ticket gikan sa Help & Support (Contact Support) sa "Payment or refund" uban ang imong order number.',
             'roles' => [
                 'seller' => [
-                    'English' => 'Cancelling a paid order (only possible before it is out for delivery) sends the buyer\'s payment to Refund Pending, and the AbaiMarket support team returns it to the buyer. You don\'t send refunds yourself. For a refund question you can\'t resolve, open Help & Support in your sidebar and send a ticket under "Payment or refund".',
+                    'English' => 'Cancelling a paid order (only possible before it is out for delivery) sends the buyer\'s payment to Refund Pending, and the AbaiMarket support team returns it to the buyer. You don\'t send refunds yourself. For a refund question you can\'t resolve, send a support ticket from Help & Support.',
                 ],
                 'lgu_admin' => [
-                    'English' => 'Refunds for cancelled or expired paid orders are handled platform-wide by the Super Admin from the refund queue in Payout Management -- LGU admins don\'t process them. If a buyer asks about a refund in a support ticket, you can still reply; the Super Admin sees the same ticket.',
+                    'English' => 'Refunds for cancelled or expired paid orders are handled platform-wide by the Super Admin from the refund queue in Payout Management -- LGU admins don\'t process them. Buyers with refund questions send a support ticket, which you can see and answer in your Support Tickets tab.',
                 ],
                 'super_admin' => [
-                    'English' => 'Paid orders that are cancelled or expire land in the refund queue in Payout Management as Refund Pending. Send the money back, then mark the payment Refunded. Buyers chasing a refund may also open a support ticket under "Payment or refund", which comes to your Support Tickets tab.',
+                    'English' => 'Paid orders that are cancelled or expire land in the refund queue in Payout Management as Refund Pending. Send the money back, then mark the payment Refunded. Buyers chasing a refund send a support ticket under "Payment or refund", which shows in your Support Tickets tab.',
                 ],
             ],
         ],
@@ -466,31 +466,32 @@ class AiIntentClassifier
             'Tagalog' => 'Makakatulong ang AI ng AbaiMarket sa mga batayan ng fish farming -- pagpili ng species, paghahanda at pag-stock ng pond, kalidad ng tubig, pagpapakain, pag-iwas sa sakit, at pag-harvest. Magtanong nang tiyak (hal. "paano ko itaas ang oxygen sa pond?" o "bakit namamatay ang aking fingerlings?") at bibigyan kita ng praktikal na gabay para sa lokal na kondisyon.',
             'Bisaya' => 'Ang AI sa AbaiMarket makatabang sa mga sukaranan sa fish farming -- pagpili og species, pag-andam ug pag-stock sa pond, kalidad sa tubig, pagpakaon, pag-iwas sa sakit, ug pag-harvest. Pangutana og espisipiko (pananglitan, "unsaon nako pagpataas sa oxygen sa pond?" o "nganong nangamatay ang akong fingerlings?") ug hatagan tika og praktikal nga giya para sa lokal nga kondisyon.',
         ],
-        // Help & Support tickets (App\Support\SupportTickets). Reuses the
-        // 'Account' category, like the Cart reuses 'Marketplace', so CATEGORIES
-        // stays unchanged. Phrase keywords only: a bare "support" or "help"
-        // would catch "does AbaiMarket support GCash?" or a farming question.
+        // Help & Support. Reuses the 'Account' category, like the Cart reuses
+        // 'Marketplace', so CATEGORIES stays unchanged. Phrase keywords only: a bare
+        // "support" or "help" would catch "does AbaiMarket support GCash?" or a
+        // farming question. Support is a ticket sent from the contact form, answered by email.
         [
             'category' => 'Account',
             'keywords' => [
-                'contact support', 'customer support', 'customer service', 'support ticket', 'support team',
-                'abaimarket support', 'help and support', 'help & support', 'help center', 'help centre',
+                'contact support', 'customer support', 'customer service', 'support email', 'support team',
+                'abaimarket support', 'support ticket', 'help and support', 'help & support', 'help center', 'help centre',
                 'talk to a person', 'talk to a human', 'talk to someone', 'speak to someone', 'real person',
                 'report a bug', 'found a bug', 'report a problem', 'contact the admin', 'contact admin',
+                'give feedback', 'send feedback',
                 'paano humingi ng tulong', 'kanino ako lalapit', 'asa ko mangayo og tabang',
             ],
-            'English' => 'For help from a person, open Help & Support in your sidebar. Help Articles answers common questions, and Contact Support lets you send a ticket with an optional order number and screenshot. Your ticket is seen by your LGU and by the AbaiMarket support team, and whoever picks it up replies. You get a notification and an email when they do, and you can follow the conversation under My Tickets. Anyone can also read the Help Center at /help without logging in.',
-            'Tagalog' => 'Para sa tulong mula sa isang tao, buksan ang Help & Support sa sidebar. Sinasagot ng Help Articles ang mga karaniwang tanong, at sa Contact Support ay makakapagpadala ka ng ticket na may order number at screenshot kung gusto mo. Makikita ng iyong LGU at ng AbaiMarket support team ang ticket mo, at kung sino ang unang humawak ang siyang sasagot. Makakatanggap ka ng notification at email kapag sumagot sila, at masusundan mo ang usapan sa My Tickets. Mababasa rin ng kahit sino ang Help Center sa /help kahit hindi naka-login.',
-            'Bisaya' => 'Para sa tabang gikan sa usa ka tawo, ablihi ang Help & Support sa sidebar. Ang Help Articles motubag sa kasagarang pangutana, ug sa Contact Support makapadala ka og ticket nga naay order number ug screenshot kung gusto nimo. Makita sa imong LGU ug sa AbaiMarket support team ang imong ticket, ug kinsa ang unang mohikap mao ang motubag. Makadawat ka og notification ug email kung motubag sila, ug masundan nimo ang panag-istorya sa My Tickets. Mabasa usab sa bisan kinsa ang Help Center sa /help bisan dili naka-login.',
+            'English' => 'Open Help & Support in your sidebar for answers to common questions -- anyone can also read the Help Center at /help without logging in. If you still need help, or want to give feedback, click Contact Support and send a support ticket. It is not real-time support: your LGU or the AbaiMarket support team reviews it and replies by email, and you can read the replies under My Tickets. Support may message you there to clarify your issue, so check it from time to time; once they have, you can reply there. Include your order number if it is about an order.',
+            'Tagalog' => 'Buksan ang Help & Support sa sidebar para sa sagot sa mga karaniwang tanong -- mababasa rin ng kahit sino ang Help Center sa /help kahit hindi naka-login. Kung kailangan mo pa ng tulong, o may feedback ka, i-click ang Contact Support at magpadala ng support ticket. Hindi ito real-time support: rerepasuhin ito ng iyong LGU o ng AbaiMarket support team at sasagot sila sa email, at makikita at masasagot mo ang mga reply sa My Tickets. Isama ang order number kung tungkol ito sa isang order.',
+            'Bisaya' => 'Ablihi ang Help & Support sa sidebar para sa tubag sa kasagarang pangutana -- mabasa usab sa bisan kinsa ang Help Center sa /help bisan dili naka-login. Kung kinahanglan pa nimo og tabang, o naa kay feedback, i-click ang Contact Support ug pagpadala og support ticket. Dili kini real-time support: susihon kini sa imong LGU o sa AbaiMarket support team ug motubag sila pinaagi sa email, ug makita ug matubag nimo ang mga reply sa My Tickets. Iapil ang order number kung bahin kini sa usa ka order.',
             'roles' => [
                 'seller' => [
-                    'English' => 'For help from a person, open Help & Support in your sidebar and choose Contact Support. Your ticket is seen by your LGU and by the AbaiMarket support team, and whoever picks it up replies. You get a notification and an email when they do. To appeal a rejected earnings review or withdrawal, use Dispute This Rejection on that item instead of a ticket.',
+                    'English' => 'Open Help & Support in your sidebar for answers to common seller questions. If you still need help, or want to give feedback, click Contact Support and send a support ticket; the reply comes by email and shows under My Tickets. Support may message you there to clarify, so check it from time to time; once they have, you can reply there. It is not real-time support. To appeal a rejected earnings review or withdrawal, use Dispute This Rejection on that item instead.',
                 ],
                 'lgu_admin' => [
-                    'English' => 'Support tickets from buyers and sellers in your municipality appear in your Support Tickets tab. The Super Admin sees the same tickets, so whichever of you picks one up answers it. Open a ticket to reply, then Mark Resolved when it is done. The user is notified and emailed when you reply or resolve.',
+                    'English' => 'Buyers and sellers send support tickets from the Help & Support contact form. Tickets from sellers in your municipality and their buyers appear in your Support Tickets tab, along with buyer tickets not about an order, which every LGU can see, and the Super Admin sees the same tickets -- whoever picks one up answers it. Account or login, technical, payment or refund, and wallet or withdrawal tickets can only be answered by the Super Admin; you can read them. Send Response emails your reply to the user; Internal Note is for staff only. Close the ticket when it is done.',
                 ],
                 'super_admin' => [
-                    'English' => 'Your Support Tickets tab shows every ticket on the platform. Each one is also visible to the LGU of its municipality, so whichever of you picks it up answers it. Reply, then Mark Resolved; the user is notified and emailed either way.',
+                    'English' => 'Buyers and sellers send support tickets and feedback from the Help & Support contact form. Every ticket appears in your Support Tickets tab, shared with the LGU of its municipality -- whoever picks one up answers it. Account or login, technical, payment or refund, and wallet or withdrawal tickets are answered by you only. Send Response emails your reply to the user; Internal Note is for staff only. Close the ticket when it is done.',
                 ],
             ],
         ],

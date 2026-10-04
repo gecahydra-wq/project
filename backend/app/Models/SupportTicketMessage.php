@@ -4,15 +4,15 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
-/** One message in a support ticket's thread, from the user or from staff. */
+/**
+ * One entry on a support ticket: the user's original query, a staff response
+ * (emailed to the user), or a staff-only internal note (is_internal).
+ */
 class SupportTicketMessage extends Model
 {
-    protected $fillable = ['support_ticket_id', 'user_id', 'author_role', 'body', 'attachment_url', 'edited_at', 'deleted_at'];
+    protected $fillable = ['support_ticket_id', 'user_id', 'author_role', 'body', 'is_internal', 'attachment_url'];
 
-    protected $casts = ['edited_at' => 'datetime', 'deleted_at' => 'datetime'];
-
-    /** Same window as user-to-user messages (MessageController). */
-    public const EDIT_WINDOW_MINUTES = 15;
+    protected $casts = ['is_internal' => 'boolean', 'edited_at' => 'datetime', 'deleted_at' => 'datetime'];
 
     public function ticket()
     {

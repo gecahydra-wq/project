@@ -153,11 +153,12 @@ Route::middleware(['auth:sanctum', 'verified', 'role:buyer,seller'])->group(func
     Route::get('reports/reasons', [UserReportController::class, 'reasons']);
     Route::get('reports/mine', [UserReportController::class, 'mine']);
     Route::post('reports', [UserReportController::class, 'store']);
-    // Help & Support -- a Buyer or Seller opens a ticket and follows their own
-    // (App\Support\SupportTickets routes it to the LGU or the Super Admin).
+    // Help & Support -- a Buyer or Seller sends a ticket through the contact
+    // form and reads their own past tickets (App\Support\SupportTickets shares
+    // it with their LGU and the Super Admin). Throttled instead of a captcha.
     Route::get('support/categories', [SupportTicketController::class, 'categories']);
     Route::get('support/tickets', [SupportTicketController::class, 'mine']);
-    Route::post('support/tickets', [SupportTicketController::class, 'store']);
+    Route::post('support/tickets', [SupportTicketController::class, 'store'])->middleware('throttle:5,10');
     Route::get('orders', [OrderController::class, 'index']);
     // Order Lookup by Order Number -- Buyer's own orders, or Seller's own
     // listings' orders (scoped in OrderController::show). Also how the
@@ -173,12 +174,11 @@ Route::middleware(['auth:sanctum', 'verified', 'role:buyer,seller,lgu_admin,supe
     Route::delete('messages/{message}', [MessageController::class, 'destroy']);
     Route::patch('messages/thread/{user}/read', [MessageController::class, 'markThreadRead']);
 
-    // A support ticket's thread -- its owner, or the staff who answer it
-    // (SupportTickets::canView decides which).
+    // One support ticket -- its owner (without internal notes), or the staff
+    // who answer it (SupportTickets::canView decides which).
     Route::get('support/tickets/{ticket}', [SupportTicketController::class, 'show']);
-    Route::post('support/tickets/{ticket}/replies', [SupportTicketController::class, 'reply']);
-    Route::patch('support/tickets/{ticket}/messages/{message}', [SupportTicketController::class, 'updateMessage']);
-    Route::delete('support/tickets/{ticket}/messages/{message}', [SupportTicketController::class, 'destroyMessage']);
+    // The owner replies to clarify (SupportTicketController::reply checks ownership).
+    Route::post('support/tickets/{ticket}/replies', [SupportTicketController::class, 'reply'])->middleware('throttle:20,10');
 
     // Seller Post engagement -- likes and comments, open to every role. Reads
     // come with the public seller profile; these are the writes.
@@ -216,6 +216,7 @@ Route::prefix('lgu')->middleware(['auth:sanctum', 'verified', 'role:lgu_admin'])
     // Support tickets from this municipality. Shared with the Super Admin --
     // whoever picks one up answers it (App\Support\SupportTickets).
     Route::get('support-tickets', [SupportTicketController::class, 'staffIndex']);
+    Route::post('support-tickets/{ticket}/responses', [SupportTicketController::class, 'respond']);
     Route::patch('support-tickets/{ticket}/resolve', [SupportTicketController::class, 'resolve']);
     Route::get('users', [LguController::class, 'users']);
     Route::get('reviews', [PlatformController::class, 'lguReviews']);
@@ -288,6 +289,7 @@ Route::prefix('super-admin')->middleware(['auth:sanctum', 'verified', 'role:supe
     Route::patch('user-reports/{report}', [SuperAdminController::class, 'updateUserReport']);
     // Support tickets, platform-wide -- shared with each municipality's LGU.
     Route::get('support-tickets', [SupportTicketController::class, 'staffIndex']);
+    Route::post('support-tickets/{ticket}/responses', [SupportTicketController::class, 'respond']);
     Route::patch('support-tickets/{ticket}/resolve', [SupportTicketController::class, 'resolve']);
     Route::get('users', [SuperAdminController::class, 'users']);
     Route::patch('buyers/{user}/suspend', [SuperAdminController::class, 'suspendBuyer']);

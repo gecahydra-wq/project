@@ -430,7 +430,9 @@ button:disabled:hover,
 .modal-close:hover,
 .lightbox-close:hover,
 .lightbox-nav:hover,
-.listing-image-add:hover {
+.listing-image-add:hover,
+.ticket-inbox-filter:hover,
+.ticket-inbox-row:hover {
   box-shadow: none;
   transform: none;
 }
@@ -5305,6 +5307,19 @@ body.modal-open {
   margin: var(--space-1) 0 0;
 }
 
+/* The Buyer/Seller Help & Support tab sits in one centred column, the same
+   reading width as the public Help Center. */
+.support-column {
+  margin-inline: auto;
+  max-width: 880px;
+  width: 100%;
+}
+
+/* The Contact Support view needs room for its two panels side by side. */
+.support-column.support-column-wide {
+  max-width: 1180px;
+}
+
 /* A ticket row is a <button> so it is keyboard-reachable, but it should read
    as a card, not a pill: undo the global button look. */
 button.support-ticket-row {
@@ -5332,27 +5347,6 @@ button.support-ticket-row:hover {
 .support-ticket-row .muted {
   font-size: var(--fs-xs);
   margin: 0;
-}
-
-.support-thread-head h3 {
-  margin: 0;
-}
-
-.support-thread-head .muted,
-.support-thread-head .helper-text {
-  margin: var(--space-1) 0 0;
-}
-
-.support-thread .message-log .support-author {
-  display: block;
-  font-size: var(--fs-xs);
-  margin-bottom: 2px;
-}
-
-.support-thread .message-log .support-body {
-  color: inherit;
-  margin: 0;
-  white-space: pre-line;
 }
 
 /* A <button> (it opens the in-app viewer), so strip the global pill styling. */
@@ -5394,23 +5388,343 @@ button.support-screenshot:hover {
   gap: var(--space-2);
 }
 
-.support-form {
+/* Contact Support: "How Support Works" on the left, the form on the right,
+   each under a navy title bar. */
+.contact-layout {
+  align-items: start;
+  display: grid;
+  gap: var(--space-5);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  margin-top: var(--space-4);
+}
+
+.card.contact-panel {
+  overflow: hidden;
+  padding: 0;
+}
+
+.contact-panel-head {
+  background: var(--brand-navy);
+  color: var(--neutral-white);
+  font-size: var(--fs-lg);
+  margin: 0;
+  padding: var(--space-4);
+  text-align: center;
+}
+
+.contact-info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: var(--space-4);
+}
+
+.contact-info-item {
+  align-content: start;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--brand-navy);
+  display: grid;
+  gap: var(--space-2);
+  justify-items: center;
+  padding: var(--space-5) var(--space-4);
+  text-align: center;
+}
+
+.contact-info-item:nth-child(odd) {
+  border-right: 1px solid var(--color-border);
+}
+
+.contact-info-item:nth-last-child(-n + 2) {
+  border-bottom: 0;
+}
+
+.contact-info-item h4 {
+  font-size: var(--fs-md);
+  margin: 0;
+}
+
+.contact-info-item p {
+  color: var(--color-text);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.contact-form,
+.contact-sent {
+  margin-top: 0;
+  padding: var(--space-5);
+}
+
+.contact-form-grid {
+  display: grid;
+  gap: var(--space-3) var(--space-4);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.contact-form-full {
+  grid-column: 1 / -1;
+}
+
+.contact-form .required {
+  color: var(--brand-coral-text);
+}
+
+/* "Not real-time support" -- shown on the form and on every ticket. */
+.contact-disclaimer {
+  align-items: flex-start;
+  background: var(--color-warning-bg);
+  border-radius: var(--radius-sm);
+  color: var(--color-warning);
+  display: flex;
+  font-size: var(--fs-sm);
+  gap: var(--space-2);
+  line-height: 1.5;
+  margin: 0;
+  padding: var(--space-3);
+}
+
+.contact-disclaimer svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.contact-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  justify-content: center;
+}
+
+.contact-sent {
+  color: var(--color-success);
+  display: grid;
+  gap: var(--space-3);
+  justify-items: center;
+  text-align: center;
+}
+
+.contact-sent h4 {
+  color: var(--color-ink);
+  font-size: var(--fs-lg);
+  margin: 0;
+}
+
+.contact-sent p {
+  color: var(--color-text);
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* One ticket: the user's own (read-only) or the staff view. */
+.ticket-detail {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.ticket-detail h3,
+.ticket-detail > .muted {
+  margin: 0;
+}
+
+.ticket-facts {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+}
+
+.ticket-facts div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.ticket-facts dt {
+  font-weight: var(--fw-semibold);
+  min-width: 96px;
+}
+
+.ticket-facts dt::after {
+  content: ':';
+}
+
+.ticket-facts dd {
+  align-items: center;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ticket-message p,
+.ticket-response p {
+  line-height: 1.6;
+  margin: var(--space-1) 0 0;
+  white-space: pre-line;
+}
+
+.ticket-response {
+  background: var(--color-surface-subtle);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+}
+
+/* Each side sees its own replies on the right in teal and the other side's on
+   the left -- like the Messages tab. For staff, "mine" is every staff reply. */
+.ticket-response.mine,
+.ticket-response.theirs {
+  max-width: 85%;
+  min-width: min(320px, 100%);
+}
+
+.ticket-response.mine {
+  background: var(--brand-teal-soft);
+  border-color: var(--brand-seafoam-line);
+  justify-self: end;
+}
+
+.ticket-response.theirs {
+  background: var(--color-surface-subtle);
+  justify-self: start;
+}
+
+.ticket-response.internal {
+  background: var(--color-warning-bg);
+  border-style: dashed;
+}
+
+.ticket-response-head {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.ticket-response-head .muted {
+  font-size: var(--fs-xs);
+  margin-left: auto;
+}
+
+.ticket-reply {
+  border-top: 1px solid var(--color-border);
+  display: grid;
+  gap: var(--space-2);
+  padding-top: var(--space-4);
+}
+
+.ticket-reply .helper-text {
+  margin: 0;
+}
+
+.ticket-reply-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.ticket-close-button {
+  margin-left: auto;
+}
+
+/* LGU / Super Admin inbox: the list on the left, the open ticket on the right. */
+.ticket-inbox {
+  align-items: start;
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
   margin-top: var(--space-3);
 }
 
-.support-chat {
+.ticket-inbox-list {
   display: grid;
   gap: var(--space-3);
 }
 
-.support-chat .support-reply {
-  margin-top: 0;
+.ticket-inbox-filters {
+  display: grid;
+  gap: 2px;
 }
 
-/* Help & Support (Buyer/Seller) and Support Tickets (LGU/Super Admin) sit in
-   one centred column, the same reading width as the public Help Center. */
-.support-column {
-  margin-inline: auto;
-  max-width: 880px;
+button.ticket-inbox-filter,
+button.ticket-inbox-row {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-weight: var(--fw-medium);
+  justify-content: flex-start;
+  min-height: 0;
+  text-align: left;
+  white-space: normal;
   width: 100%;
+}
+
+button.ticket-inbox-filter {
+  padding: var(--space-2) var(--space-3);
+}
+
+button.ticket-inbox-filter:hover,
+button.ticket-inbox-row:hover {
+  background: var(--color-surface-subtle);
+}
+
+button.ticket-inbox-filter.active,
+button.ticket-inbox-row.active {
+  background: var(--brand-teal-soft);
+  border-color: var(--color-primary);
+  color: var(--brand-teal-text);
+}
+
+.ticket-inbox-rows {
+  display: grid;
+  gap: var(--space-1);
+  max-height: 560px;
+  overflow-y: auto;
+}
+
+button.ticket-inbox-row {
+  align-items: stretch;
+  border-color: var(--color-border-subtle);
+  display: grid;
+  gap: 2px;
+  padding: var(--space-3);
+}
+
+.ticket-inbox-row-top {
+  align-items: flex-start;
+  display: flex;
+  gap: var(--space-2);
+  justify-content: space-between;
+}
+
+.ticket-inbox-row-top strong {
+  color: var(--color-ink);
+}
+
+.ticket-inbox-row .muted {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-regular);
+}
+
+@media (max-width: 900px) {
+  .contact-layout,
+  .ticket-inbox {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .contact-form-grid,
+  .contact-info-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .contact-info-item:nth-child(odd) {
+    border-right: 0;
+  }
+
+  .contact-info-item:nth-last-child(2) {
+    border-bottom: 1px solid var(--color-border);
+  }
 }

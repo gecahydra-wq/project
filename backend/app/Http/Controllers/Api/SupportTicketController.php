@@ -5,16 +5,17 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\SupportTicket;
-use App\Models\SupportTicketMessage;
-use App\Support\ImageUploader;
 use App\Support\SupportTickets;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 /**
- * Help & Support tickets. Buyers and Sellers open them and follow their own;
- * the LGU Admin (own municipality) and the Super Admin (everything) can both
- * answer them -- whoever picks one up. See App\Support\SupportTickets.
+ * Help & Support tickets. Buyers and Sellers send one through the contact
+ * form, read their past tickets and the staff responses, and reply to clarify
+ * until a ticket is closed; the LGU Admin (own municipality) and the Super
+ * Admin (everything) can both answer them -- whoever picks one up. Responses
+ * are emailed; it is not real-time support, and internal notes are never
+ * shown to the user. See App\Support\SupportTickets.
  */
 class SupportTicketController extends Controller
 {
@@ -29,7 +30,7 @@ class SupportTicketController extends Controller
     {
         return response()->json(
             SupportTicket::with(['order:id,order_number'])
-                ->withCount('messages')
+                ->withCount(['messages' => fn ($q) => $q->where('is_internal', false)])
                 ->where('user_id', $request->user()->id)
                 ->orderByDesc('last_activity_at')
                 ->orderByDesc('id')
@@ -43,6 +44,9 @@ class SupportTicketController extends Controller
         $allowed = collect(SupportTicket::categoriesFor($user->role))->pluck('value')->all();
 
         $data = $request->validate([
+            'first_name' => ['required', 'string', 'max:100'],
+            'last_name' => ['nullable', 'string', 'max:100'],
+            'contact_email' => ['required', 'email', 'max:255'],
             'category' => ['required', 'string', Rule::in($allowed)],
             'subject' => ['required', 'string', 'min:5', 'max:150'],
             'body' => ['required', 'string', 'min:10', 'max:5000'],
@@ -63,9 +67,15 @@ class SupportTicketController extends Controller
             }
         }
 
-        $ticket = SupportTickets::open($user, $data['category'], $data['subject'], $data['body'], $order, $request->file('attachment'));
+        $contact = [
+            'first_name' => trim($data['first_name']),
+            'last_name' => isset($data['last_name']) ? trim($data['last_name']) : null,
+            'contact_email' => trim($data['contact_email']),
+        ];
 
-        return response()->json($this->detail($ticket), 201);
+        $ticket = SupportTickets::open($user, $contact, $data['category'], $data['subject'], $data['body'], $order, $request->file('attachment'));
+
+        return response()->json($this->detail($ticket, $user), 201);
     }
 
     /** One ticket and its thread -- for its owner, or staff who can see it. */
@@ -73,51 +83,46 @@ class SupportTicketController extends Controller
     {
         abort_unless(SupportTickets::canView($request->user(), $ticket), 403, 'You cannot view this ticket.');
 
-        return response()->json($this->detail($ticket));
+        return response()->json($this->detail($ticket, $request->user()));
     }
 
+    /**
+     * The ticket's owner replies to clarify something. Support has to message
+     * them first (an internal note does not count); after that they can reply
+     * as often as they like until the ticket is closed.
+     */
     public function reply(Request $request, SupportTicket $ticket)
     {
         $user = $request->user();
-        abort_unless(SupportTickets::canView($user, $ticket), 403, 'You cannot reply to this ticket.');
-
-        $data = $request->validate([
-            'body' => ['required', 'string', 'max:5000'],
-            'attachment' => SupportTickets::ATTACHMENT_RULES,
-        ]);
-
-        SupportTickets::reply($ticket, $user, $data['body'], $request->file('attachment'));
-
-        return response()->json($this->detail($ticket->fresh()), 201);
-    }
-
-    /** Edit your own message, within the same window as the Messages tab. */
-    public function updateMessage(Request $request, SupportTicket $ticket, SupportTicketMessage $message)
-    {
-        $this->authorizeOwnMessage($request, $ticket, $message, 'edit');
-
-        abort_if(
-            $message->created_at->diffInMinutes(now()) > SupportTicketMessage::EDIT_WINDOW_MINUTES,
-            422,
-            'Messages can only be edited within '.SupportTicketMessage::EDIT_WINDOW_MINUTES.' minutes of sending.'
-        );
+        abort_unless($ticket->user_id === $user->id, 403, 'You can only reply to your own tickets.');
+        abort_if($ticket->status === 'resolved', 422, 'This ticket is closed. Send a new ticket if you still need help.');
+        abort_unless(SupportTickets::staffHasMessaged($ticket), 422, 'You can reply once support has messaged you on this ticket.');
 
         $data = $request->validate(['body' => ['required', 'string', 'max:5000']]);
 
-        $message->update(['body' => $data['body'], 'edited_at' => now()]);
+        SupportTickets::reply($ticket, $user, $data['body']);
 
-        return response()->json($this->detail($ticket->fresh()));
+        return response()->json($this->detail($ticket->fresh(), $user), 201);
     }
 
-    /** Delete your own message. Blanked in place, and its screenshot removed. */
-    public function destroyMessage(Request $request, SupportTicket $ticket, SupportTicketMessage $message)
+    /**
+     * LGU Admin / Super Admin: respond to the user (emailed to them) or, with
+     * `internal`, leave a note only staff can see.
+     */
+    public function respond(Request $request, SupportTicket $ticket)
     {
-        $this->authorizeOwnMessage($request, $ticket, $message, 'delete');
+        $user = $request->user();
+        abort_unless(SupportTickets::canAnswer($user, $ticket), 403, $this->cannotAnswerMessage($ticket));
+        abort_if($ticket->status === 'resolved', 422, 'This ticket is closed. It can no longer be replied to.');
 
-        ImageUploader::delete($message->attachment_url);
-        $message->update(['body' => 'This message was deleted.', 'attachment_url' => null, 'deleted_at' => now()]);
+        $data = $request->validate([
+            'body' => ['required', 'string', 'max:5000'],
+            'internal' => ['sometimes', 'boolean'],
+        ]);
 
-        return response()->json($this->detail($ticket->fresh()));
+        SupportTickets::respond($ticket, $user, $data['body'], (bool) ($data['internal'] ?? false));
+
+        return response()->json($this->detail($ticket->fresh(), $user), 201);
     }
 
     /** LGU Admin / Super Admin: the tickets they answer. */
@@ -129,33 +134,36 @@ class SupportTicketController extends Controller
     public function resolve(Request $request, SupportTicket $ticket)
     {
         $user = $request->user();
-        abort_unless(SupportTickets::canView($user, $ticket), 403, 'You cannot resolve this ticket.');
+        abort_unless(SupportTickets::canAnswer($user, $ticket), 403, $this->cannotAnswerMessage($ticket));
         abort_if($ticket->status === 'resolved', 422, 'This ticket is already resolved.');
 
         $data = $request->validate(['note' => ['nullable', 'string', 'max:5000']]);
 
         SupportTickets::resolve($ticket, $user, $data['note'] ?? null);
 
-        return response()->json($this->detail($ticket->fresh()));
+        return response()->json($this->detail($ticket->fresh(), $user));
     }
 
-    private function detail(SupportTicket $ticket): SupportTicket
+    /** The ticket with its messages. Internal notes are left out for the ticket's owner. */
+    private function detail(SupportTicket $ticket, $viewer): SupportTicket
     {
+        $staff = SupportTickets::isStaff($viewer);
+
         return $ticket->load([
             'user:id,name,role,email,profile_picture',
             'municipality:id,name',
             'order:id,order_number',
             'resolver:id,name',
+            'messages' => fn ($q) => $q->when(! $staff, fn ($q2) => $q2->where('is_internal', false)),
             'messages.author:id,name,role,profile_picture',
         ]);
     }
 
-    private function authorizeOwnMessage(Request $request, SupportTicket $ticket, SupportTicketMessage $message, string $verb): void
+    private function cannotAnswerMessage(SupportTicket $ticket): string
     {
-        abort_unless($message->support_ticket_id === $ticket->id, 404);
-        abort_unless(SupportTickets::canView($request->user(), $ticket), 403, "You cannot {$verb} messages on this ticket.");
-        abort_unless($message->user_id === $request->user()->id, 403, "You can only {$verb} your own messages.");
-        abort_if($message->deleted_at !== null, 422, 'This message has been deleted.');
+        return $ticket->super_admin_only
+            ? 'Only the Super Admin can answer '.SupportTicket::CATEGORIES[$ticket->category]['label'].' tickets.'
+            : 'You cannot answer this ticket.';
     }
 
     private function ownsOrder(Request $request, Order $order): bool

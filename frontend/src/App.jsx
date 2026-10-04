@@ -36,6 +36,7 @@ import {
   MessageCircle,
   PlayCircle,
   Search,
+  Send,
   CalendarDays,
   Camera,
   Check,
@@ -6329,7 +6330,7 @@ const HELP_TOPICS = [
       ['How do I create an account?', 'Click Register, choose Buyer or Seller, and sign up with your email or Google account. Open the verification link we email you before logging in. Sellers also need their LGU to approve their hatchery before they can post listings.'],
       ['I did not get the verification email.', 'Check your spam or promotions folder first. If it is not there, try logging in. AbaiMarket will offer a Resend Verification Email button for accounts that are not verified yet.'],
       ['I forgot my password.', 'Click Forgot password? on the login page and enter your email. We will send you a link to set a new password. This works for Google accounts too.'],
-      ['How do I contact support?', 'Log in, open Help & Support from the sidebar, and choose Contact Support. Your LGU and the AbaiMarket support team both see your ticket, and whoever picks it up replies. You get a notification and an email when they do.'],
+      ['How do I contact support?', 'Log in, open Help & Support from the sidebar, and choose Contact Support. Fill in the form to send a support ticket or feedback. Your LGU or the AbaiMarket support team replies by email, and you can see your past tickets and read the replies under My Tickets. Support may message you there to clarify your issue, so check it from time to time. Once they have, you can reply there. It is not real-time support, so allow some time for a reply.'],
     ],
   },
   {
@@ -6340,7 +6341,7 @@ const HELP_TOPICS = [
       ['How do I buy fingerlings?', 'Open a listing, choose how many fish (or how many bulks) you want, and place your order. The minimum order is shown on the listing. You then pay through PayMongo with GCash, Maya or a card.'],
       ['Is my payment safe?', 'Yes. Your payment is held by AbaiMarket, not sent straight to the seller. The seller is only paid after you confirm you received your fingerlings and their LGU approves the earnings.'],
       ['How long do I have to pay?', 'Unpaid orders are cancelled automatically after about 30 minutes, and the stock goes back to the listing. Until then, you can finish paying with the Pay Now button in My Orders.'],
-      ['I paid, but my order still says unpaid.', 'It can take a moment for the payment to be confirmed, so refresh My Orders after a minute or two. If it still says unpaid, open a support ticket under "Payment or refund". Include the order number and a screenshot of your receipt.'],
+      ['I paid, but my order still says unpaid.', 'It can take a moment for the payment to be confirmed, so refresh My Orders after a minute or two. If it still says unpaid, send a support ticket under "Payment or refund". Include the order number and a screenshot of your receipt.'],
       ['What does the Cart do?', 'The Cart is a list of listings you want to buy later. It does not hold stock for you, and prices and stock always show their current values. You check out one item at a time.'],
     ],
   },
@@ -6352,7 +6353,7 @@ const HELP_TOPICS = [
       ['What do the order statuses mean?', 'Placed: waiting for payment or for the seller. Confirmed: the seller accepted it. Out for Delivery: the fingerlings are on the way. Completed: you confirmed you received them. Cancelled: the order was stopped.'],
       ['How do I confirm my delivery?', 'When your fingerlings arrive, open My Orders and click Confirm Received. Only do this after they have actually arrived, because it starts the seller\'s payment.'],
       ['Can I cancel my order?', 'An unpaid order is cancelled automatically if you do not pay. For a paid order, message the seller. They can cancel it, with a reason, any time before it is out for delivery.'],
-      ['How do refunds work?', 'If a paid order is cancelled or expires, its payment shows Refund Pending. The AbaiMarket support team sends the refund, and the payment then shows Refunded. If it takes too long, open a ticket under "Payment or refund".'],
+      ['How do refunds work?', 'If a paid order is cancelled or expires, its payment shows Refund Pending. The AbaiMarket support team sends the refund, and the payment then shows Refunded. If it takes too long, send a support ticket under "Payment or refund".'],
       ['How do I rate a seller?', 'After an order is completed, use Rate Seller in My Orders. Your review appears on the seller\'s profile.'],
       ['A seller treated me unfairly. What do I do?', 'Use Report User on the seller\'s profile. Reports go to the seller\'s LGU and the Super Admin for review. Use a support ticket for problems with AbaiMarket itself, and a report for problems with a person.'],
     ],
@@ -6365,7 +6366,7 @@ const HELP_TOPICS = [
       ['How do I start selling?', 'Register as a Seller and fill in your hatchery profile. Your municipality\'s LGU reviews and approves your registration. Once approved, you can create listings from the Listings tab.'],
       ['Do my listings need approval?', 'No. A listing goes live as soon as you post it. Your LGU can still review it and remove it if it breaks the rules.'],
       ['How do prices, bulks and minimum orders work?', 'You set a price per fish and say how many fish make up one bulk. Buyers can order by the fish or by the bulk. You can also set a minimum order so you never receive orders that are too small.'],
-      ['Why can\'t I post a listing?', 'Your registration may still be waiting for LGU approval, your account may be suspended, or your listings may be paused because of an open Notice to Explain. Check your Notifications and Notices tab. If none of these apply, open a support ticket.'],
+      ['Why can\'t I post a listing?', 'Your registration may still be waiting for LGU approval, your account may be suspended, or your listings may be paused because of an open Notice to Explain. Check your Notifications and Notices tab. If none of these apply, send a support ticket.'],
       ['How do I handle an order?', 'In the Orders tab, move a paid order to Confirmed and then Out for Delivery. The buyer confirms when it arrives. You can cancel an order, with a reason, until it is out for delivery. Unpaid orders cannot be moved forward.'],
     ],
   },
@@ -6437,49 +6438,20 @@ function HelpArticles({ audience = 'all', showAudienceTabs = false, includeGener
   )
 }
 
-/** Public Help Center. Anyone can read it; contacting support needs an account. */
-function HelpCenterPage() {
-  const session = getSession()
-  const canOpenTickets = ['buyer', 'seller'].includes(session?.role)
-
-  return (
-    <main className="help-page">
-      <Section title="Help Center">
-        <p className="helper-text">Answers to common questions about buying, selling, payments and your account.</p>
-        <HelpArticles showAudienceTabs audience={session?.role === 'seller' ? 'seller' : session?.role === 'buyer' ? 'buyer' : 'all'} />
-        <div className="card help-contact-card">
-          <div>
-            <strong>Still need help?</strong>
-            <p>
-              {canOpenTickets
-                ? 'Open a support ticket and we will get back to you.'
-                : session
-                  ? 'Support tickets are for buyers and sellers. Use your dashboard to answer the tickets sent to you.'
-                  : 'Log in to your AbaiMarket account to open a support ticket.'}
-            </p>
-          </div>
-          {canOpenTickets ? (
-            <Link className="button" to={`${roleRoutes[session.role]}?tab=support&view=new`}>Contact Support</Link>
-          ) : !session && (
-            <Link className="button" to="/login">Log In to Contact Support</Link>
-          )}
-        </div>
-      </Section>
-    </main>
-  )
-}
+/** Shown wherever a ticket is sent or read: tickets are answered by email, not live. */
+const SUPPORT_DISCLAIMER = 'This is not real-time support. Your LGU or the AbaiMarket support team reviews tickets as soon as they can and replies to the email address you enter and under My Tickets. They may message you on your ticket to clarify your issue, so check My Tickets from time to time. Once they have messaged you, you can reply here.'
 
 const SUPPORT_STATUS_META = {
-  // Labelled from the reader's side: "open" means waiting on staff.
+  // Labelled from the reader's side. "resolved" is shown as Closed.
   user: {
     open: { label: 'Waiting on Support', tone: 'warning' },
     answered: { label: 'Support Replied', tone: 'info' },
-    resolved: { label: 'Resolved', tone: 'success' },
+    resolved: { label: 'Closed', tone: 'success' },
   },
   staff: {
-    open: { label: 'Needs Reply', tone: 'warning' },
-    answered: { label: 'Waiting on User', tone: 'info' },
-    resolved: { label: 'Resolved', tone: 'success' },
+    open: { label: 'Open', tone: 'warning' },
+    answered: { label: 'Answered', tone: 'info' },
+    resolved: { label: 'Closed', tone: 'success' },
   },
 }
 
@@ -6492,6 +6464,7 @@ const SUPPORT_CATEGORY_LABELS = {
   wallet_withdrawal: 'Wallet or withdrawal',
   account: 'Account or login',
   technical: 'Technical problem or bug',
+  feedback: 'Feedback or suggestion',
   other: 'Something else',
 }
 
@@ -6505,7 +6478,12 @@ function supportNotificationLink(dashboardPath) {
   return (notification) => (notification.type?.startsWith('support_ticket') ? `${dashboardPath}?tab=support&view=tickets` : null)
 }
 
-/** Optional screenshot picker shared by the new-ticket form and the reply box. */
+/** Who wrote a staff entry, as the ticket's owner sees it. */
+function supportAuthorLabel(message) {
+  return message.author_role === 'lgu_admin' ? `${message.author?.name || 'Your LGU'} (LGU)` : 'AbaiMarket Support'
+}
+
+/** Optional screenshot picker for the contact form. */
 function ScreenshotInput({ file, onChange, disabled }) {
   const inputRef = useRef(null)
   return (
@@ -6530,10 +6508,78 @@ function ScreenshotInput({ file, onChange, disabled }) {
   )
 }
 
+/** A ticket's screenshot as a thumbnail that opens the in-app viewer (with a way back). */
+function SupportScreenshot({ url }) {
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    if (!open) return undefined
+    const handleKey = (e) => { if (e.key === 'Escape') setOpen(false) }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [open])
+
+  if (!url) return null
+  return (
+    <>
+      <button type="button" className="support-screenshot" onClick={() => setOpen(true)} aria-label="View screenshot">
+        <img src={url} alt="Attached screenshot" />
+      </button>
+      {open && (
+        <div className="lightbox-overlay" onClick={() => setOpen(false)}>
+          <button type="button" className="lightbox-close" onClick={() => setOpen(false)} aria-label="Close preview"><X size={22} /></button>
+          <img className="lightbox-image" src={url} alt="Attached screenshot" onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
+    </>
+  )
+}
+
+/** "Still need help?" call to action. Sending a ticket needs a Buyer or Seller account. */
+function SupportContactCard({ title, onContact }) {
+  const session = getSession()
+  const canSend = ['buyer', 'seller'].includes(session?.role)
+  const isStaff = ['lgu_admin', 'super_admin'].includes(session?.role)
+
+  return (
+    <div className="card help-contact-card">
+      <div>
+        <strong>{title}</strong>
+        <p>
+          {canSend
+            ? 'Send a support ticket for help or to give feedback. Replies come by email.'
+            : isStaff
+              ? 'Tickets from buyers and sellers are in the Support Tickets tab of your dashboard.'
+              : 'Log in to your AbaiMarket account to send a support ticket or feedback.'}
+        </p>
+      </div>
+      {canSend && (onContact
+        ? <button type="button" onClick={onContact}><LifeBuoy size={16} /> Contact Support</button>
+        : <Link className="button" to={`${roleRoutes[session.role]}?tab=support&view=contact`}><LifeBuoy size={16} /> Contact Support</Link>)}
+      {isStaff && <Link className="button" to={`${roleRoutes[session.role]}?tab=support`}>Open Support Tickets</Link>}
+      {!session && <Link className="button" to="/login">Log In to Contact Support</Link>}
+    </div>
+  )
+}
+
+/** Public Help Center. Anyone can read it; sending a ticket needs an account. */
+function HelpCenterPage() {
+  const session = getSession()
+
+  return (
+    <main className="help-page">
+      <Section title="Help Center">
+        <p className="helper-text">Answers to common questions about buying, selling, payments and your account.</p>
+        <HelpArticles showAudienceTabs audience={session?.role === 'seller' ? 'seller' : session?.role === 'buyer' ? 'buyer' : 'all'} />
+        <SupportContactCard title="Still need help?" />
+      </Section>
+    </main>
+  )
+}
+
 /**
- * Buyer and Seller "Help & Support" tab: the Help Center, their tickets, and
- * the form to open one. ?view= picks the sub-tab and ?ticket= opens a thread,
- * which is what the support emails link to.
+ * Buyer and Seller "Help & Support" tab: help articles, their past tickets,
+ * and the contact form. ?view= picks the sub-tab and ?ticket= opens one
+ * ticket, which is what the support emails and notifications link to.
  */
 function SupportPanel({ role }) {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -6549,36 +6595,30 @@ function SupportPanel({ role }) {
     retry: false,
     placeholderData: [],
   })
-  const waiting = (tickets.data || []).filter((ticket) => ticket.status === 'answered').length
+  const replied = (tickets.data || []).filter((ticket) => ticket.status === 'answered').length
 
   return (
-    <div className="support-column">
+    <div className={view === 'contact' ? 'support-column support-column-wide' : 'support-column'}>
       <Section title="Help & Support">
         <div className="tab-bar">
           <button type="button" className={view === 'help' ? 'tab active' : 'tab'} onClick={() => setView('help')}>Help Articles</button>
           <button type="button" className={view === 'tickets' ? 'tab active' : 'tab'} onClick={() => setView('tickets')}>
-            My Tickets{waiting ? ` (${waiting} new)` : ''}
+            My Tickets{replied ? ` (${replied} replied)` : ''}
           </button>
-          <button type="button" className={view === 'new' ? 'tab active' : 'tab'} onClick={() => setView('new')}>Contact Support</button>
+          <button type="button" className={view === 'contact' ? 'tab active' : 'tab'} onClick={() => setView('contact')}>Contact Support</button>
         </div>
 
         {view === 'help' && (
           <>
             <HelpArticles audience={role} includeGeneral={false} />
-            <div className="card help-contact-card">
-              <div>
-                <strong>Didn&apos;t find your answer?</strong>
-                <p>Send us a ticket. Your LGU or the AbaiMarket support team will reply here.</p>
-              </div>
-              <button type="button" onClick={() => setView('new')}>Contact Support</button>
-            </div>
+            <SupportContactCard title="Didn&apos;t find your answer?" onContact={() => setView('contact')} />
           </>
         )}
 
-        {view === 'new' && <NewSupportTicketForm role={role} onCreated={(ticket) => openTicket(ticket.id)} />}
+        {view === 'contact' && <ContactSupportForm role={role} onViewTicket={openTicket} />}
 
         {view === 'tickets' && (ticketId ? (
-          <SupportTicketThread ticketId={ticketId} side="user" onBack={() => setView('tickets')} />
+          <UserSupportTicket ticketId={ticketId} onBack={() => setView('tickets')} onNew={() => setView('contact')} />
         ) : (tickets.data || []).length ? (
           <div className="item-list">
             {tickets.data.map((ticket) => (
@@ -6598,7 +6638,7 @@ function SupportPanel({ role }) {
         ) : (
           <EmptyState
             title="No tickets yet"
-            message="When you contact support, your conversation shows up here."
+            message="Tickets you send from Contact Support, and the replies to them, show up here."
             icon={LifeBuoy}
           />
         ))}
@@ -6607,9 +6647,35 @@ function SupportPanel({ role }) {
   )
 }
 
-function NewSupportTicketForm({ role, onCreated }) {
-  const [form, setForm] = useState({ category: '', subject: '', body: '', order_number: '' })
+const CONTACT_INFO = [
+  [Mail, 'Replies by Email', 'We reply to the email address you enter in the form.'],
+  [Clock, 'Not Real-Time', 'Tickets are reviewed as soon as possible. This is not a live chat.'],
+  [LifeBuoy, 'Track Your Tickets', 'Support may message you to clarify. Check My Tickets from time to time and reply there.'],
+  [MessageCircle, 'Feedback Welcome', 'Pick "Feedback or suggestion" as the topic to share your ideas.'],
+]
+
+/**
+ * The contact form: who you are and how to reach you, on the right; how
+ * support works, on the left. Sending it opens a ticket for the user's LGU
+ * and the Super Admin, and emails the user a confirmation.
+ */
+function ContactSupportForm({ role, onViewTicket }) {
+  const session = getSession()
+  const [first, ...rest] = (session?.name || '').trim().split(/\s+/)
+  const emptyForm = {
+    first_name: first || '',
+    last_name: rest.join(' '),
+    contact_email: session?.email || '',
+    category: '',
+    subject: '',
+    order_number: '',
+    body: '',
+  }
+  const [form, setForm] = useState(emptyForm)
   const [attachment, setAttachment] = useState(null)
+  const [sent, setSent] = useState(null)
+  const [missing, setMissing] = useState([])
+  const setField = (key) => (e) => setForm({ ...form, [key]: e.target.value })
 
   const categories = useQuery({
     queryKey: ['support-categories'],
@@ -6621,262 +6687,220 @@ function NewSupportTicketForm({ role, onCreated }) {
   const submit = useMutation({
     mutationFn: async () => {
       const formData = new FormData()
-      formData.append('category', form.category)
-      formData.append('subject', form.subject.trim())
-      formData.append('body', form.body.trim())
-      if (form.order_number.trim()) formData.append('order_number', form.order_number.trim())
+      Object.entries(form).forEach(([key, value]) => { if (value.trim()) formData.append(key, value.trim()) })
       if (attachment) formData.append('attachment', attachment)
       return (await api.post('/support/tickets', formData)).data
     },
     onSuccess: (ticket) => {
       queryClient.invalidateQueries({ queryKey: ['my-support-tickets'] })
-      setForm({ category: '', subject: '', body: '', order_number: '' })
+      setSent(ticket)
+      setForm(emptyForm)
       setAttachment(null)
-      onCreated(ticket)
     },
   })
 
-  const canSubmit = Boolean(form.category) && form.subject.trim().length >= 5 && form.body.trim().length >= 10
+  // What still needs fixing, said out loud when Send Ticket is clicked --
+  // a silently disabled button left users guessing which field was wrong.
+  const problems = () => [
+    !form.first_name.trim() && 'Enter your first name.',
+    !form.contact_email.trim() && 'Enter your email.',
+    !form.category && 'Choose a topic.',
+    form.subject.trim().length < 5 && 'Write a subject of at least 5 characters.',
+    form.body.trim().length < 10 && 'Write a message of at least 10 characters.',
+  ].filter(Boolean)
 
   return (
-    <form className="form support-form" onSubmit={(e) => { e.preventDefault(); if (canSubmit) submit.mutate() }}>
-      <p className="helper-text">
-        {role === 'buyer'
-          ? 'Having trouble with a seller\'s behaviour? Use Report User on their profile instead.'
-          : 'Appealing a rejected earnings review or withdrawal? Use Dispute This Rejection on that item instead. Having trouble with a buyer\'s behaviour? Use Report User on their profile.'}
-      </p>
-      <label className="filter-label">
-        What do you need help with?
-        <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
-          <option value="">Choose a topic</option>
-          {(categories.data || []).map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}
-        </select>
-      </label>
-      <label className="filter-label">
-        Subject
-        <input value={form.subject} maxLength={150} onChange={(e) => setForm({ ...form, subject: e.target.value })} placeholder="A short summary, e.g. Charged but order says unpaid" />
-      </label>
-      <label className="filter-label">
-        Order number (optional)
-        <input value={form.order_number} maxLength={50} onChange={(e) => setForm({ ...form, order_number: e.target.value })} placeholder="e.g. FG-ABC123" />
-      </label>
-      <label className="filter-label">
-        Describe the problem
-        <textarea
-          value={form.body}
-          maxLength={5000}
-          rows={6}
-          onChange={(e) => setForm({ ...form, body: e.target.value })}
-          placeholder="What happened, when, and what you expected (at least 10 characters)."
-        />
-      </label>
-      <ScreenshotInput file={attachment} onChange={setAttachment} disabled={submit.isPending} />
-      {submit.error && <p className="error">{apiErrorMessage(submit.error, 'Could not send your ticket.')}</p>}
-      <div className="row-actions">
-        <button type="submit" disabled={!canSubmit || submit.isPending}>{submit.isPending ? 'Sending...' : 'Send Ticket'}</button>
-      </div>
-    </form>
-  )
-}
-
-/**
- * One ticket's conversation, for its owner (side="user") or for the LGU /
- * Super Admin answering it (side="staff"). Staff can also mark it resolved.
- */
-function SupportTicketThread({ ticketId, side, staffBase, onBack, onChanged }) {
-  const session = getSession()
-  const [draft, setDraft] = useState('')
-  const [attachment, setAttachment] = useState(null)
-  const [action, setAction] = useState(null)
-  const [note, setNote] = useState('')
-  const logRef = useRef(null)
-  // Screenshot shown full size in the in-app viewer. Opening the raw image URL
-  // left the user on a bare image with no way back to the conversation.
-  const [previewUrl, setPreviewUrl] = useState(null)
-  const queryKey = ['support-ticket', String(ticketId)]
-
-  const ticket = useQuery({
-    queryKey,
-    queryFn: async () => (await api.get(`/support/tickets/${ticketId}`)).data,
-    retry: false,
-    refetchInterval: 15000,
-  })
-
-  const refresh = (data) => {
-    if (data?.id) queryClient.setQueryData(queryKey, data)
-    queryClient.invalidateQueries({ queryKey: ['my-support-tickets'] })
-    onChanged?.()
-  }
-
-  const reply = useMutation({
-    mutationFn: async () => {
-      const formData = new FormData()
-      formData.append('body', draft.trim())
-      if (attachment) formData.append('attachment', attachment)
-      return (await api.post(`/support/tickets/${ticketId}/replies`, formData)).data
-    },
-    onSuccess: (data) => { setDraft(''); setAttachment(null); refresh(data) },
-  })
-  const editMessage = useMutation({
-    mutationFn: async ({ id, body }) => (await api.patch(`/support/tickets/${ticketId}/messages/${id}`, { body })).data,
-    onSuccess: refresh,
-  })
-  const deleteMessage = useMutation({
-    mutationFn: async (id) => (await api.delete(`/support/tickets/${ticketId}/messages/${id}`)).data,
-    onSuccess: refresh,
-  })
-  const resolve = useMutation({
-    mutationFn: async () => (await api.patch(`${staffBase}/support-tickets/${ticketId}/resolve`, { note: note.trim() || undefined })).data,
-    onSuccess: (data) => { setAction(null); setNote(''); refresh(data) },
-  })
-
-  const messages = ticket.data?.messages || []
-  useEffect(() => {
-    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
-  }, [messages.length])
-  useEffect(() => {
-    if (!previewUrl) return undefined
-    const handleKey = (e) => { if (e.key === 'Escape') setPreviewUrl(null) }
-    window.addEventListener('keydown', handleKey)
-    return () => window.removeEventListener('keydown', handleKey)
-  }, [previewUrl])
-
-  if (ticket.isLoading) return <LoadingState label="Loading ticket..." />
-  if (ticket.error || !ticket.data) {
-    return (
-      <div className="thread-view">
-        <button type="button" className="ghost" onClick={onBack}><ChevronLeft size={16} /> Back to Tickets</button>
-        <p className="error">{apiErrorMessage(ticket.error, 'Could not load this ticket.')}</p>
-      </div>
-    )
-  }
-
-  const data = ticket.data
-  const isStaffMessage = (message) => ['lgu_admin', 'super_admin'].includes(message.author_role)
-  const isMine = (message) => (side === 'staff' ? isStaffMessage(message) : message.user_id === session?.id)
-  const authorLabel = (message) => {
-    if (!isStaffMessage(message)) return message.author?.name || 'User'
-    if (side === 'staff') return message.author?.name || 'Staff'
-    return message.author_role === 'lgu_admin' ? `${message.author?.name || 'LGU'} (LGU)` : 'AbaiMarket Support'
-  }
-  const resolved = data.status === 'resolved'
-
-  return (
-    <div className="thread-view support-thread">
-      <div className="row-actions">
-        <button type="button" className="ghost" onClick={onBack}><ChevronLeft size={16} /> Back to Tickets</button>
-      </div>
-      <div className="card support-thread-head">
-        <div className="card-row">
-          <h3>{data.subject}</h3>
-          <SupportStatusBadge status={data.status} side={side} />
-        </div>
-        <p className="muted">
-          {data.ticket_number} · {SUPPORT_CATEGORY_LABELS[data.category] || data.category}
-          {data.order?.order_number ? ` · Order ${data.order.order_number}` : ''}
-          {side === 'staff' && data.municipality?.name ? ` · ${data.municipality.name}` : ''}
-        </p>
-        {side === 'staff' && data.user && (
-          <p className="muted">
-            From {data.user.name} <RoleBadge role={data.user.role} /> · {data.user.email}
-          </p>
-        )}
-        {resolved && data.resolver?.name && (
-          <p className="helper-text">{side === 'staff' ? `Resolved by ${data.resolver.name}` : 'Marked resolved'} {data.resolved_at ? `on ${formatMessageTimestamp(data.resolved_at)}` : ''}</p>
-        )}
-      </div>
-
-      {/* The same bordered card the Messages tab puts its conversation in. */}
-      <div className="card support-chat">
-        <div className="message-log" ref={logRef}>
-          {messages.map((message) => (
-            <MessageBubble
-              key={message.id}
-              message={message}
-              isMine={isMine(message)}
-              canEdit={message.user_id === session?.id}
-              author={<strong className="support-author">{authorLabel(message)}</strong>}
-              bodyClassName="support-body"
-              onEdit={(body) => editMessage.mutateAsync({ id: message.id, body })}
-              onDelete={() => deleteMessage.mutateAsync(message.id)}
-            >
-              {message.attachment_url && (
-                <button type="button" className="support-screenshot" onClick={() => setPreviewUrl(message.attachment_url)} aria-label="View screenshot">
-                  <img src={message.attachment_url} alt="Attached screenshot" />
-                </button>
-              )}
-            </MessageBubble>
+    <div className="contact-layout">
+      <div className="card contact-panel">
+        <h3 className="contact-panel-head">How Support Works</h3>
+        <div className="contact-info-grid">
+          {CONTACT_INFO.map(([Icon, title, text]) => (
+            <div className="contact-info-item" key={title}>
+              <Icon size={28} />
+              <h4>{title}</h4>
+              <p>{text}</p>
+            </div>
           ))}
         </div>
-
-        <form className="form support-reply" onSubmit={(e) => { e.preventDefault(); if (draft.trim()) reply.mutate() }}>
-          {resolved && side === 'user' && <p className="helper-text">This ticket is resolved. Replying will reopen it.</p>}
-          <textarea
-            value={draft}
-            maxLength={5000}
-            rows={3}
-            onChange={(e) => setDraft(e.target.value)}
-            // Enter sends, Shift+Enter starts a new line -- same as a chat box.
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && draft.trim() && !reply.isPending) { e.preventDefault(); reply.mutate() } }}
-            placeholder={side === 'staff' ? 'Write a reply to the user... (Enter to send, Shift+Enter for a new line)' : 'Write a reply... (Enter to send, Shift+Enter for a new line)'}
-          />
-          <ScreenshotInput file={attachment} onChange={setAttachment} disabled={reply.isPending} />
-          {reply.error && <p className="error">{apiErrorMessage(reply.error, 'Could not send your reply.')}</p>}
-          <div className="row-actions">
-            <button type="submit" disabled={!draft.trim() || reply.isPending}>{reply.isPending ? 'Sending...' : 'Send Reply'}</button>
-            {side === 'staff' && !resolved && (
-              <button type="button" className="ghost" onClick={() => { setAction('resolve'); setNote('') }}><CheckCircle size={16} /> Mark Resolved</button>
-            )}
-          </div>
-        </form>
       </div>
 
-      {action && (
-        <Modal
-          title="Mark Ticket Resolved"
-          subtitle={`${data.ticket_number} · ${data.subject}`}
-          onClose={() => setAction(null)}
-          footer={
-            <>
-              <button
-                type="button"
-                disabled={resolve.isPending}
-                onClick={() => resolve.mutate()}
-              >
-                Mark Resolved
-              </button>
-              <button type="button" className="ghost" onClick={() => setAction(null)}>Cancel</button>
-            </>
-          }
-        >
-          <p className="helper-text">
-            The user is notified and emailed. They can still reply, which reopens the ticket. A closing note is optional and is added to the conversation.
-          </p>
-          <textarea
-            value={note}
-            rows={3}
-            maxLength={5000}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="Closing note to the user (optional)"
-          />
-          {resolve.error && <p className="error">{apiErrorMessage(resolve.error)}</p>}
-        </Modal>
-      )}
-
-      {previewUrl && (
-        <div className="lightbox-overlay" onClick={() => setPreviewUrl(null)}>
-          <button type="button" className="lightbox-close" onClick={() => setPreviewUrl(null)} aria-label="Close preview"><X size={22} /></button>
-          <img className="lightbox-image" src={previewUrl} alt="Attached screenshot" onClick={(e) => e.stopPropagation()} />
-        </div>
-      )}
+      <div className="card contact-panel">
+        <h3 className="contact-panel-head">Contact Support</h3>
+        {sent ? (
+          <div className="contact-sent">
+            <CheckCircle size={40} />
+            <h4>Ticket {sent.ticket_number} sent</h4>
+            <p>We emailed a confirmation to {sent.contact_email}. {SUPPORT_DISCLAIMER}</p>
+            <div className="contact-actions">
+              <button type="button" onClick={() => onViewTicket(sent.id)}>View My Ticket</button>
+              <button type="button" className="ghost" onClick={() => setSent(null)}>Send Another</button>
+            </div>
+          </div>
+        ) : (
+          <form className="form contact-form" onSubmit={(e) => { e.preventDefault(); const found = problems(); setMissing(found); if (!found.length) submit.mutate() }}>
+            <p className="contact-disclaimer"><Clock size={16} /> {SUPPORT_DISCLAIMER}</p>
+            <div className="contact-form-grid">
+              <label className="filter-label">
+                <span>First Name <span className="required">*</span></span>
+                <input value={form.first_name} maxLength={100} onChange={setField('first_name')} autoComplete="given-name" />
+              </label>
+              <label className="filter-label">
+                Last Name
+                <input value={form.last_name} maxLength={100} onChange={setField('last_name')} autoComplete="family-name" />
+              </label>
+              <label className="filter-label contact-form-full">
+                <span>Email <span className="required">*</span></span>
+                <input type="email" value={form.contact_email} maxLength={255} onChange={setField('contact_email')} autoComplete="email" />
+              </label>
+              <label className="filter-label">
+                <span>Topic <span className="required">*</span></span>
+                <select value={form.category} onChange={setField('category')}>
+                  <option value="">Choose a topic</option>
+                  {(categories.data || []).map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}
+                </select>
+              </label>
+              <label className="filter-label">
+                Order Number (optional)
+                <input value={form.order_number} maxLength={50} onChange={setField('order_number')} placeholder="e.g. FG-ABC123" />
+              </label>
+              <label className="filter-label contact-form-full">
+                <span>Subject <span className="required">*</span></span>
+                <input value={form.subject} maxLength={150} onChange={setField('subject')} placeholder="A short summary, e.g. Charged but order says unpaid" />
+              </label>
+              <label className="filter-label contact-form-full">
+                <span>Message <span className="required">*</span></span>
+                <textarea
+                  value={form.body}
+                  maxLength={5000}
+                  rows={6}
+                  onChange={setField('body')}
+                  placeholder="What happened, when, and what you expected (at least 10 characters)."
+                />
+              </label>
+            </div>
+            <ScreenshotInput file={attachment} onChange={setAttachment} disabled={submit.isPending} />
+            <p className="helper-text">
+              {role === 'buyer'
+                ? 'Having trouble with a seller\'s behaviour? Use Report User on their profile instead.'
+                : 'Appealing a rejected earnings review or withdrawal? Use Dispute This Rejection on that item instead.'}
+            </p>
+            {missing.length > 0 && <p className="error">{missing.join(' ')}</p>}
+            {submit.error && <p className="error">{apiErrorMessage(submit.error, 'Could not send your ticket.')}</p>}
+            <div className="contact-actions">
+              <button type="submit" disabled={submit.isPending}>{submit.isPending ? 'Sending...' : <><Send size={16} /> Send Ticket</>}</button>
+            </div>
+          </form>
+        )}
+      </div>
     </div>
   )
 }
 
 /**
- * LGU Admin and Super Admin support inbox. The LGU sees its municipality's
- * local-category tickets; the Super Admin sees every ticket, with its own
- * categories first in the default view and LGU tickets available as fallback.
+ * One of the user's own tickets: what they sent, the staff replies, and a
+ * reply box to clarify things until it is closed. Not real-time support.
+ */
+function UserSupportTicket({ ticketId, onBack, onNew }) {
+  const [draft, setDraft] = useState('')
+  const queryKey = ['support-ticket', String(ticketId)]
+  const ticket = useQuery({
+    queryKey,
+    queryFn: async () => (await api.get(`/support/tickets/${ticketId}`)).data,
+    retry: false,
+  })
+  const reply = useMutation({
+    mutationFn: async () => (await api.post(`/support/tickets/${ticketId}/replies`, { body: draft.trim() })).data,
+    onSuccess: (data) => {
+      setDraft('')
+      queryClient.setQueryData(queryKey, data)
+      queryClient.invalidateQueries({ queryKey: ['my-support-tickets'] })
+    },
+  })
+
+  if (ticket.isLoading) return <LoadingState label="Loading ticket..." />
+
+  const back = <button type="button" className="ghost" onClick={onBack}><ChevronLeft size={16} /> Back to My Tickets</button>
+  if (ticket.error || !ticket.data) {
+    return <div className="thread-view">{back}<p className="error">{apiErrorMessage(ticket.error, 'Could not load this ticket.')}</p></div>
+  }
+
+  const data = ticket.data
+  const [original, ...responses] = data.messages || []
+  const closed = data.status === 'resolved'
+  const isOwn = (message) => message.user_id === data.user_id
+  // Support has to message first; after that the user can reply freely.
+  const canReply = !closed && responses.some((message) => !isOwn(message))
+
+  return (
+    <div className="thread-view">
+      <div className="row-actions">{back}</div>
+      <div className="card ticket-detail">
+        <div className="card-row">
+          <h3>{data.subject}</h3>
+          <SupportStatusBadge status={data.status} />
+        </div>
+        <p className="muted">
+          {data.ticket_number} · {SUPPORT_CATEGORY_LABELS[data.category] || data.category}
+          {data.order?.order_number ? ` · Order ${data.order.order_number}` : ''}
+          {' · '}Sent {formatMessageTimestamp(data.created_at)}
+        </p>
+        {original && (
+          <div className="ticket-message">
+            <strong>Your message</strong>
+            <p>{original.body}</p>
+            <SupportScreenshot url={original.attachment_url} />
+          </div>
+        )}
+        {responses.length ? responses.map((message) => (
+          <div className={isOwn(message) ? 'ticket-response mine' : 'ticket-response theirs'} key={message.id}>
+            <div className="ticket-response-head">
+              <strong>{isOwn(message) ? 'You' : supportAuthorLabel(message)}</strong>
+              <span className="muted">{formatMessageTimestamp(message.created_at)}</span>
+            </div>
+            <p>{message.body}</p>
+          </div>
+        )) : (
+          <p className="helper-text">No reply yet. You will get an email at {data.contact_email || 'your email'} when support messages you.</p>
+        )}
+        <p className="contact-disclaimer"><Clock size={16} /> {SUPPORT_DISCLAIMER}</p>
+        {closed ? (
+          <div className="row-actions">
+            <span className="muted">This ticket is closed. Send a new ticket and mention {data.ticket_number} if you still need help.</span>
+            <button type="button" onClick={onNew}>Send a New Ticket</button>
+          </div>
+) : !canReply ? (
+          <p className="helper-text">You can reply once support messages you on this ticket.</p>
+        ) : (
+          <form className="ticket-reply" onSubmit={(e) => { e.preventDefault(); if (draft.trim()) reply.mutate() }}>
+            <textarea
+              value={draft}
+              rows={3}
+              maxLength={5000}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="Reply to support's message..."
+            />
+            {reply.error && <p className="error">{apiErrorMessage(reply.error, 'Could not send your reply.')}</p>}
+            <div className="ticket-reply-actions">
+              <button type="submit" disabled={!draft.trim() || reply.isPending}><Send size={16} /> {reply.isPending ? 'Sending...' : 'Send Reply'}</button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  )
+}
+
+const STAFF_TICKET_FILTERS = [
+  ['open', 'Open'],
+  ['answered', 'Answered'],
+  ['resolved', 'Closed'],
+  ['all', 'All Tickets'],
+]
+
+/**
+ * LGU Admin and Super Admin support inbox: the ticket list on the left and
+ * the selected ticket on the right. The LGU sees its municipality's tickets;
+ * the Super Admin sees every ticket. Whoever picks one up answers it.
  */
 function SupportTicketsAdminPanel({ scope }) {
   const isSuper = scope === 'super-admin'
@@ -6896,69 +6920,197 @@ function SupportTicketsAdminPanel({ scope }) {
   })
 
   const openTicket = (id) => setSearchParams({ tab: 'support', ticket: String(id) })
-  const closeTicket = () => setSearchParams({ tab: 'support' })
   const refresh = () => queryClient.invalidateQueries({ queryKey: [queryKey] })
 
+  const all = tickets.data || []
+  const countFor = (value) => (value === 'all' ? all.length : all.filter((ticket) => ticket.status === value).length)
   const needle = search.trim().toLowerCase()
-  const rows = (tickets.data || []).filter((ticket) => {
+  const rows = all.filter((ticket) => {
     if (statusFilter !== 'all' && ticket.status !== statusFilter) return false
     if (!needle) return true
-    return [ticket.ticket_number, ticket.subject, ticket.user?.name, ticket.order?.order_number, ticket.municipality?.name]
+    return [ticket.ticket_number, ticket.subject, ticket.user?.name, ticket.first_name, ticket.last_name, ticket.contact_email, ticket.order?.order_number, ticket.municipality?.name]
       .some((value) => String(value || '').toLowerCase().includes(needle))
   })
-  const needsReply = (tickets.data || []).filter((ticket) => ticket.status === 'open').length
 
   return (
-    <div className="support-column">
-      <Section title="Support Tickets">
-        {ticketId ? (
-          <SupportTicketThread ticketId={ticketId} side="staff" staffBase={base} onBack={closeTicket} onChanged={refresh} />
-        ) : (
-          <>
-            <p className="helper-text">
-              {isSuper
-                ? `Every ticket from buyers and sellers on the platform. Each one is also visible to the LGU of its municipality, so whichever of you picks it up answers it. ${needsReply} ticket${needsReply === 1 ? '' : 's'} need a reply.`
-                : `Tickets from buyers and sellers in your municipality. The Super Admin sees the same tickets, so whichever of you picks one up answers it. ${needsReply} ticket${needsReply === 1 ? '' : 's'} need a reply.`}
-            </p>
-            <div className="filters">
-              <label className="filter-label">
-                Status
-                <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-                  <option value="open">Needs Reply</option>
-                  <option value="answered">Waiting on User</option>
-                  <option value="resolved">Resolved</option>
-                  <option value="all">All</option>
-                </select>
-              </label>
-              <label className="filter-label">
-                Search
-                <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Ticket, subject, name or order" />
-              </label>
+    <Section title="Support Tickets">
+      <p className="helper-text">
+        {isSuper
+          ? 'Tickets and feedback from buyers and sellers on the whole platform. Each one is also visible to the LGU of its municipality (buyer tickets not about an order, to every LGU), so whichever of you picks it up answers it. Account or login, technical, payment or refund, and wallet or withdrawal tickets are yours alone to answer.'
+          : 'Tickets and feedback from sellers in your municipality and buyers ordering from them, plus buyer tickets not about an order, which every LGU can see. The Super Admin sees the same tickets, so whichever of you picks one up answers it. Account or login, technical, payment or refund, and wallet or withdrawal tickets are answered by the Super Admin only; you can read them.'}
+        {' '}This is not real-time support: responses are emailed to the user.
+      </p>
+      <div className="ticket-inbox">
+        <aside className="card ticket-inbox-list">
+          <nav className="ticket-inbox-filters">
+            {STAFF_TICKET_FILTERS.map(([value, label]) => (
+              <button
+                type="button"
+                key={value}
+                className={statusFilter === value ? 'ticket-inbox-filter active' : 'ticket-inbox-filter'}
+                onClick={() => setStatusFilter(value)}
+              >
+                {label} ({countFor(value)})
+              </button>
+            ))}
+          </nav>
+          <label className="help-search">
+            <Search size={16} />
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Ticket, name, email or order" />
+          </label>
+          {rows.length ? (
+            <div className="ticket-inbox-rows">
+              {rows.map((ticket) => (
+                <button
+                  type="button"
+                  key={ticket.id}
+                  className={String(ticket.id) === ticketId ? 'ticket-inbox-row active' : 'ticket-inbox-row'}
+                  onClick={() => openTicket(ticket.id)}
+                >
+                  <span className="ticket-inbox-row-top">
+                    <strong>{ticket.subject}</strong>
+                    <SupportStatusBadge status={ticket.status} side="staff" />
+                  </span>
+                  {!isSuper && ticket.super_admin_only && <span className="muted">Super Admin answers this topic</span>}
+                  <span className="muted">
+                    {ticket.ticket_number} · {[ticket.first_name, ticket.last_name].filter(Boolean).join(' ') || ticket.user?.name || 'Unknown'}
+                    {isSuper ? ` · ${ticket.municipality?.name || 'All LGUs'}` : !ticket.municipality_id ? ' · All LGUs' : ''}
+                  </span>
+                  <span className="muted">{SUPPORT_CATEGORY_LABELS[ticket.category] || ticket.category} · {formatMessageTimestamp(ticket.last_activity_at || ticket.created_at)}</span>
+                </button>
+              ))}
             </div>
-            {rows.length ? (
-              <div className="item-list">
-                {rows.map((ticket) => (
-                  <button type="button" className="card support-ticket-row" key={ticket.id} onClick={() => openTicket(ticket.id)}>
-                    <div className="card-row">
-                      <strong>{ticket.subject}</strong>
-                      <SupportStatusBadge status={ticket.status} side="staff" />
-                    </div>
-                    <p className="muted">
-                      {ticket.ticket_number} · {SUPPORT_CATEGORY_LABELS[ticket.category] || ticket.category}
-                      {' · '}{ticket.user?.name || 'Unknown'} ({ticket.user_role})
-                      {ticket.order?.order_number ? ` · Order ${ticket.order.order_number}` : ''}
-                      {isSuper && ticket.municipality?.name ? ` · ${ticket.municipality.name}` : ''}
-                    </p>
-                    <p className="muted">
-                      {ticket.messages_count} message{ticket.messages_count === 1 ? '' : 's'} · Updated {formatMessageTimestamp(ticket.last_activity_at || ticket.created_at)}
-                    </p>
-                  </button>
-                ))}
-              </div>
-            ) : <EmptyState message="No tickets match this filter." icon={LifeBuoy} />}
-          </>
-        )}
-      </Section>
+          ) : <EmptyState message="No tickets match this filter." icon={LifeBuoy} />}
+        </aside>
+
+        <div className="ticket-inbox-detail">
+          {ticketId
+            ? <StaffSupportTicket key={ticketId} ticketId={ticketId} base={base} onChanged={refresh} />
+            : <EmptyState title="Select a ticket" message="Choose a ticket on the left to read it and respond." icon={LifeBuoy} />}
+        </div>
+      </div>
+    </Section>
+  )
+}
+
+/**
+ * One ticket for the LGU / Super Admin: the sender's contact details and
+ * message, the responses and internal notes so far, and the response box.
+ * Send Response emails the user; Internal Note is staff-only.
+ */
+function StaffSupportTicket({ ticketId, base, onChanged }) {
+  const [draft, setDraft] = useState('')
+  const [closing, setClosing] = useState(false)
+  const [note, setNote] = useState('')
+  const queryKey = ['support-ticket', String(ticketId)]
+
+  const ticket = useQuery({
+    queryKey,
+    queryFn: async () => (await api.get(`/support/tickets/${ticketId}`)).data,
+    retry: false,
+  })
+
+  const refresh = (data) => {
+    if (data?.id) queryClient.setQueryData(queryKey, data)
+    onChanged?.()
+  }
+
+  const respond = useMutation({
+    mutationFn: async (internal) => (await api.post(`${base}/support-tickets/${ticketId}/responses`, { body: draft.trim(), internal })).data,
+    onSuccess: (data) => { setDraft(''); refresh(data) },
+  })
+  const resolve = useMutation({
+    mutationFn: async () => (await api.patch(`${base}/support-tickets/${ticketId}/resolve`, { note: note.trim() || undefined })).data,
+    onSuccess: (data) => { setClosing(false); setNote(''); refresh(data) },
+  })
+
+  if (ticket.isLoading) return <LoadingState label="Loading ticket..." />
+  if (ticket.error || !ticket.data) return <p className="error">{apiErrorMessage(ticket.error, 'Could not load this ticket.')}</p>
+
+  const data = ticket.data
+  const [original, ...responses] = data.messages || []
+  const contactName = [data.first_name, data.last_name].filter(Boolean).join(' ') || data.user?.name
+  const replyTo = data.contact_email || data.user?.email
+  const closed = data.status === 'resolved'
+
+  return (
+    <div className="card ticket-detail">
+      <div className="card-row">
+        <SupportStatusBadge status={data.status} side="staff" />
+        <span className="muted">{formatMessageTimestamp(data.created_at)}</span>
+      </div>
+      <h3>Ticket {data.ticket_number}: {data.subject}</h3>
+      <dl className="ticket-facts">
+        <div><dt>Contact</dt><dd>{contactName} {data.user && <RoleBadge role={data.user.role} />}{data.user?.name && data.user.name !== contactName ? ` (account: ${data.user.name})` : ''}</dd></div>
+        <div><dt>Email</dt><dd>{replyTo}{data.user?.email && data.user.email !== replyTo ? ` (account: ${data.user.email})` : ''}</dd></div>
+        <div><dt>Topic</dt><dd>{SUPPORT_CATEGORY_LABELS[data.category] || data.category}</dd></div>
+        {data.order?.order_number && <div><dt>Order</dt><dd>{data.order.order_number}</dd></div>}
+        <div><dt>Municipality</dt><dd>{data.municipality?.name || 'None (buyer ticket, open to every LGU)'}</dd></div>
+      </dl>
+      {original && (
+        <div className="ticket-message">
+          <strong>Describe the issue</strong>
+          <p>{original.body}</p>
+          <SupportScreenshot url={original.attachment_url} />
+        </div>
+      )}
+
+      {responses.map((message) => (
+        <div className={message.user_id === data.user_id ? 'ticket-response theirs' : message.is_internal ? 'ticket-response mine internal' : 'ticket-response mine'} key={message.id}>
+          <div className="ticket-response-head">
+            <strong>{message.author?.name || 'Staff'}</strong>
+            <RoleBadge role={message.author_role} />
+            {message.is_internal && <Badge tone="warning">Internal Note</Badge>}
+            <span className="muted">{formatMessageTimestamp(message.created_at)}</span>
+          </div>
+          <p>{message.body}</p>
+        </div>
+      ))}
+
+      {base === '/lgu' && data.super_admin_only && !closed ? (
+        <p className="helper-text ticket-reply">
+          Only the Super Admin can answer {SUPPORT_CATEGORY_LABELS[data.category] || 'this type of'} tickets, because only they can fix it. You can read this ticket, but not respond, add notes or close it.
+        </p>
+      ) : closed ? (
+        <p className="helper-text ticket-reply">
+          This ticket is closed{data.resolver?.name ? ` by ${data.resolver.name}` : ''}{data.resolved_at ? ` on ${formatMessageTimestamp(data.resolved_at)}` : ''}. It can no longer be replied to.
+        </p>
+      ) : (
+      <div className="ticket-reply">
+        <textarea
+          value={draft}
+          rows={4}
+          maxLength={5000}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="Write a response..."
+        />
+        <p className="helper-text">Send Response emails your reply to {replyTo} and shows it under the user&apos;s My Tickets. Internal Note is only visible to LGU and Super Admin staff.</p>
+        {respond.error && <p className="error">{apiErrorMessage(respond.error, 'Could not save your response.')}</p>}
+        <div className="ticket-reply-actions">
+          <button type="button" disabled={!draft.trim() || respond.isPending} onClick={() => respond.mutate(false)}><Send size={16} /> Send Response</button>
+          <button type="button" className="ghost" disabled={!draft.trim() || respond.isPending} onClick={() => respond.mutate(true)}>Internal Note</button>
+          <button type="button" className="ghost ticket-close-button" onClick={() => { setClosing(true); setNote('') }}><CheckCircle size={16} /> Close Ticket</button>
+        </div>
+      </div>
+      )}
+
+      {closing && (
+        <Modal
+          title="Close Ticket"
+          subtitle={`${data.ticket_number} · ${data.subject}`}
+          onClose={() => setClosing(false)}
+          footer={
+            <>
+              <button type="button" disabled={resolve.isPending} onClick={() => resolve.mutate()}>Close Ticket</button>
+              <button type="button" className="ghost" onClick={() => setClosing(false)}>Cancel</button>
+            </>
+          }
+        >
+          <p className="helper-text">The user is notified and emailed that the ticket is closed. A closing note is optional; it is included in the email and shown on their ticket.</p>
+          <textarea value={note} rows={3} maxLength={5000} onChange={(e) => setNote(e.target.value)} placeholder="Closing note to the user (optional)" />
+          {resolve.error && <p className="error">{apiErrorMessage(resolve.error)}</p>}
+        </Modal>
+      )}
     </div>
   )
 }
@@ -8802,14 +8954,7 @@ function formatMessageTimestamp(value) {
   return `${day}, ${time}`
 }
 
-/**
- * One chat bubble with Edit (within the edit window) and Delete for its author.
- * Used by Messages and by support ticket threads. The ticket thread passes
- * `author` (a name line), `children` (the screenshot) and `canEdit`, because
- * there every staff message sits on the staff side but only its own author
- * may change it. Messages passes none of these and behaves as it always has.
- */
-function MessageBubble({ message, isMine, onEdit, onDelete, author, canEdit, bodyClassName = '', children }) {
+function MessageBubble({ message, isMine, onEdit, onDelete }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(message.body)
   const [error, setError] = useState('')
@@ -8818,7 +8963,7 @@ function MessageBubble({ message, isMine, onEdit, onDelete, author, canEdit, bod
 
   const isDeleted = !!message.deleted_at
   const withinEditWindow = renderedAt - new Date(message.created_at).getTime() <= MESSAGE_EDIT_WINDOW_MS
-  const canModify = (canEdit ?? isMine) && !isDeleted
+  const canModify = isMine && !isDeleted
 
   const saveEdit = async () => {
     setBusy(true)
@@ -8864,9 +9009,7 @@ function MessageBubble({ message, isMine, onEdit, onDelete, author, canEdit, bod
 
   return (
     <div className={`message-bubble ${isMine ? 'mine' : 'theirs'}`}>
-      {author}
-      <p className={[isDeleted ? 'deleted' : '', bodyClassName].filter(Boolean).join(' ')}>{message.body}</p>
-      {!isDeleted && children}
+      <p className={isDeleted ? 'deleted' : ''}>{message.body}</p>
       <div className="message-meta">
         {/* Date and time on every message, for whoever is reading it -- this
             bubble renders identically for the sender and the receiver, so both
