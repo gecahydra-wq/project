@@ -9693,6 +9693,12 @@ class FishMarketApiTest extends TestCase
         $topic = \App\Support\AiIntentClassifier::classify('How do I contact support?')['topic'];
         $this->assertStringContainsString('the Super Admin sees the same tickets', \App\Support\AiIntentClassifier::topicContext($topic, 'lgu_admin'));
         $this->assertStringContainsString('Internal Note', \App\Support\AiIntentClassifier::topicContext($topic, 'super_admin'));
+        // Who sees buyer tickets, and that a closed ticket is final.
+        $this->assertStringContainsString('every LGU', \App\Support\AiIntentClassifier::topicContext($topic, 'super_admin'));
+        foreach (['buyer', 'seller', 'lgu_admin', 'super_admin'] as $role) {
+            $this->assertMatchesRegularExpression('/closed.*(no longer be replied to|nobody can reply)/', \App\Support\AiIntentClassifier::topicContext($topic, $role), $role);
+        }
+        $this->assertStringContainsString('Contact Support', \App\Support\AiIntentClassifier::classify('Why can I not reply to my ticket?')['topic']['English']);
 
         // A bare "support" or "help" is not enough -- those stay on their own topics.
         $this->assertStringNotContainsString('Contact Support', (string) (\App\Support\AiIntentClassifier::classify('Does checkout support GCash?')['topic']['English'] ?? ''));
