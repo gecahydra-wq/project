@@ -26,7 +26,7 @@ class SupportTicketUpdatedMail extends Mailable
         'received' => [
             'subject' => 'We Received Your Support Ticket %s',
             'headline' => 'We received your support ticket',
-            'intro' => 'Thanks for contacting AbaiMarket. Your ticket is in our support queue. This is not real-time support: our team reviews tickets as soon as they can and will reply to this email address. They may also message you on the ticket to clarify your issue, so check My Tickets in Help & Support from time to time.',
+            'intro' => 'Thanks for contacting AbaiMarket. Your ticket is in our support queue. This is not real-time support: our team reviews tickets as soon as they can, and their replies will appear on your ticket under My Tickets in Help & Support. We will email you here when your ticket is replied to or closed. They may also message you on the ticket to clarify your issue, so check your tickets from time to time.',
             'status' => 'Open',
         ],
         'reply' => [

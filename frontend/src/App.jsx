@@ -6330,7 +6330,7 @@ const HELP_TOPICS = [
       ['How do I create an account?', 'Click Register, choose Buyer or Seller, and sign up with your email or Google account. Open the verification link we email you before logging in. Sellers also need their LGU to approve their hatchery before they can post listings.'],
       ['I did not get the verification email.', 'Check your spam or promotions folder first. If it is not there, try logging in. AbaiMarket will offer a Resend Verification Email button for accounts that are not verified yet.'],
       ['I forgot my password.', 'Click Forgot password? on the login page and enter your email. We will send you a link to set a new password. This works for Google accounts too.'],
-      ['How do I contact support?', 'Log in, open Help & Support from the sidebar, and choose Contact Support. Fill in the form to send a support ticket or feedback. Your LGU or the AbaiMarket support team replies by email, and you can see your past tickets and read the replies under My Tickets. Support may message you there to clarify your issue, so check it from time to time. Once they have, you can reply there. It is not real-time support, so allow some time for a reply.'],
+      ['How do I contact support?', 'Log in, open Help & Support from the sidebar, and choose Contact Support. Fill in the form to send a support ticket or feedback. Your LGU or the AbaiMarket support team replies on your ticket, and you can see your past tickets and read the replies under My Tickets. You also get an email when your ticket is received, replied to or closed. Support may message you there to clarify your issue, so check it from time to time. Once they have, you can reply there. It is not real-time support, so allow some time for a reply.'],
     ],
   },
   {
@@ -6439,7 +6439,7 @@ function HelpArticles({ audience = 'all', showAudienceTabs = false, includeGener
 }
 
 /** Shown wherever a ticket is sent or read: tickets are answered by email, not live. */
-const SUPPORT_DISCLAIMER = 'This is not real-time support. Your LGU or the AbaiMarket support team reviews tickets as soon as they can and replies to the email address you enter and under My Tickets. They may message you on your ticket to clarify your issue, so check My Tickets from time to time. Once they have messaged you, you can reply here.'
+const SUPPORT_DISCLAIMER = "This is not real-time support. Your LGU or the AbaiMarket support team reviews tickets as soon as they can, and their replies appear on your ticket under My Tickets. We'll send you updates by email when your ticket is received, replied to or closed. They may message you to clarify your issue, so check your tickets from time to time. Once they have messaged you, you can reply here."
 
 const SUPPORT_STATUS_META = {
   // Labelled from the reader's side. "resolved" is shown as Closed.
@@ -6546,7 +6546,7 @@ function SupportContactCard({ title, onContact }) {
         <strong>{title}</strong>
         <p>
           {canSend
-            ? 'Send a support ticket for help or to give feedback. Replies come by email.'
+            ? "Send a support ticket for help or to give feedback. We'll send you updates by email."
             : isStaff
               ? 'Tickets from buyers and sellers are in the Support Tickets tab of your dashboard.'
               : 'Log in to your AbaiMarket account to send a support ticket or feedback.'}
