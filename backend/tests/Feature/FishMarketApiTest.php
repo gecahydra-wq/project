@@ -16,6 +16,7 @@ use App\Mail\PaymentReceiptMail;
 use App\Mail\SellerEarningsApprovedMail;
 use App\Mail\SellerRegistrationReviewedMail;
 use App\Mail\SellerWithdrawalApprovedMail;
+use App\Mail\SupportTicketUpdatedMail;
 use App\Mail\WithdrawalReleasedMail;
 use App\Models\ActivityLogEntry;
 use App\Models\AppNotification;
@@ -7003,7 +7004,7 @@ class FishMarketApiTest extends TestCase
         Sanctum::actingAs($lguAdmin);
 
         $categories = $this->getJson('/api/lgu/activity-log/categories')->assertOk()->json();
-        $this->assertSame(['accounts', 'listings_sellers', 'moderation', 'payments', 'reviews', 'reports'], collect($categories)->pluck('value')->all());
+        $this->assertSame(['accounts', 'listings_sellers', 'moderation', 'payments', 'reviews', 'reports', 'support'], collect($categories)->pluck('value')->all());
     }
 
     public function test_user_registration_is_logged_via_observer_and_lgu_admin_creation_is_not_double_logged(): void
@@ -9321,5 +9322,273 @@ class FishMarketApiTest extends TestCase
         $sellerView = $this->getJson("/api/messages/thread/{$buyer->id}")->assertOk()->json('user');
         $this->assertSame('buyer', $sellerView['role']);
         $this->assertArrayNotHasKey('seller_profile_id', $sellerView);
+    }
+
+    // ---------------------------------------------------------------------
+    // Help & Support tickets (App\Support\SupportTickets).
+    // ---------------------------------------------------------------------
+
+    public function test_a_buyer_opens_a_ticket_that_both_the_lgu_and_super_admin_hear_about(): void
+    {
+        Mail::fake();
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $buyer = $this->makeBuyer(['municipality_id' => $lguAdmin->municipality_id]);
+        $superAdmin = User::where('role', 'super_admin')->firstOrFail();
+
+        Sanctum::actingAs($buyer);
+        $categories = collect($this->getJson('/api/support/categories')->assertOk()->json('categories'))->pluck('value');
+        $this->assertTrue($categories->contains('payment_refund'));
+        // Seller-only categories are not offered to a buyer, and are refused.
+        $this->assertFalse($categories->contains('wallet_withdrawal'));
+        $this->postJson('/api/support/tickets', [
+            'category' => 'wallet_withdrawal',
+            'subject' => 'Withdrawal help',
+            'body' => 'This category is not for buyers at all.',
+        ])->assertStatus(422);
+
+        $ticket = $this->postJson('/api/support/tickets', [
+            'category' => 'payment_refund',
+            'subject' => 'Charged but order says unpaid',
+            'body' => 'My GCash was charged but the order still shows unpaid.',
+        ])
+            ->assertCreated()
+            ->assertJsonPath('status', 'open')
+            ->assertJsonMissingPath('handler_role')
+            ->assertJsonCount(1, 'messages')
+            ->json();
+
+        $this->assertSame(sprintf('SUP-%06d', $ticket['id']), $ticket['ticket_number']);
+        // Shared: the buyer's LGU and the Super Admin are both told, whatever the topic.
+        $this->assertDatabaseHas('notifications', ['user_id' => $superAdmin->id, 'type' => 'support_ticket_opened']);
+        $this->assertDatabaseHas('notifications', ['user_id' => $lguAdmin->id, 'type' => 'support_ticket_opened']);
+        $this->assertDatabaseHas('activity_logs', ['action' => 'support_ticket_opened', 'reference_number' => $ticket['ticket_number']]);
+        $this->getJson('/api/support/tickets')->assertOk()->assertJsonCount(1);
+
+        // Another buyer cannot open it.
+        Sanctum::actingAs($this->makeBuyer());
+        $this->getJson("/api/support/tickets/{$ticket['id']}")->assertStatus(403);
+        $this->postJson("/api/support/tickets/{$ticket['id']}/replies", ['body' => 'Hello?'])->assertStatus(403);
+    }
+
+    public function test_a_ticket_is_shared_by_the_order_sellers_lgu_and_the_super_admin(): void
+    {
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $otherMunicipality = Municipality::where('id', '!=', $lguAdmin->municipality_id)->firstOrFail();
+        $outsideLgu = $this->makeLguAdmin(['municipality_id' => $otherMunicipality->id]);
+        $seller = $this->makeSeller(
+            ['municipality_id' => $lguAdmin->municipality_id],
+            ['municipality_id' => $lguAdmin->municipality_id]
+        );
+        // The buyer lives elsewhere: the order's seller decides the municipality.
+        $buyer = $this->makeBuyer(['municipality_id' => $otherMunicipality->id]);
+        $order = $this->makeOrder($buyer, $this->makeListing($seller));
+
+        // Someone else's order cannot be attached.
+        Sanctum::actingAs($this->makeBuyer());
+        $this->postJson('/api/support/tickets', [
+            'category' => 'order_delivery',
+            'subject' => 'Where is my order',
+            'body' => 'Trying to attach an order that is not mine.',
+            'order_number' => $order->order_number,
+        ])->assertStatus(422)->assertJsonValidationErrors('order_number');
+
+        Sanctum::actingAs($buyer);
+        $ticketId = $this->postJson('/api/support/tickets', [
+            'category' => 'order_delivery',
+            'subject' => 'Delivery is late',
+            'body' => 'The seller said it would arrive Monday and it has not.',
+            'order_number' => $order->order_number,
+        ])
+            ->assertCreated()
+            ->assertJsonPath('municipality_id', $lguAdmin->municipality_id)
+            ->assertJsonPath('order.order_number', $order->order_number)
+            ->json('id');
+
+        $this->assertDatabaseHas('notifications', ['user_id' => $lguAdmin->id, 'type' => 'support_ticket_opened']);
+        $this->assertDatabaseHas('notifications', [
+            'user_id' => User::where('role', 'super_admin')->value('id'),
+            'type' => 'support_ticket_opened',
+        ]);
+
+        Sanctum::actingAs($outsideLgu);
+        $this->assertFalse(collect($this->getJson('/api/lgu/support-tickets')->assertOk()->json())->pluck('id')->contains($ticketId));
+        $this->getJson("/api/support/tickets/{$ticketId}")->assertStatus(403);
+        $this->patchJson("/api/lgu/support-tickets/{$ticketId}/resolve")->assertStatus(403);
+
+        Sanctum::actingAs($lguAdmin);
+        $this->assertTrue(collect($this->getJson('/api/lgu/support-tickets')->assertOk()->json())->pluck('id')->contains($ticketId));
+
+        // The Super Admin sees it too, and either of them may answer.
+        Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
+        $this->assertTrue(collect($this->getJson('/api/super-admin/support-tickets')->assertOk()->json())->pluck('id')->contains($ticketId));
+        $this->postJson("/api/support/tickets/{$ticketId}/replies", ['body' => 'Checking with the seller now.'])->assertCreated();
+    }
+
+    public function test_ticket_status_follows_the_conversation_and_the_user_is_emailed(): void
+    {
+        Mail::fake();
+        Storage::fake('public');
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $seller = $this->makeSeller(
+            ['municipality_id' => $lguAdmin->municipality_id],
+            ['municipality_id' => $lguAdmin->municipality_id]
+        );
+
+        Sanctum::actingAs($seller->user);
+        $ticket = $this->post('/api/support/tickets', [
+            'category' => 'listing',
+            'subject' => 'Cannot upload listing photos',
+            'body' => 'Every photo I upload fails with an error.',
+            'attachment' => UploadedFile::fake()->image('error.png')->size(200),
+        ], ['Accept' => 'application/json'])->assertCreated()->json();
+        $this->assertNotNull($ticket['messages'][0]['attachment_url']);
+
+        Sanctum::actingAs($lguAdmin);
+        $this->postJson("/api/support/tickets/{$ticket['id']}/replies", ['body' => 'Try a JPG under 10 MB.'])
+            ->assertCreated()
+            ->assertJsonPath('status', 'answered');
+        $this->assertDatabaseHas('notifications', ['user_id' => $seller->user_id, 'type' => 'support_ticket_reply']);
+        Mail::assertSent(SupportTicketUpdatedMail::class, fn ($mail) => $mail->hasTo($seller->user->email) && ! $mail->resolved);
+
+        Sanctum::actingAs($seller->user);
+        $this->postJson("/api/support/tickets/{$ticket['id']}/replies", ['body' => 'Still failing.'])
+            ->assertCreated()
+            ->assertJsonPath('status', 'open');
+
+        Sanctum::actingAs($lguAdmin);
+        $this->patchJson("/api/lgu/support-tickets/{$ticket['id']}/resolve", ['note' => 'Fixed on our side.'])
+            ->assertOk()
+            ->assertJsonPath('status', 'resolved')
+            ->assertJsonCount(4, 'messages');
+        Mail::assertSent(SupportTicketUpdatedMail::class, fn ($mail) => $mail->resolved);
+        $this->patchJson("/api/lgu/support-tickets/{$ticket['id']}/resolve")->assertStatus(422);
+
+        // Replying to a resolved ticket reopens it.
+        Sanctum::actingAs($seller->user);
+        $this->postJson("/api/support/tickets/{$ticket['id']}/replies", ['body' => 'It broke again.'])
+            ->assertCreated()
+            ->assertJsonPath('status', 'open')
+            ->assertJsonPath('resolved_at', null);
+    }
+
+    public function test_an_lgu_can_answer_any_topic_from_its_municipality(): void
+    {
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $buyer = $this->makeBuyer(['municipality_id' => $lguAdmin->municipality_id]);
+
+        Sanctum::actingAs($buyer);
+        $ticketId = $this->postJson('/api/support/tickets', [
+            'category' => 'payment_refund',
+            'subject' => 'Refund still pending',
+            'body' => 'My refund has said pending for a week now.',
+        ])->assertCreated()->json('id');
+
+        // A payment topic is not reserved for the Super Admin: the LGU sees it
+        // and can pick it up.
+        Sanctum::actingAs($lguAdmin);
+        $this->assertTrue(collect($this->getJson('/api/lgu/support-tickets')->assertOk()->json())->pluck('id')->contains($ticketId));
+        $this->postJson("/api/support/tickets/{$ticketId}/replies", ['body' => 'I asked the platform team to check.'])
+            ->assertCreated()
+            ->assertJsonPath('status', 'answered');
+        $this->patchJson("/api/lgu/support-tickets/{$ticketId}/escalate")->assertNotFound();
+    }
+
+    public function test_a_disabled_lgu_admin_is_not_notified_about_new_tickets(): void
+    {
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $lguAdmin->update(['status' => 'disabled']);
+        $buyer = $this->makeBuyer(['municipality_id' => $lguAdmin->municipality_id]);
+
+        Sanctum::actingAs($buyer);
+        $this->postJson('/api/support/tickets', [
+            'category' => 'order_delivery',
+            'subject' => 'Order question',
+            'body' => 'Who can help me with my order delivery?',
+        ])->assertCreated();
+
+        $this->assertDatabaseHas('notifications', [
+            'user_id' => User::where('role', 'super_admin')->value('id'),
+            'type' => 'support_ticket_opened',
+        ]);
+        $this->assertDatabaseMissing('notifications', ['user_id' => $lguAdmin->id, 'type' => 'support_ticket_opened']);
+    }
+
+    public function test_the_ai_assistant_points_users_to_help_and_support(): void
+    {
+        foreach ([
+            'How do I contact support?',
+            'I want to talk to a person',
+            'I found a bug in the app',
+            'Where is the help center?',
+            'Paano humingi ng tulong sa AbaiMarket?',
+            'Asa ko mangayo og tabang?',
+        ] as $question) {
+            $result = \App\Support\AiIntentClassifier::classify($question);
+            $this->assertNotNull($result['topic'], $question);
+            $this->assertStringContainsString('Help & Support', $result['topic']['English'], "Expected \"{$question}\" to reach the Help & Support answer.");
+        }
+
+        // Staff hear how to answer tickets, not how to open one.
+        $topic = \App\Support\AiIntentClassifier::classify('How do I contact support?')['topic'];
+        $this->assertStringContainsString('The Super Admin sees the same tickets', \App\Support\AiIntentClassifier::topicContext($topic, 'lgu_admin'));
+        $this->assertStringContainsString('Support Tickets tab', \App\Support\AiIntentClassifier::topicContext($topic, 'super_admin'));
+
+        // A bare "support" or "help" is not enough -- those stay on their own topics.
+        $this->assertStringNotContainsString('Help & Support', (string) (\App\Support\AiIntentClassifier::classify('Does checkout support GCash?')['topic']['English'] ?? ''));
+        $this->assertSame('Fish Care', \App\Support\AiIntentClassifier::classify('Help, my fish are sick')['category']);
+
+        // The refund answer describes the real refund flow and where to follow up.
+        $refund = \App\Support\AiIntentClassifier::classify('How do I get a refund?')['topic'];
+        $this->assertStringContainsString('Refund Pending', $refund['English']);
+        $this->assertStringContainsString('Payment or refund', $refund['English']);
+        $this->assertStringContainsString('refund queue', \App\Support\AiIntentClassifier::topicContext($refund, 'super_admin'));
+    }
+
+    public function test_ticket_messages_can_be_edited_and_deleted_by_their_author_only(): void
+    {
+        Storage::fake('public');
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $buyer = $this->makeBuyer(['municipality_id' => $lguAdmin->municipality_id]);
+
+        Sanctum::actingAs($buyer);
+        $ticket = $this->post('/api/support/tickets', [
+            'category' => 'technical',
+            'subject' => 'Checkout button missing',
+            'body' => 'The checkout button does not show up for me.',
+            'attachment' => UploadedFile::fake()->image('bug.png')->size(100),
+        ], ['Accept' => 'application/json'])->assertCreated()->json();
+        $first = $ticket['messages'][0];
+        $path = substr($first['attachment_url'], strpos($first['attachment_url'], '/storage/') + strlen('/storage/'));
+        Storage::disk('public')->assertExists($path);
+
+        $this->patchJson("/api/support/tickets/{$ticket['id']}/messages/{$first['id']}", ['body' => 'The checkout button is missing on mobile.'])
+            ->assertOk()
+            ->assertJsonPath('messages.0.body', 'The checkout button is missing on mobile.');
+        $this->assertNotNull(\App\Models\SupportTicketMessage::find($first['id'])->edited_at);
+
+        // Staff can see the ticket but cannot change the user's words.
+        Sanctum::actingAs($lguAdmin);
+        $this->patchJson("/api/support/tickets/{$ticket['id']}/messages/{$first['id']}", ['body' => 'Changed by staff'])->assertStatus(403);
+        $this->deleteJson("/api/support/tickets/{$ticket['id']}/messages/{$first['id']}")->assertStatus(403);
+
+        // Past the edit window an edit is refused, but a delete still works.
+        \App\Models\SupportTicketMessage::whereKey($first['id'])->update(['created_at' => now()->subMinutes(20)]);
+        Sanctum::actingAs($buyer);
+        $this->patchJson("/api/support/tickets/{$ticket['id']}/messages/{$first['id']}", ['body' => 'Too late to edit this.'])->assertStatus(422);
+
+        $this->deleteJson("/api/support/tickets/{$ticket['id']}/messages/{$first['id']}")
+            ->assertOk()
+            ->assertJsonPath('messages.0.body', 'This message was deleted.')
+            ->assertJsonPath('messages.0.attachment_url', null);
+        Storage::disk('public')->assertMissing($path);
+        $this->deleteJson("/api/support/tickets/{$ticket['id']}/messages/{$first['id']}")->assertStatus(422);
+
+        // A message id from another ticket is not reachable through this one.
+        $otherTicketId = $this->postJson('/api/support/tickets', [
+            'category' => 'other',
+            'subject' => 'Another question',
+            'body' => 'A second, unrelated question here.',
+        ])->assertCreated()->json('id');
+        $this->deleteJson("/api/support/tickets/{$otherTicketId}/messages/{$first['id']}")->assertNotFound();
     }
 }

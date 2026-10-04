@@ -136,9 +136,20 @@ class AiIntentClassifier
         [
             'category' => 'Payments',
             'keywords' => ['refund'],
-            'English' => 'AbaiMarket does not currently support automated refunds through the app. If there\'s a problem with an order, message the seller directly first -- most issues are resolved that way. If it involves a rule violation, your municipality\'s LGU Admin can review the listing and take action.',
-            'Tagalog' => 'Wala pang automated refund ang AbaiMarket sa app. Kung may problema sa order, i-message muna nang direkta ang seller -- karamihan ng isyu ay naaayos sa ganitong paraan. Kung may paglabag sa alituntunin, maaaring suriin ito ng LGU Admin ng iyong munisipyo.',
-            'Bisaya' => 'Wala pay automated refund ang AbaiMarket sa app. Kung naay problema sa order, i-message una direkta ang seller -- kadaghanan sa isyu masulbad ana nga paagi. Kung naay paglapas sa lagda, mahimong susihon kini sa LGU Admin sa imong munisipyo.',
+            'English' => 'If a paid order is cancelled or expires, its payment shows Refund Pending until the refund is sent back to you, then Refunded. Only the seller can cancel a paid order, before it is out for delivery, so message them first about any problem. If a refund is taking too long, open Help & Support in your sidebar and send a ticket under "Payment or refund" -- the AbaiMarket support team handles refunds.',
+            'Tagalog' => 'Kapag na-cancel o nag-expire ang isang bayad na order, Refund Pending ang makikita sa bayad hanggang maibalik sa iyo ang refund, pagkatapos ay Refunded. Ang seller lang ang makaka-cancel ng bayad na order bago ito ma-deliver, kaya i-message muna sila kung may problema. Kung matagal ang refund, buksan ang Help & Support sa sidebar at magpadala ng ticket sa "Payment or refund" -- ang AbaiMarket support team ang humahawak ng refund.',
+            'Bisaya' => 'Kung ma-cancel o ma-expire ang bayad na nga order, Refund Pending ang makita sa bayad hangtod mabalik nimo ang refund, unya Refunded. Ang seller ra ang maka-cancel sa bayad na nga order ayha kini ma-deliver, mao nga i-message una sila kung naay problema. Kung dugay ang refund, ablihi ang Help & Support sa sidebar ug pagpadala og ticket sa "Payment or refund" -- ang AbaiMarket support team ang nagdumala sa refund.',
+            'roles' => [
+                'seller' => [
+                    'English' => 'Cancelling a paid order (only possible before it is out for delivery) sends the buyer\'s payment to Refund Pending, and the AbaiMarket support team returns it to the buyer. You don\'t send refunds yourself. For a refund question you can\'t resolve, open Help & Support in your sidebar and send a ticket under "Payment or refund".',
+                ],
+                'lgu_admin' => [
+                    'English' => 'Refunds for cancelled or expired paid orders are handled platform-wide by the Super Admin from the refund queue in Payout Management -- LGU admins don\'t process them. If a buyer asks about a refund in a support ticket, you can still reply; the Super Admin sees the same ticket.',
+                ],
+                'super_admin' => [
+                    'English' => 'Paid orders that are cancelled or expire land in the refund queue in Payout Management as Refund Pending. Send the money back, then mark the payment Refunded. Buyers chasing a refund may also open a support ticket under "Payment or refund", which comes to your Support Tickets tab.',
+                ],
+            ],
         ],
         [
             'category' => 'Delivery',
@@ -454,6 +465,34 @@ class AiIntentClassifier
             'English' => 'AbaiMarket\'s AI can help with fish-farming basics -- choosing a species, preparing and stocking a pond, water quality, feeding, disease prevention, and harvesting. Ask a specific question (e.g. "how do I keep pond oxygen up?" or "why are my fingerlings dying?") and I\'ll give practical guidance for local conditions.',
             'Tagalog' => 'Makakatulong ang AI ng AbaiMarket sa mga batayan ng fish farming -- pagpili ng species, paghahanda at pag-stock ng pond, kalidad ng tubig, pagpapakain, pag-iwas sa sakit, at pag-harvest. Magtanong nang tiyak (hal. "paano ko itaas ang oxygen sa pond?" o "bakit namamatay ang aking fingerlings?") at bibigyan kita ng praktikal na gabay para sa lokal na kondisyon.',
             'Bisaya' => 'Ang AI sa AbaiMarket makatabang sa mga sukaranan sa fish farming -- pagpili og species, pag-andam ug pag-stock sa pond, kalidad sa tubig, pagpakaon, pag-iwas sa sakit, ug pag-harvest. Pangutana og espisipiko (pananglitan, "unsaon nako pagpataas sa oxygen sa pond?" o "nganong nangamatay ang akong fingerlings?") ug hatagan tika og praktikal nga giya para sa lokal nga kondisyon.',
+        ],
+        // Help & Support tickets (App\Support\SupportTickets). Reuses the
+        // 'Account' category, like the Cart reuses 'Marketplace', so CATEGORIES
+        // stays unchanged. Phrase keywords only: a bare "support" or "help"
+        // would catch "does AbaiMarket support GCash?" or a farming question.
+        [
+            'category' => 'Account',
+            'keywords' => [
+                'contact support', 'customer support', 'customer service', 'support ticket', 'support team',
+                'abaimarket support', 'help and support', 'help & support', 'help center', 'help centre',
+                'talk to a person', 'talk to a human', 'talk to someone', 'speak to someone', 'real person',
+                'report a bug', 'found a bug', 'report a problem', 'contact the admin', 'contact admin',
+                'paano humingi ng tulong', 'kanino ako lalapit', 'asa ko mangayo og tabang',
+            ],
+            'English' => 'For help from a person, open Help & Support in your sidebar. Help Articles answers common questions, and Contact Support lets you send a ticket with an optional order number and screenshot. Your ticket is seen by your LGU and by the AbaiMarket support team, and whoever picks it up replies. You get a notification and an email when they do, and you can follow the conversation under My Tickets. Anyone can also read the Help Center at /help without logging in.',
+            'Tagalog' => 'Para sa tulong mula sa isang tao, buksan ang Help & Support sa sidebar. Sinasagot ng Help Articles ang mga karaniwang tanong, at sa Contact Support ay makakapagpadala ka ng ticket na may order number at screenshot kung gusto mo. Makikita ng iyong LGU at ng AbaiMarket support team ang ticket mo, at kung sino ang unang humawak ang siyang sasagot. Makakatanggap ka ng notification at email kapag sumagot sila, at masusundan mo ang usapan sa My Tickets. Mababasa rin ng kahit sino ang Help Center sa /help kahit hindi naka-login.',
+            'Bisaya' => 'Para sa tabang gikan sa usa ka tawo, ablihi ang Help & Support sa sidebar. Ang Help Articles motubag sa kasagarang pangutana, ug sa Contact Support makapadala ka og ticket nga naay order number ug screenshot kung gusto nimo. Makita sa imong LGU ug sa AbaiMarket support team ang imong ticket, ug kinsa ang unang mohikap mao ang motubag. Makadawat ka og notification ug email kung motubag sila, ug masundan nimo ang panag-istorya sa My Tickets. Mabasa usab sa bisan kinsa ang Help Center sa /help bisan dili naka-login.',
+            'roles' => [
+                'seller' => [
+                    'English' => 'For help from a person, open Help & Support in your sidebar and choose Contact Support. Your ticket is seen by your LGU and by the AbaiMarket support team, and whoever picks it up replies. You get a notification and an email when they do. To appeal a rejected earnings review or withdrawal, use Dispute This Rejection on that item instead of a ticket.',
+                ],
+                'lgu_admin' => [
+                    'English' => 'Support tickets from buyers and sellers in your municipality appear in your Support Tickets tab. The Super Admin sees the same tickets, so whichever of you picks one up answers it. Open a ticket to reply, then Mark Resolved when it is done. The user is notified and emailed when you reply or resolve.',
+                ],
+                'super_admin' => [
+                    'English' => 'Your Support Tickets tab shows every ticket on the platform. Each one is also visible to the LGU of its municipality, so whichever of you picks it up answers it. Reply, then Mark Resolved; the user is notified and emailed either way.',
+                ],
+            ],
         ],
     ];
 

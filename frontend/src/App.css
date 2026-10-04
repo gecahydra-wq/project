@@ -1539,8 +1539,7 @@ footer {
    shows where the auth page meets the public header. */
 body,
 .auth-page,
-.app-main,
-.message-log {
+.app-main {
   background-image: var(--page-scrim), var(--page-image);
   background-position: center;
   background-repeat: no-repeat;
@@ -1554,8 +1553,7 @@ body,
 @media (max-width: 860px) {
   body,
   .auth-page,
-  .app-main,
-  .message-log {
+  .app-main {
     background-attachment: scroll;
   }
 }
@@ -3038,9 +3036,12 @@ a.activity-log-item:hover {
   gap: 0.75rem;
 }
 
+/* A solid Sea mist panel, not the see-through page photo it used to share:
+   white and teal bubbles both read clearly against it. Used by Messages and
+   by support ticket threads. */
 .message-log {
-  background-color: var(--color-surface-subtle);
-  border: 1px solid var(--color-border-subtle);
+  background-color: var(--color-bg);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   display: grid;
   gap: var(--space-2);
@@ -4723,14 +4724,15 @@ body.modal-open {
   padding: 0.85rem 1.5rem;
 }
 
-.public-shell footer {
+/* Shared by every public page (PublicLayout), full width below the content. */
+.site-footer {
   border-top: 1px solid var(--color-border);
   /* No colour override here on purpose. The base `footer` rule above supplies
      the navy background, and this block used to set --color-text-muted on top
      of it: dark grey on navy, 2.64:1, effectively unreadable. Inheriting the
      base rule's rgba(255,255,255,0.88) gives 11.03:1 on the same background. */
   margin-top: clamp(2rem, 5vw, 4rem);
-  padding: clamp(2rem, 5vw, 3.5rem) 0;
+  padding: clamp(2rem, 5vw, 3.5rem) var(--space-4);
   text-align: center;
 }
 
@@ -5182,4 +5184,233 @@ body.modal-open {
   background: rgba(255, 255, 255, 0.12);
   border-color: var(--neutral-white);
   color: var(--neutral-white);
+}
+
+/* Help & Support -- the Help Center FAQ, ticket lists, and ticket threads. */
+/* The public Help Center is reading material: a narrower centred column reads
+   better than the 1320px storefront width, and topics get room between them. */
+.public-shell main.help-page,
+.public-shell main.about-page {
+  max-width: 880px;
+}
+
+.about-card {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.about-card p {
+  line-height: 1.7;
+  margin: 0;
+}
+
+.about-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+.help-page .help-articles {
+  gap: var(--space-6);
+  margin-top: var(--space-4);
+}
+
+.help-page .help-topic {
+  gap: var(--space-3);
+}
+
+.help-page .help-item {
+  padding: var(--space-4) var(--space-5);
+}
+
+.help-page .help-contact-card {
+  margin-top: var(--space-8);
+}
+
+.help-articles {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.help-search {
+  align-items: center;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  display: flex;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+}
+
+.help-search input {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  flex: 1;
+  min-width: 0;
+  padding-left: 0;
+}
+
+.help-search input:focus,
+.help-search input:hover:not(:disabled) {
+  border: 0;
+  box-shadow: none;
+}
+
+.help-topic {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.help-topic h3 {
+  color: var(--color-ink);
+  font-size: var(--fs-md);
+  margin: var(--space-2) 0 0;
+}
+
+.help-item {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+}
+
+.help-item summary {
+  color: var(--color-text);
+  cursor: pointer;
+  font-weight: var(--fw-semibold);
+}
+
+.help-item p {
+  color: var(--color-text);
+  line-height: 1.6;
+  margin: var(--space-2) 0 0;
+}
+
+/* The "Still need help?" call to action, centred and stacked -- the same on
+   the public Help Center and inside the Buyer/Seller Help & Support tab. */
+.help-contact-card {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  justify-content: center;
+  margin-top: var(--space-4);
+  text-align: center;
+}
+
+.help-contact-card p {
+  margin: var(--space-1) 0 0;
+}
+
+/* A ticket row is a <button> so it is keyboard-reachable, but it should read
+   as a card, not a pill: undo the global button look. */
+button.support-ticket-row {
+  align-items: stretch;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  display: grid;
+  font-weight: var(--fw-regular);
+  gap: var(--space-1);
+  justify-content: stretch;
+  text-align: left;
+  white-space: normal;
+  width: 100%;
+}
+
+button.support-ticket-row:hover {
+  background: var(--color-surface);
+  border-color: var(--color-primary);
+  box-shadow: none;
+  transform: none;
+}
+
+.support-ticket-row .muted {
+  font-size: var(--fs-xs);
+  margin: 0;
+}
+
+.support-thread-head h3 {
+  margin: 0;
+}
+
+.support-thread-head .muted,
+.support-thread-head .helper-text {
+  margin: var(--space-1) 0 0;
+}
+
+.support-thread .message-log .support-author {
+  display: block;
+  font-size: var(--fs-xs);
+  margin-bottom: 2px;
+}
+
+.support-thread .message-log .support-body {
+  color: inherit;
+  margin: 0;
+  white-space: pre-line;
+}
+
+/* A <button> (it opens the in-app viewer), so strip the global pill styling. */
+button.support-screenshot {
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: zoom-in;
+  display: block;
+  margin-top: var(--space-2);
+  min-height: 0;
+  padding: 0;
+}
+
+button.support-screenshot:hover {
+  background: none;
+  box-shadow: none;
+  transform: none;
+}
+
+.support-screenshot img {
+  border-radius: var(--radius-sm);
+  display: block;
+  max-height: 220px;
+  max-width: 100%;
+}
+
+.support-attachment {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.support-attachment .muted {
+  align-items: center;
+  display: inline-flex;
+  font-size: var(--fs-xs);
+  gap: var(--space-2);
+}
+
+.support-form {
+  margin-top: var(--space-3);
+}
+
+.support-chat {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.support-chat .support-reply {
+  margin-top: 0;
+}
+
+/* Help & Support (Buyer/Seller) and Support Tickets (LGU/Super Admin) sit in
+   one centred column, the same reading width as the public Help Center. */
+.support-column {
+  margin-inline: auto;
+  max-width: 880px;
+  width: 100%;
 }

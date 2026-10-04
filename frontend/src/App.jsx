@@ -28,6 +28,7 @@ import {
   History,
   Image as ImageIcon,
   LayoutDashboard,
+  LifeBuoy,
   LogOut,
   MapPin,
   Scale,
@@ -504,6 +505,7 @@ function App() {
             <Route path="/browse" element={<BrowsePage />} />
             <Route path="/sellers" element={<SellersPage />} />
             <Route path="/about" element={<AboutPage />} />
+            <Route path="/help" element={<HelpCenterPage />} />
             <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
@@ -547,6 +549,7 @@ function PublicLayout() {
           <Link to="/browse">Browse</Link>
           <Link to="/sellers">Sellers</Link>
           <Link to="/about">About</Link>
+          <Link to="/help">Help</Link>
         </nav>
         {session ? (
           // Browse/Sellers/About stay reachable while signed in, so without
@@ -569,6 +572,8 @@ function PublicLayout() {
       <div className="public-shell">
         <Outlet />
       </div>
+      {/* One footer for every public page, not just the landing page. */}
+      <footer className="site-footer">AbaiMarket - LGU, Sellers, and Fish Farmers working together for local aquaculture.</footer>
       <FloatingAi />
     </>
   )
@@ -603,10 +608,10 @@ function AppShell({ user, children }) {
   const tab = searchParams.get('tab') || 'overview'
   const homeRoute = roleRoutes[user.role] || '/'
   const menu = {
-    buyer: [['Dashboard', '/buyer/dashboard?tab=overview', LayoutDashboard], ['Browse', '/buyer/dashboard?tab=browse', Search], ['Cart', '/buyer/dashboard?tab=cart', ShoppingBag], ['Orders', '/buyer/dashboard?tab=orders', ShoppingCart], ['Messages', '/buyer/dashboard?tab=messages', MessageCircle], ['Notifications', '/buyer/dashboard?tab=notifications', Bell], ['Analytics', '/buyer/dashboard?tab=analytics', BarChart3], ['AI Assistant', '/buyer/dashboard?tab=ai', Bot], ['Profile', '/buyer/dashboard?tab=settings', ShieldCheck]],
-    seller: [['Dashboard', '/seller/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/seller/dashboard?tab=marketplace', Search], ['Listings', '/seller/dashboard?tab=listings', Store], ['Orders', '/seller/dashboard?tab=orders', ShoppingCart], ['Messages', '/seller/dashboard?tab=messages', MessageCircle], ['Wallet', '/seller/dashboard?tab=wallet', Wallet], ['Notifications', '/seller/dashboard?tab=notifications', Bell], ['Notices', '/seller/dashboard?tab=notices', ShieldAlert], ['Analytics', '/seller/dashboard?tab=analytics', BarChart3], ['Profile', '/seller/dashboard?tab=profile', ShieldCheck]],
-    lgu_admin: [['Dashboard', '/lgu/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/lgu/dashboard?tab=marketplace', Search], ['Listing Management', '/lgu/dashboard?tab=listings', Store], ['Sellers', '/lgu/dashboard?tab=sellers', ShieldCheck], ['User Reports', '/lgu/dashboard?tab=user-reports', Flag], ['Notices to Explain', '/lgu/dashboard?tab=notices', ShieldAlert], ['Disputes', '/lgu/dashboard?tab=disputes', Scale], ['Orders', '/lgu/dashboard?tab=orders', ShoppingCart], ['Seller Earnings', '/lgu/dashboard?tab=earnings', Wallet], ['LGU Wallet', '/lgu/dashboard?tab=wallet', Wallet], ['Messages', '/lgu/dashboard?tab=messages', MessageCircle], ['Notifications', '/lgu/dashboard?tab=notifications', Bell], ['Analytics', '/lgu/dashboard?tab=reports', BarChart3], ['Activity Log', '/lgu/dashboard?tab=activity-log', History], ['Reviews & Ratings', '/lgu/dashboard?tab=reviews', Star], ['Users', '/lgu/dashboard?tab=users', UsersIcon], ['Profile', '/lgu/dashboard?tab=profile', CircleUserRound]],
-    super_admin: [['Dashboard', '/admin/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/admin/dashboard?tab=marketplace', Search], ['Listing Management', '/admin/dashboard?tab=listings', Store], ['LGU Admins', '/admin/dashboard?tab=lgu-admins', ShieldCheck], ['Sellers', '/admin/dashboard?tab=sellers', Store], ['Users', '/admin/dashboard?tab=users', UsersIcon], ['User Reports', '/admin/dashboard?tab=user-reports', Flag], ['Notices to Explain', '/admin/dashboard?tab=notices', ShieldAlert], ['Disputes', '/admin/dashboard?tab=disputes', Scale], ['Seller Earnings', '/admin/dashboard?tab=earnings', Wallet], ['Reviews & Ratings', '/admin/dashboard?tab=reviews', Star], ['Orders', '/admin/dashboard?tab=transactions', ShoppingCart], ['Payout Management', '/admin/dashboard?tab=payouts', Wallet], ['Municipalities', '/admin/dashboard?tab=municipalities', MapPin], ['Announcements', '/admin/dashboard?tab=announcements', Megaphone], ['Messages', '/admin/dashboard?tab=messages', MessageCircle], ['Notifications', '/admin/dashboard?tab=notifications', Bell], ['Moderation Log', '/admin/dashboard?tab=moderation', ShieldAlert], ['Activity Log', '/admin/dashboard?tab=activity-log', History], ['Analytics', '/admin/dashboard?tab=reports', BarChart3], ['Profile', '/admin/dashboard?tab=profile', CircleUserRound]],
+    buyer: [['Dashboard', '/buyer/dashboard?tab=overview', LayoutDashboard], ['Browse', '/buyer/dashboard?tab=browse', Search], ['Cart', '/buyer/dashboard?tab=cart', ShoppingBag], ['Orders', '/buyer/dashboard?tab=orders', ShoppingCart], ['Messages', '/buyer/dashboard?tab=messages', MessageCircle], ['Notifications', '/buyer/dashboard?tab=notifications', Bell], ['Analytics', '/buyer/dashboard?tab=analytics', BarChart3], ['AI Assistant', '/buyer/dashboard?tab=ai', Bot], ['Help & Support', '/buyer/dashboard?tab=support', LifeBuoy], ['Profile', '/buyer/dashboard?tab=settings', ShieldCheck]],
+    seller: [['Dashboard', '/seller/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/seller/dashboard?tab=marketplace', Search], ['Listings', '/seller/dashboard?tab=listings', Store], ['Orders', '/seller/dashboard?tab=orders', ShoppingCart], ['Messages', '/seller/dashboard?tab=messages', MessageCircle], ['Wallet', '/seller/dashboard?tab=wallet', Wallet], ['Notifications', '/seller/dashboard?tab=notifications', Bell], ['Notices', '/seller/dashboard?tab=notices', ShieldAlert], ['Analytics', '/seller/dashboard?tab=analytics', BarChart3], ['Help & Support', '/seller/dashboard?tab=support', LifeBuoy], ['Profile', '/seller/dashboard?tab=profile', ShieldCheck]],
+    lgu_admin: [['Dashboard', '/lgu/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/lgu/dashboard?tab=marketplace', Search], ['Listing Management', '/lgu/dashboard?tab=listings', Store], ['Sellers', '/lgu/dashboard?tab=sellers', ShieldCheck], ['User Reports', '/lgu/dashboard?tab=user-reports', Flag], ['Notices to Explain', '/lgu/dashboard?tab=notices', ShieldAlert], ['Disputes', '/lgu/dashboard?tab=disputes', Scale], ['Support Tickets', '/lgu/dashboard?tab=support', LifeBuoy], ['Orders', '/lgu/dashboard?tab=orders', ShoppingCart], ['Seller Earnings', '/lgu/dashboard?tab=earnings', Wallet], ['LGU Wallet', '/lgu/dashboard?tab=wallet', Wallet], ['Messages', '/lgu/dashboard?tab=messages', MessageCircle], ['Notifications', '/lgu/dashboard?tab=notifications', Bell], ['Analytics', '/lgu/dashboard?tab=reports', BarChart3], ['Activity Log', '/lgu/dashboard?tab=activity-log', History], ['Reviews & Ratings', '/lgu/dashboard?tab=reviews', Star], ['Users', '/lgu/dashboard?tab=users', UsersIcon], ['Profile', '/lgu/dashboard?tab=profile', CircleUserRound]],
+    super_admin: [['Dashboard', '/admin/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/admin/dashboard?tab=marketplace', Search], ['Listing Management', '/admin/dashboard?tab=listings', Store], ['LGU Admins', '/admin/dashboard?tab=lgu-admins', ShieldCheck], ['Sellers', '/admin/dashboard?tab=sellers', Store], ['Users', '/admin/dashboard?tab=users', UsersIcon], ['User Reports', '/admin/dashboard?tab=user-reports', Flag], ['Notices to Explain', '/admin/dashboard?tab=notices', ShieldAlert], ['Disputes', '/admin/dashboard?tab=disputes', Scale], ['Support Tickets', '/admin/dashboard?tab=support', LifeBuoy], ['Seller Earnings', '/admin/dashboard?tab=earnings', Wallet], ['Reviews & Ratings', '/admin/dashboard?tab=reviews', Star], ['Orders', '/admin/dashboard?tab=transactions', ShoppingCart], ['Payout Management', '/admin/dashboard?tab=payouts', Wallet], ['Municipalities', '/admin/dashboard?tab=municipalities', MapPin], ['Announcements', '/admin/dashboard?tab=announcements', Megaphone], ['Messages', '/admin/dashboard?tab=messages', MessageCircle], ['Notifications', '/admin/dashboard?tab=notifications', Bell], ['Moderation Log', '/admin/dashboard?tab=moderation', ShieldAlert], ['Activity Log', '/admin/dashboard?tab=activity-log', History], ['Analytics', '/admin/dashboard?tab=reports', BarChart3], ['Profile', '/admin/dashboard?tab=profile', CircleUserRound]],
   }[user.role]
 
   async function logout() {
@@ -796,7 +801,6 @@ function LandingPage() {
         </div>
       </Section>
       <AboutPage compact />
-      <footer>AbaiMarket - LGU, Sellers, and Fish Farmers working together for local aquaculture.</footer>
     </main>
   )
 }
@@ -2387,7 +2391,7 @@ function BuyerDashboard() {
               showOrderDate
             />
           </Section>
-          <Section title="Notifications"><NotificationStack notifications={notifications.slice(0, 3)} onMarkRead={handleMarkRead} /></Section>
+          <Section title="Notifications"><NotificationStack notifications={notifications.slice(0, 3)} onMarkRead={handleMarkRead} getLink={supportNotificationLink('/buyer/dashboard')} /></Section>
         </>
       )}
       {tab === 'browse' && (
@@ -2396,6 +2400,7 @@ function BuyerDashboard() {
         </Section>
       )}
       {tab === 'cart' && <CartPanel />}
+      {tab === 'support' && <SupportPanel role="buyer" />}
       {tab === 'orders' && (
         <Section title="My Orders">
           <OrderTable
@@ -2418,7 +2423,7 @@ function BuyerDashboard() {
           title="Notifications"
           actions={<MarkAllReadButton unreadCount={notifications.length} loading={markAllRead.isPending} onClick={() => markAllRead.mutate()} />}
         >
-          <NotificationStack notifications={notifications} onMarkRead={handleMarkRead} />
+          <NotificationStack notifications={notifications} onMarkRead={handleMarkRead} getLink={supportNotificationLink('/buyer/dashboard')} />
         </Section>
       )}
       {tab === 'analytics' && (
@@ -3192,6 +3197,7 @@ function SellerDashboard() {
         </>
       )}
       {tab === 'notices' && <SellerNoticesSection />}
+      {tab === 'support' && <SupportPanel role="seller" />}
       {tab === 'messages' && <Section title="Messages"><MessagesPanel initialUserId={searchParams.get('with') ? Number(searchParams.get('with')) : null} /></Section>}
       {tab === 'wallet' && (
         <>
@@ -3302,7 +3308,7 @@ function SellerDashboard() {
           title="Notifications"
           actions={<MarkAllReadButton unreadCount={notifications.length} loading={markAllRead.isPending} onClick={() => markAllRead.mutate()} />}
         >
-          <NotificationStack notifications={notifications} onMarkRead={handleMarkRead} />
+          <NotificationStack notifications={notifications} onMarkRead={handleMarkRead} getLink={supportNotificationLink('/seller/dashboard')} />
         </Section>
       )}
       {tab === 'analytics' && (
@@ -4503,7 +4509,7 @@ function LguDashboard() {
       queryClient.invalidateQueries({ queryKey: ['lgu-dashboard'] })
     },
   })
-  const notificationLink = (notification) => (notification.type?.startsWith('earnings_pending_approval') ? '/lgu/dashboard?tab=earnings' : null)
+  const notificationLink = (notification) => (notification.type?.startsWith('earnings_pending_approval') ? '/lgu/dashboard?tab=earnings' : supportNotificationLink('/lgu/dashboard')(notification))
   const reviews = useQuery({
     queryKey: ['lgu-reviews'],
     queryFn: async () => (await api.get('/lgu/reviews')).data,
@@ -4692,6 +4698,7 @@ function LguDashboard() {
       )}
       {tab === 'notices' && <SellerNoticesPanel />}
       {tab === 'disputes' && <DisputesPanel />}
+      {tab === 'support' && <SupportTicketsAdminPanel scope="lgu" />}
       {tab === 'orders' && (
         <Section title="Orders">
           <p className="helper-text">Every order placed with a seller in your municipality. If a buyer never confirms a delivery that is Out for Delivery, you can mark it as received on their behalf once you have confirmed it arrived. It then moves to Seller Earnings for approval.</p>
@@ -5800,7 +5807,7 @@ function SuperAdminDashboard() {
           title="Notifications"
           actions={<MarkAllReadButton unreadCount={notifications.length} loading={markAllNotificationsRead.isPending} onClick={() => markAllNotificationsRead.mutate()} />}
         >
-          <NotificationStack notifications={notifications} onMarkRead={handleMarkRead} />
+          <NotificationStack notifications={notifications} onMarkRead={handleMarkRead} getLink={supportNotificationLink('/admin/dashboard')} />
         </Section>
       )}
       {tab === 'moderation' && (
@@ -5932,6 +5939,7 @@ function SuperAdminDashboard() {
       )}
       {tab === 'notices' && <SellerNoticesPanel scope="super_admin" />}
       {tab === 'disputes' && <DisputesPanel scope="super-admin" />}
+      {tab === 'support' && <SupportTicketsAdminPanel scope="super-admin" />}
       {tab === 'earnings' && <SellerEarningsPanel scope="super-admin" />}
       {tab === 'transactions' && (
         <>
@@ -6302,6 +6310,656 @@ function UserReportsPanel({ endpointBase, queryKey, scopeLabel }) {
       ) : <EmptyState message="No reports match this filter." />}
       {updateReport.error && <p className="error">{updateReport.error.response?.data?.message || 'Could not update this report.'}</p>}
     </Section>
+  )
+}
+
+/**
+ * Help Center articles, shown on the public /help page and inside the Buyer
+ * and Seller "Help & Support" tab. Written from how the app actually behaves
+ * -- if a rule changes (a fee, a timeout, who approves what), update the
+ * answer here too.
+ */
+const HELP_TOPICS = [
+  {
+    id: 'getting-started',
+    title: 'Getting Started',
+    audience: 'all',
+    items: [
+      ['What is AbaiMarket?', 'AbaiMarket is a marketplace for fish fingerlings from hatcheries in Cebu. Every hatchery is verified by its own LGU, and your payment is held safely until your order is done.'],
+      ['How do I create an account?', 'Click Register, choose Buyer or Seller, and sign up with your email or Google account. Open the verification link we email you before logging in. Sellers also need their LGU to approve their hatchery before they can post listings.'],
+      ['I did not get the verification email.', 'Check your spam or promotions folder first. If it is not there, try logging in. AbaiMarket will offer a Resend Verification Email button for accounts that are not verified yet.'],
+      ['I forgot my password.', 'Click Forgot password? on the login page and enter your email. We will send you a link to set a new password. This works for Google accounts too.'],
+      ['How do I contact support?', 'Log in, open Help & Support from the sidebar, and choose Contact Support. Your LGU and the AbaiMarket support team both see your ticket, and whoever picks it up replies. You get a notification and an email when they do.'],
+    ],
+  },
+  {
+    id: 'buying',
+    title: 'Buying & Payments',
+    audience: 'buyer',
+    items: [
+      ['How do I buy fingerlings?', 'Open a listing, choose how many fish (or how many bulks) you want, and place your order. The minimum order is shown on the listing. You then pay through PayMongo with GCash, Maya or a card.'],
+      ['Is my payment safe?', 'Yes. Your payment is held by AbaiMarket, not sent straight to the seller. The seller is only paid after you confirm you received your fingerlings and their LGU approves the earnings.'],
+      ['How long do I have to pay?', 'Unpaid orders are cancelled automatically after about 30 minutes, and the stock goes back to the listing. Until then, you can finish paying with the Pay Now button in My Orders.'],
+      ['I paid, but my order still says unpaid.', 'It can take a moment for the payment to be confirmed, so refresh My Orders after a minute or two. If it still says unpaid, open a support ticket under "Payment or refund". Include the order number and a screenshot of your receipt.'],
+      ['What does the Cart do?', 'The Cart is a list of listings you want to buy later. It does not hold stock for you, and prices and stock always show their current values. You check out one item at a time.'],
+    ],
+  },
+  {
+    id: 'orders',
+    title: 'Orders, Delivery & Refunds',
+    audience: 'buyer',
+    items: [
+      ['What do the order statuses mean?', 'Placed: waiting for payment or for the seller. Confirmed: the seller accepted it. Out for Delivery: the fingerlings are on the way. Completed: you confirmed you received them. Cancelled: the order was stopped.'],
+      ['How do I confirm my delivery?', 'When your fingerlings arrive, open My Orders and click Confirm Received. Only do this after they have actually arrived, because it starts the seller\'s payment.'],
+      ['Can I cancel my order?', 'An unpaid order is cancelled automatically if you do not pay. For a paid order, message the seller. They can cancel it, with a reason, any time before it is out for delivery.'],
+      ['How do refunds work?', 'If a paid order is cancelled or expires, its payment shows Refund Pending. The AbaiMarket support team sends the refund, and the payment then shows Refunded. If it takes too long, open a ticket under "Payment or refund".'],
+      ['How do I rate a seller?', 'After an order is completed, use Rate Seller in My Orders. Your review appears on the seller\'s profile.'],
+      ['A seller treated me unfairly. What do I do?', 'Use Report User on the seller\'s profile. Reports go to the seller\'s LGU and the Super Admin for review. Use a support ticket for problems with AbaiMarket itself, and a report for problems with a person.'],
+    ],
+  },
+  {
+    id: 'selling',
+    title: 'Selling & Listings',
+    audience: 'seller',
+    items: [
+      ['How do I start selling?', 'Register as a Seller and fill in your hatchery profile. Your municipality\'s LGU reviews and approves your registration. Once approved, you can create listings from the Listings tab.'],
+      ['Do my listings need approval?', 'No. A listing goes live as soon as you post it. Your LGU can still review it and remove it if it breaks the rules.'],
+      ['How do prices, bulks and minimum orders work?', 'You set a price per fish and say how many fish make up one bulk. Buyers can order by the fish or by the bulk. You can also set a minimum order so you never receive orders that are too small.'],
+      ['Why can\'t I post a listing?', 'Your registration may still be waiting for LGU approval, your account may be suspended, or your listings may be paused because of an open Notice to Explain. Check your Notifications and Notices tab. If none of these apply, open a support ticket.'],
+      ['How do I handle an order?', 'In the Orders tab, move a paid order to Confirmed and then Out for Delivery. The buyer confirms when it arrives. You can cancel an order, with a reason, until it is out for delivery. Unpaid orders cannot be moved forward.'],
+    ],
+  },
+  {
+    id: 'wallet',
+    title: 'Earnings & Withdrawals',
+    audience: 'seller',
+    items: [
+      ['When do I get paid?', 'After the buyer confirms they received the order, your LGU reviews the earnings. Once approved, 96% of the order total goes to your Available Balance. The other 4% is the LGU\'s share.'],
+      ['How do I withdraw my money?', 'Open your Wallet and click Request Withdrawal. Choose GCash, Maya or a bank account. A 6% payout fee is taken from the amount you request. The Super Admin approves the request and marks it paid once the money is sent.'],
+      ['My earnings review or withdrawal was rejected.', 'Open the rejected item and click Dispute This Rejection to explain your side. The person who rejected it reviews your dispute. If they accept it, the item is reopened for another review.'],
+      ['What is a Notice to Explain?', 'If your average rating falls to 3 stars or below, AbaiMarket sends you a Notice to Explain. Answer it from the Notices tab. Your first notice is only a warning. From the second notice on, your listings are paused until your LGU accepts your explanation.'],
+    ],
+  },
+]
+
+const HELP_AUDIENCE_TABS = [
+  ['all', 'All Topics'],
+  ['buyer', 'For Buyers'],
+  ['seller', 'For Sellers'],
+]
+
+/**
+ * Searchable FAQ. `audience` limits it to one role's topics plus the general
+ * ones; `includeGeneral={false}` drops the general Getting Started topic, which
+ * only matters before someone has an account.
+ */
+function HelpArticles({ audience = 'all', showAudienceTabs = false, includeGeneral = true }) {
+  const [query, setQuery] = useState('')
+  const [activeAudience, setActiveAudience] = useState(audience)
+  const needle = query.trim().toLowerCase()
+
+  const topics = HELP_TOPICS
+    .filter((topic) => includeGeneral || topic.audience !== 'all')
+    .filter((topic) => activeAudience === 'all' || topic.audience === 'all' || topic.audience === activeAudience)
+    .map((topic) => ({
+      ...topic,
+      items: needle
+        ? topic.items.filter(([q, a]) => q.toLowerCase().includes(needle) || a.toLowerCase().includes(needle))
+        : topic.items,
+    }))
+    .filter((topic) => topic.items.length)
+
+  return (
+    <div className="help-articles">
+      {showAudienceTabs && (
+        <div className="tab-bar">
+          {HELP_AUDIENCE_TABS.map(([value, label]) => (
+            <button key={value} type="button" className={activeAudience === value ? 'tab active' : 'tab'} onClick={() => setActiveAudience(value)}>{label}</button>
+          ))}
+        </div>
+      )}
+      <label className="help-search">
+        <Search size={18} />
+        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search help articles, e.g. refund, withdraw, password" aria-label="Search help articles" />
+      </label>
+      {topics.length ? topics.map((topic) => (
+        <div className="help-topic" key={topic.id}>
+          <h3>{topic.title}</h3>
+          {topic.items.map(([q, a]) => (
+            <details className="help-item" key={q} open={Boolean(needle)}>
+              <summary>{q}</summary>
+              <p>{a}</p>
+            </details>
+          ))}
+        </div>
+      )) : <EmptyState message="No articles match your search. Try another word, or contact support." />}
+    </div>
+  )
+}
+
+/** Public Help Center. Anyone can read it; contacting support needs an account. */
+function HelpCenterPage() {
+  const session = getSession()
+  const canOpenTickets = ['buyer', 'seller'].includes(session?.role)
+
+  return (
+    <main className="help-page">
+      <Section title="Help Center">
+        <p className="helper-text">Answers to common questions about buying, selling, payments and your account.</p>
+        <HelpArticles showAudienceTabs audience={session?.role === 'seller' ? 'seller' : session?.role === 'buyer' ? 'buyer' : 'all'} />
+        <div className="card help-contact-card">
+          <div>
+            <strong>Still need help?</strong>
+            <p>
+              {canOpenTickets
+                ? 'Open a support ticket and we will get back to you.'
+                : session
+                  ? 'Support tickets are for buyers and sellers. Use your dashboard to answer the tickets sent to you.'
+                  : 'Log in to your AbaiMarket account to open a support ticket.'}
+            </p>
+          </div>
+          {canOpenTickets ? (
+            <Link className="button" to={`${roleRoutes[session.role]}?tab=support&view=new`}>Contact Support</Link>
+          ) : !session && (
+            <Link className="button" to="/login">Log In to Contact Support</Link>
+          )}
+        </div>
+      </Section>
+    </main>
+  )
+}
+
+const SUPPORT_STATUS_META = {
+  // Labelled from the reader's side: "open" means waiting on staff.
+  user: {
+    open: { label: 'Waiting on Support', tone: 'warning' },
+    answered: { label: 'Support Replied', tone: 'info' },
+    resolved: { label: 'Resolved', tone: 'success' },
+  },
+  staff: {
+    open: { label: 'Needs Reply', tone: 'warning' },
+    answered: { label: 'Waiting on User', tone: 'info' },
+    resolved: { label: 'Resolved', tone: 'success' },
+  },
+}
+
+const SUPPORT_CATEGORY_LABELS = {
+  order_delivery: 'Order or delivery',
+  listing: 'Listing',
+  seller_registration: 'Seller registration or verification',
+  earnings: 'Seller earnings review',
+  payment_refund: 'Payment or refund',
+  wallet_withdrawal: 'Wallet or withdrawal',
+  account: 'Account or login',
+  technical: 'Technical problem or bug',
+  other: 'Something else',
+}
+
+function SupportStatusBadge({ status, side = 'user' }) {
+  const meta = SUPPORT_STATUS_META[side][status] || { label: status, tone: 'neutral' }
+  return <Badge tone={meta.tone}>{meta.label}</Badge>
+}
+
+/** Notification click-through for the support ticket notifications. */
+function supportNotificationLink(dashboardPath) {
+  return (notification) => (notification.type?.startsWith('support_ticket') ? `${dashboardPath}?tab=support&view=tickets` : null)
+}
+
+/** Optional screenshot picker shared by the new-ticket form and the reply box. */
+function ScreenshotInput({ file, onChange, disabled }) {
+  const inputRef = useRef(null)
+  return (
+    <div className="support-attachment">
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        hidden
+        onChange={(e) => { onChange(e.target.files?.[0] || null); e.target.value = '' }}
+      />
+      <button type="button" className="ghost" disabled={disabled} onClick={() => inputRef.current?.click()}>
+        <Camera size={16} /> {file ? 'Change Screenshot' : 'Attach Screenshot (optional)'}
+      </button>
+      {file && (
+        <span className="muted">
+          {file.name}
+          <button type="button" className="link-action" disabled={disabled} onClick={() => onChange(null)}>Remove</button>
+        </span>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Buyer and Seller "Help & Support" tab: the Help Center, their tickets, and
+ * the form to open one. ?view= picks the sub-tab and ?ticket= opens a thread,
+ * which is what the support emails link to.
+ */
+function SupportPanel({ role }) {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const ticketId = searchParams.get('ticket')
+  const view = ticketId ? 'tickets' : (searchParams.get('view') || 'help')
+
+  const setView = (next) => setSearchParams({ tab: 'support', view: next })
+  const openTicket = (id) => setSearchParams({ tab: 'support', view: 'tickets', ticket: String(id) })
+
+  const tickets = useQuery({
+    queryKey: ['my-support-tickets'],
+    queryFn: async () => (await api.get('/support/tickets')).data,
+    retry: false,
+    placeholderData: [],
+  })
+  const waiting = (tickets.data || []).filter((ticket) => ticket.status === 'answered').length
+
+  return (
+    <div className="support-column">
+      <Section title="Help & Support">
+        <div className="tab-bar">
+          <button type="button" className={view === 'help' ? 'tab active' : 'tab'} onClick={() => setView('help')}>Help Articles</button>
+          <button type="button" className={view === 'tickets' ? 'tab active' : 'tab'} onClick={() => setView('tickets')}>
+            My Tickets{waiting ? ` (${waiting} new)` : ''}
+          </button>
+          <button type="button" className={view === 'new' ? 'tab active' : 'tab'} onClick={() => setView('new')}>Contact Support</button>
+        </div>
+
+        {view === 'help' && (
+          <>
+            <HelpArticles audience={role} includeGeneral={false} />
+            <div className="card help-contact-card">
+              <div>
+                <strong>Didn&apos;t find your answer?</strong>
+                <p>Send us a ticket. Your LGU or the AbaiMarket support team will reply here.</p>
+              </div>
+              <button type="button" onClick={() => setView('new')}>Contact Support</button>
+            </div>
+          </>
+        )}
+
+        {view === 'new' && <NewSupportTicketForm role={role} onCreated={(ticket) => openTicket(ticket.id)} />}
+
+        {view === 'tickets' && (ticketId ? (
+          <SupportTicketThread ticketId={ticketId} side="user" onBack={() => setView('tickets')} />
+        ) : (tickets.data || []).length ? (
+          <div className="item-list">
+            {tickets.data.map((ticket) => (
+              <button type="button" className="card support-ticket-row" key={ticket.id} onClick={() => openTicket(ticket.id)}>
+                <div className="card-row">
+                  <strong>{ticket.subject}</strong>
+                  <SupportStatusBadge status={ticket.status} />
+                </div>
+                <p className="muted">
+                  {ticket.ticket_number} · {SUPPORT_CATEGORY_LABELS[ticket.category] || ticket.category}
+                  {ticket.order?.order_number ? ` · Order ${ticket.order.order_number}` : ''}
+                  {' · '}Updated {formatMessageTimestamp(ticket.last_activity_at || ticket.created_at)}
+                </p>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <EmptyState
+            title="No tickets yet"
+            message="When you contact support, your conversation shows up here."
+            icon={LifeBuoy}
+          />
+        ))}
+      </Section>
+    </div>
+  )
+}
+
+function NewSupportTicketForm({ role, onCreated }) {
+  const [form, setForm] = useState({ category: '', subject: '', body: '', order_number: '' })
+  const [attachment, setAttachment] = useState(null)
+
+  const categories = useQuery({
+    queryKey: ['support-categories'],
+    queryFn: async () => (await api.get('/support/categories')).data.categories,
+    retry: false,
+    placeholderData: [],
+  })
+
+  const submit = useMutation({
+    mutationFn: async () => {
+      const formData = new FormData()
+      formData.append('category', form.category)
+      formData.append('subject', form.subject.trim())
+      formData.append('body', form.body.trim())
+      if (form.order_number.trim()) formData.append('order_number', form.order_number.trim())
+      if (attachment) formData.append('attachment', attachment)
+      return (await api.post('/support/tickets', formData)).data
+    },
+    onSuccess: (ticket) => {
+      queryClient.invalidateQueries({ queryKey: ['my-support-tickets'] })
+      setForm({ category: '', subject: '', body: '', order_number: '' })
+      setAttachment(null)
+      onCreated(ticket)
+    },
+  })
+
+  const canSubmit = Boolean(form.category) && form.subject.trim().length >= 5 && form.body.trim().length >= 10
+
+  return (
+    <form className="form support-form" onSubmit={(e) => { e.preventDefault(); if (canSubmit) submit.mutate() }}>
+      <p className="helper-text">
+        {role === 'buyer'
+          ? 'Having trouble with a seller\'s behaviour? Use Report User on their profile instead.'
+          : 'Appealing a rejected earnings review or withdrawal? Use Dispute This Rejection on that item instead. Having trouble with a buyer\'s behaviour? Use Report User on their profile.'}
+      </p>
+      <label className="filter-label">
+        What do you need help with?
+        <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
+          <option value="">Choose a topic</option>
+          {(categories.data || []).map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}
+        </select>
+      </label>
+      <label className="filter-label">
+        Subject
+        <input value={form.subject} maxLength={150} onChange={(e) => setForm({ ...form, subject: e.target.value })} placeholder="A short summary, e.g. Charged but order says unpaid" />
+      </label>
+      <label className="filter-label">
+        Order number (optional)
+        <input value={form.order_number} maxLength={50} onChange={(e) => setForm({ ...form, order_number: e.target.value })} placeholder="e.g. FG-ABC123" />
+      </label>
+      <label className="filter-label">
+        Describe the problem
+        <textarea
+          value={form.body}
+          maxLength={5000}
+          rows={6}
+          onChange={(e) => setForm({ ...form, body: e.target.value })}
+          placeholder="What happened, when, and what you expected (at least 10 characters)."
+        />
+      </label>
+      <ScreenshotInput file={attachment} onChange={setAttachment} disabled={submit.isPending} />
+      {submit.error && <p className="error">{apiErrorMessage(submit.error, 'Could not send your ticket.')}</p>}
+      <div className="row-actions">
+        <button type="submit" disabled={!canSubmit || submit.isPending}>{submit.isPending ? 'Sending...' : 'Send Ticket'}</button>
+      </div>
+    </form>
+  )
+}
+
+/**
+ * One ticket's conversation, for its owner (side="user") or for the LGU /
+ * Super Admin answering it (side="staff"). Staff can also mark it resolved.
+ */
+function SupportTicketThread({ ticketId, side, staffBase, onBack, onChanged }) {
+  const session = getSession()
+  const [draft, setDraft] = useState('')
+  const [attachment, setAttachment] = useState(null)
+  const [action, setAction] = useState(null)
+  const [note, setNote] = useState('')
+  const logRef = useRef(null)
+  // Screenshot shown full size in the in-app viewer. Opening the raw image URL
+  // left the user on a bare image with no way back to the conversation.
+  const [previewUrl, setPreviewUrl] = useState(null)
+  const queryKey = ['support-ticket', String(ticketId)]
+
+  const ticket = useQuery({
+    queryKey,
+    queryFn: async () => (await api.get(`/support/tickets/${ticketId}`)).data,
+    retry: false,
+    refetchInterval: 15000,
+  })
+
+  const refresh = (data) => {
+    if (data?.id) queryClient.setQueryData(queryKey, data)
+    queryClient.invalidateQueries({ queryKey: ['my-support-tickets'] })
+    onChanged?.()
+  }
+
+  const reply = useMutation({
+    mutationFn: async () => {
+      const formData = new FormData()
+      formData.append('body', draft.trim())
+      if (attachment) formData.append('attachment', attachment)
+      return (await api.post(`/support/tickets/${ticketId}/replies`, formData)).data
+    },
+    onSuccess: (data) => { setDraft(''); setAttachment(null); refresh(data) },
+  })
+  const editMessage = useMutation({
+    mutationFn: async ({ id, body }) => (await api.patch(`/support/tickets/${ticketId}/messages/${id}`, { body })).data,
+    onSuccess: refresh,
+  })
+  const deleteMessage = useMutation({
+    mutationFn: async (id) => (await api.delete(`/support/tickets/${ticketId}/messages/${id}`)).data,
+    onSuccess: refresh,
+  })
+  const resolve = useMutation({
+    mutationFn: async () => (await api.patch(`${staffBase}/support-tickets/${ticketId}/resolve`, { note: note.trim() || undefined })).data,
+    onSuccess: (data) => { setAction(null); setNote(''); refresh(data) },
+  })
+
+  const messages = ticket.data?.messages || []
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
+  }, [messages.length])
+  useEffect(() => {
+    if (!previewUrl) return undefined
+    const handleKey = (e) => { if (e.key === 'Escape') setPreviewUrl(null) }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [previewUrl])
+
+  if (ticket.isLoading) return <LoadingState label="Loading ticket..." />
+  if (ticket.error || !ticket.data) {
+    return (
+      <div className="thread-view">
+        <button type="button" className="ghost" onClick={onBack}><ChevronLeft size={16} /> Back to Tickets</button>
+        <p className="error">{apiErrorMessage(ticket.error, 'Could not load this ticket.')}</p>
+      </div>
+    )
+  }
+
+  const data = ticket.data
+  const isStaffMessage = (message) => ['lgu_admin', 'super_admin'].includes(message.author_role)
+  const isMine = (message) => (side === 'staff' ? isStaffMessage(message) : message.user_id === session?.id)
+  const authorLabel = (message) => {
+    if (!isStaffMessage(message)) return message.author?.name || 'User'
+    if (side === 'staff') return message.author?.name || 'Staff'
+    return message.author_role === 'lgu_admin' ? `${message.author?.name || 'LGU'} (LGU)` : 'AbaiMarket Support'
+  }
+  const resolved = data.status === 'resolved'
+
+  return (
+    <div className="thread-view support-thread">
+      <div className="row-actions">
+        <button type="button" className="ghost" onClick={onBack}><ChevronLeft size={16} /> Back to Tickets</button>
+      </div>
+      <div className="card support-thread-head">
+        <div className="card-row">
+          <h3>{data.subject}</h3>
+          <SupportStatusBadge status={data.status} side={side} />
+        </div>
+        <p className="muted">
+          {data.ticket_number} · {SUPPORT_CATEGORY_LABELS[data.category] || data.category}
+          {data.order?.order_number ? ` · Order ${data.order.order_number}` : ''}
+          {side === 'staff' && data.municipality?.name ? ` · ${data.municipality.name}` : ''}
+        </p>
+        {side === 'staff' && data.user && (
+          <p className="muted">
+            From {data.user.name} <RoleBadge role={data.user.role} /> · {data.user.email}
+          </p>
+        )}
+        {resolved && data.resolver?.name && (
+          <p className="helper-text">{side === 'staff' ? `Resolved by ${data.resolver.name}` : 'Marked resolved'} {data.resolved_at ? `on ${formatMessageTimestamp(data.resolved_at)}` : ''}</p>
+        )}
+      </div>
+
+      {/* The same bordered card the Messages tab puts its conversation in. */}
+      <div className="card support-chat">
+        <div className="message-log" ref={logRef}>
+          {messages.map((message) => (
+            <MessageBubble
+              key={message.id}
+              message={message}
+              isMine={isMine(message)}
+              canEdit={message.user_id === session?.id}
+              author={<strong className="support-author">{authorLabel(message)}</strong>}
+              bodyClassName="support-body"
+              onEdit={(body) => editMessage.mutateAsync({ id: message.id, body })}
+              onDelete={() => deleteMessage.mutateAsync(message.id)}
+            >
+              {message.attachment_url && (
+                <button type="button" className="support-screenshot" onClick={() => setPreviewUrl(message.attachment_url)} aria-label="View screenshot">
+                  <img src={message.attachment_url} alt="Attached screenshot" />
+                </button>
+              )}
+            </MessageBubble>
+          ))}
+        </div>
+
+        <form className="form support-reply" onSubmit={(e) => { e.preventDefault(); if (draft.trim()) reply.mutate() }}>
+          {resolved && side === 'user' && <p className="helper-text">This ticket is resolved. Replying will reopen it.</p>}
+          <textarea
+            value={draft}
+            maxLength={5000}
+            rows={3}
+            onChange={(e) => setDraft(e.target.value)}
+            // Enter sends, Shift+Enter starts a new line -- same as a chat box.
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && draft.trim() && !reply.isPending) { e.preventDefault(); reply.mutate() } }}
+            placeholder={side === 'staff' ? 'Write a reply to the user... (Enter to send, Shift+Enter for a new line)' : 'Write a reply... (Enter to send, Shift+Enter for a new line)'}
+          />
+          <ScreenshotInput file={attachment} onChange={setAttachment} disabled={reply.isPending} />
+          {reply.error && <p className="error">{apiErrorMessage(reply.error, 'Could not send your reply.')}</p>}
+          <div className="row-actions">
+            <button type="submit" disabled={!draft.trim() || reply.isPending}>{reply.isPending ? 'Sending...' : 'Send Reply'}</button>
+            {side === 'staff' && !resolved && (
+              <button type="button" className="ghost" onClick={() => { setAction('resolve'); setNote('') }}><CheckCircle size={16} /> Mark Resolved</button>
+            )}
+          </div>
+        </form>
+      </div>
+
+      {action && (
+        <Modal
+          title="Mark Ticket Resolved"
+          subtitle={`${data.ticket_number} · ${data.subject}`}
+          onClose={() => setAction(null)}
+          footer={
+            <>
+              <button
+                type="button"
+                disabled={resolve.isPending}
+                onClick={() => resolve.mutate()}
+              >
+                Mark Resolved
+              </button>
+              <button type="button" className="ghost" onClick={() => setAction(null)}>Cancel</button>
+            </>
+          }
+        >
+          <p className="helper-text">
+            The user is notified and emailed. They can still reply, which reopens the ticket. A closing note is optional and is added to the conversation.
+          </p>
+          <textarea
+            value={note}
+            rows={3}
+            maxLength={5000}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Closing note to the user (optional)"
+          />
+          {resolve.error && <p className="error">{apiErrorMessage(resolve.error)}</p>}
+        </Modal>
+      )}
+
+      {previewUrl && (
+        <div className="lightbox-overlay" onClick={() => setPreviewUrl(null)}>
+          <button type="button" className="lightbox-close" onClick={() => setPreviewUrl(null)} aria-label="Close preview"><X size={22} /></button>
+          <img className="lightbox-image" src={previewUrl} alt="Attached screenshot" onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * LGU Admin and Super Admin support inbox. The LGU sees its municipality's
+ * local-category tickets; the Super Admin sees every ticket, with its own
+ * categories first in the default view and LGU tickets available as fallback.
+ */
+function SupportTicketsAdminPanel({ scope }) {
+  const isSuper = scope === 'super-admin'
+  const base = isSuper ? '/super-admin' : '/lgu'
+  const queryKey = `${scope}-support-tickets`
+  const [searchParams, setSearchParams] = useSearchParams()
+  const ticketId = searchParams.get('ticket')
+  const [statusFilter, setStatusFilter] = useState('open')
+  const [search, setSearch] = useState('')
+
+  const tickets = useQuery({
+    queryKey: [queryKey],
+    queryFn: async () => (await api.get(`${base}/support-tickets`)).data,
+    retry: false,
+    placeholderData: [],
+    refetchInterval: 30000,
+  })
+
+  const openTicket = (id) => setSearchParams({ tab: 'support', ticket: String(id) })
+  const closeTicket = () => setSearchParams({ tab: 'support' })
+  const refresh = () => queryClient.invalidateQueries({ queryKey: [queryKey] })
+
+  const needle = search.trim().toLowerCase()
+  const rows = (tickets.data || []).filter((ticket) => {
+    if (statusFilter !== 'all' && ticket.status !== statusFilter) return false
+    if (!needle) return true
+    return [ticket.ticket_number, ticket.subject, ticket.user?.name, ticket.order?.order_number, ticket.municipality?.name]
+      .some((value) => String(value || '').toLowerCase().includes(needle))
+  })
+  const needsReply = (tickets.data || []).filter((ticket) => ticket.status === 'open').length
+
+  return (
+    <div className="support-column">
+      <Section title="Support Tickets">
+        {ticketId ? (
+          <SupportTicketThread ticketId={ticketId} side="staff" staffBase={base} onBack={closeTicket} onChanged={refresh} />
+        ) : (
+          <>
+            <p className="helper-text">
+              {isSuper
+                ? `Every ticket from buyers and sellers on the platform. Each one is also visible to the LGU of its municipality, so whichever of you picks it up answers it. ${needsReply} ticket${needsReply === 1 ? '' : 's'} need a reply.`
+                : `Tickets from buyers and sellers in your municipality. The Super Admin sees the same tickets, so whichever of you picks one up answers it. ${needsReply} ticket${needsReply === 1 ? '' : 's'} need a reply.`}
+            </p>
+            <div className="filters">
+              <label className="filter-label">
+                Status
+                <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+                  <option value="open">Needs Reply</option>
+                  <option value="answered">Waiting on User</option>
+                  <option value="resolved">Resolved</option>
+                  <option value="all">All</option>
+                </select>
+              </label>
+              <label className="filter-label">
+                Search
+                <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Ticket, subject, name or order" />
+              </label>
+            </div>
+            {rows.length ? (
+              <div className="item-list">
+                {rows.map((ticket) => (
+                  <button type="button" className="card support-ticket-row" key={ticket.id} onClick={() => openTicket(ticket.id)}>
+                    <div className="card-row">
+                      <strong>{ticket.subject}</strong>
+                      <SupportStatusBadge status={ticket.status} side="staff" />
+                    </div>
+                    <p className="muted">
+                      {ticket.ticket_number} · {SUPPORT_CATEGORY_LABELS[ticket.category] || ticket.category}
+                      {' · '}{ticket.user?.name || 'Unknown'} ({ticket.user_role})
+                      {ticket.order?.order_number ? ` · Order ${ticket.order.order_number}` : ''}
+                      {isSuper && ticket.municipality?.name ? ` · ${ticket.municipality.name}` : ''}
+                    </p>
+                    <p className="muted">
+                      {ticket.messages_count} message{ticket.messages_count === 1 ? '' : 's'} · Updated {formatMessageTimestamp(ticket.last_activity_at || ticket.created_at)}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            ) : <EmptyState message="No tickets match this filter." icon={LifeBuoy} />}
+          </>
+        )}
+      </Section>
+    </div>
   )
 }
 
@@ -8100,7 +8758,12 @@ function MessagesPanel({ initialUserId }) {
               {!thread.data?.messages?.length && <p className="helper-text">Say hello to start the conversation.</p>}
             </div>
             <div className="compose-bar">
-              <input placeholder="Type a message..." value={draft} onChange={(e) => setDraft(e.target.value)} />
+              <input
+                placeholder="Type a message..."
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && draft.trim() && !sendMessage.isPending) { e.preventDefault(); sendMessage.mutate() } }}
+              />
               <button type="button" onClick={() => sendMessage.mutate()} disabled={!draft.trim() || sendMessage.isPending}>Send</button>
             </div>
           </>
@@ -8139,7 +8802,14 @@ function formatMessageTimestamp(value) {
   return `${day}, ${time}`
 }
 
-function MessageBubble({ message, isMine, onEdit, onDelete }) {
+/**
+ * One chat bubble with Edit (within the edit window) and Delete for its author.
+ * Used by Messages and by support ticket threads. The ticket thread passes
+ * `author` (a name line), `children` (the screenshot) and `canEdit`, because
+ * there every staff message sits on the staff side but only its own author
+ * may change it. Messages passes none of these and behaves as it always has.
+ */
+function MessageBubble({ message, isMine, onEdit, onDelete, author, canEdit, bodyClassName = '', children }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(message.body)
   const [error, setError] = useState('')
@@ -8148,7 +8818,7 @@ function MessageBubble({ message, isMine, onEdit, onDelete }) {
 
   const isDeleted = !!message.deleted_at
   const withinEditWindow = renderedAt - new Date(message.created_at).getTime() <= MESSAGE_EDIT_WINDOW_MS
-  const canModify = isMine && !isDeleted
+  const canModify = (canEdit ?? isMine) && !isDeleted
 
   const saveEdit = async () => {
     setBusy(true)
@@ -8177,7 +8847,12 @@ function MessageBubble({ message, isMine, onEdit, onDelete }) {
   if (editing) {
     return (
       <div className={`message-bubble ${isMine ? 'mine' : 'theirs'}`}>
-        <input value={draft} onChange={(e) => setDraft(e.target.value)} disabled={busy} />
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && draft.trim() && !busy) { e.preventDefault(); saveEdit() } }}
+          disabled={busy}
+        />
         <div className="row-actions">
           <button type="button" onClick={saveEdit} disabled={busy || !draft.trim()}>Save</button>
           <button type="button" className="ghost" disabled={busy} onClick={() => { setEditing(false); setDraft(message.body); setError('') }}>Cancel</button>
@@ -8189,7 +8864,9 @@ function MessageBubble({ message, isMine, onEdit, onDelete }) {
 
   return (
     <div className={`message-bubble ${isMine ? 'mine' : 'theirs'}`}>
-      <p className={isDeleted ? 'deleted' : ''}>{message.body}</p>
+      {author}
+      <p className={[isDeleted ? 'deleted' : '', bodyClassName].filter(Boolean).join(' ')}>{message.body}</p>
+      {!isDeleted && children}
       <div className="message-meta">
         {/* Date and time on every message, for whoever is reading it -- this
             bubble renders identically for the sender and the receiver, so both
@@ -8909,7 +9586,31 @@ function BuyerProfileForSellerPage() {
 }
 
 function AboutPage({ compact = false }) {
-  return <Section title="About the Platform"><div className="about-card"><p>AbaiMarket is a web-based marketplace for local fingerling supply. It supports buyers, hatcheries, LGU admins, and platform admins with role-based dashboards, listing approval, PayMongo checkout, messaging, reviews, notifications, and Gemini AI farming assistance.</p>{!compact && <Link className="button" to="/register">Join AbaiMarket</Link>}</div></Section>
+  const about = (
+    <Section title="About the Platform">
+      <div className="about-card">
+        <p>
+          AbaiMarket is a marketplace for fish fingerlings from local hatcheries in Cebu. Buyers order from hatcheries that their own LGU has
+          verified and pay through PayMongo, and the payment is held until the order is done right.
+        </p>
+        <p>
+          Sellers post listings that go live right away, manage their orders, and withdraw their earnings. LGU admins oversee the sellers in
+          their municipality, and the AbaiMarket team handles payments and payouts. Messaging, reviews, notifications, Help &amp; Support and an
+          AI assistant for fish-farming questions are built in.
+        </p>
+        {!compact && (
+          <div className="about-actions">
+            <Link className="button" to="/register">Join AbaiMarket</Link>
+            <Link className="ghost" to="/help">Visit the Help Center</Link>
+          </div>
+        )}
+      </div>
+    </Section>
+  )
+
+  // On the landing page this is one section inside that page's own <main>;
+  // as the /about route it is the whole page and needs the wrapper itself.
+  return compact ? about : <main className="about-page">{about}</main>
 }
 
 function Section({ title, actions, children }) {

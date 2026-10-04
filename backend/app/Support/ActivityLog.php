@@ -87,6 +87,11 @@ class ActivityLog
                 'seller_notice_issued', 'seller_notice_updated',
             ],
         ],
+        // Help & Support tickets -- see App\Support\SupportTickets.
+        'support' => [
+            'label' => 'Help & Support',
+            'actions' => ['support_ticket_opened', 'support_ticket_resolved'],
+        ],
     ];
 
     public static function record(array $data): void
