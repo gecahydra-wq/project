@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Mail\SupportTicketUpdatedMail;
+use App\Mail\SupportTicketUserRepliedMail;
 use App\Models\AppNotification;
 use App\Models\Order;
 use App\Models\SellerProfile;
@@ -149,7 +150,7 @@ class SupportTickets
      * The ticket's owner replies, e.g. to clarify something staff asked. Only
      * allowed once staff have messaged them (the controller checks). The
      * ticket goes back to "open" (waiting on staff) and the staff who can
-     * answer it are notified.
+     * answer it get an in-app notification and an email.
      */
     public static function reply(SupportTicket $ticket, User $owner, string $body): SupportTicketMessage
     {
@@ -163,6 +164,9 @@ class SupportTickets
             $ticket->ticket_number,
             $ticket->subject
         ));
+        foreach (self::staffRecipients($ticket) as $staff) {
+            SafeMailer::send($staff->email, new SupportTicketUserRepliedMail($ticket, $message, $staff));
+        }
 
         return $message;
     }

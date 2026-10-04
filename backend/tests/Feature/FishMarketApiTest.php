@@ -9545,6 +9545,9 @@ class FishMarketApiTest extends TestCase
             ->assertJsonCount(3, 'messages')
             ->assertJsonPath('messages.2.body', 'It is my order from last Monday.');
         $this->assertDatabaseHas('notifications', ['user_id' => $lguAdmin->id, 'type' => 'support_ticket_reply']);
+        // Staff are also emailed, so a reply is not missed outside the dashboard.
+        Mail::assertSent(\App\Mail\SupportTicketUserRepliedMail::class, fn ($mail) => $mail->hasTo($lguAdmin->email));
+        Mail::assertSent(\App\Mail\SupportTicketUserRepliedMail::class, fn ($mail) => $mail->hasTo(User::where('role', 'super_admin')->value('email')));
         // After that they can keep replying without waiting for support.
         $this->postJson("/api/support/tickets/{$ticketId}/replies", ['body' => 'Also, it was 500 tilapia.'])
             ->assertCreated()
@@ -9596,6 +9599,12 @@ class FishMarketApiTest extends TestCase
         $this->postJson("/api/super-admin/support-tickets/{$ticket['id']}/responses", ['body' => 'I sent you a new reset link.'])
             ->assertCreated()
             ->assertJsonPath('status', 'answered');
+        // The buyer's reply is emailed to the Super Admin, not to the LGU that cannot answer it.
+        Sanctum::actingAs($buyer);
+        $this->postJson("/api/support/tickets/{$ticket['id']}/replies", ['body' => 'Got it, thank you!'])->assertCreated();
+        Mail::assertSent(\App\Mail\SupportTicketUserRepliedMail::class, fn ($mail) => $mail->hasTo($superAdmin->email));
+        Mail::assertNotSent(\App\Mail\SupportTicketUserRepliedMail::class, fn ($mail) => $mail->hasTo($lguAdmin->email));
+        Sanctum::actingAs($superAdmin);
         $this->patchJson("/api/super-admin/support-tickets/{$ticket['id']}/resolve")->assertOk();
 
         // A shared topic stays answerable by the LGU.
