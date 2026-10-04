@@ -6648,9 +6648,9 @@ function SupportPanel({ role }) {
 }
 
 const CONTACT_INFO = [
-  [Mail, 'Replies by Email', 'We reply to the email address you enter in the form.'],
+  [Mail, 'Email Updates', 'We email you updates when your ticket is received, when support replies, and when it is closed.'],
   [Clock, 'Not Real-Time', 'Tickets are reviewed as soon as possible. This is not a live chat.'],
-  [LifeBuoy, 'Track Your Tickets', 'Support may message you to clarify. Check My Tickets from time to time and reply there.'],
+  [LifeBuoy, 'Track Your Tickets', 'Support may message you to clarify. Check your tickets from time to time and reply there.'],
   [MessageCircle, 'Feedback Welcome', 'Pick "Feedback or suggestion" as the topic to share your ideas.'],
 ]
 
