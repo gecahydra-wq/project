@@ -5643,7 +5643,8 @@ button.support-screenshot:hover {
 
 .ticket-inbox-filters {
   display: grid;
-  gap: 2px;
+  gap: var(--space-2);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 button.ticket-inbox-filter,
@@ -5653,15 +5654,27 @@ button.ticket-inbox-row {
   border-radius: var(--radius-sm);
   color: var(--color-text);
   font-weight: var(--fw-medium);
-  justify-content: flex-start;
   min-height: 0;
   text-align: left;
-  white-space: normal;
   width: 100%;
 }
 
+/* Status filters: compact chips, two per row, count on the right. */
 button.ticket-inbox-filter {
+  border-color: var(--color-border-subtle);
+  justify-content: space-between;
   padding: var(--space-2) var(--space-3);
+}
+
+.ticket-inbox-count {
+  background: var(--color-surface-subtle);
+  border-radius: var(--radius-full);
+  color: var(--color-text-muted);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  min-width: 1.6em;
+  padding: 1px 7px;
+  text-align: center;
 }
 
 button.ticket-inbox-filter:hover,
@@ -5676,35 +5689,92 @@ button.ticket-inbox-row.active {
   color: var(--brand-teal-text);
 }
 
+button.ticket-inbox-filter.active .ticket-inbox-count {
+  background: var(--color-primary);
+  color: white;
+}
+
+/* A flex column, not a grid: rows never shrink inside the scroll area, so a
+   long row can no longer spill into the one below it. */
 .ticket-inbox-rows {
-  display: grid;
-  gap: var(--space-1);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
   max-height: 560px;
   overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-width: thin;
 }
 
 button.ticket-inbox-row {
   align-items: stretch;
   border-color: var(--color-border-subtle);
-  display: grid;
-  gap: 2px;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: 3px;
   padding: var(--space-3);
+  white-space: nowrap;
 }
 
 .ticket-inbox-row-top {
-  align-items: flex-start;
+  align-items: center;
+  display: flex;
+  gap: var(--space-2);
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.ticket-inbox-row-top strong {
+  color: var(--color-ink);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ticket-inbox-row-top .badge {
+  flex-shrink: 0;
+}
+
+.ticket-inbox-row-line,
+.ticket-inbox-row-foot {
+  color: var(--color-text-muted);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-regular);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ticket-inbox-number {
+  color: var(--color-text);
+  font-weight: var(--fw-semibold);
+}
+
+.ticket-inbox-row-foot {
+  align-items: center;
   display: flex;
   gap: var(--space-2);
   justify-content: space-between;
 }
 
-.ticket-inbox-row-top strong {
-  color: var(--color-ink);
+.ticket-inbox-topic {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.ticket-inbox-row .muted {
-  font-size: var(--fs-xs);
-  font-weight: var(--fw-regular);
+.ticket-inbox-row-foot > span:last-child {
+  flex-shrink: 0;
+}
+
+.ticket-inbox-tag {
+  align-self: flex-start;
+  background: var(--color-surface-subtle);
+  color: var(--color-text-muted);
+  border-radius: var(--radius-full);
+  font-size: 0.68rem;
+  padding: 1px 7px;
 }
 
 @media (max-width: 900px) {

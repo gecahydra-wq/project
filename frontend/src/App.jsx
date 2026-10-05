@@ -6991,7 +6991,8 @@ function SupportTicketsAdminPanel({ scope }) {
                 className={statusFilter === value ? 'ticket-inbox-filter active' : 'ticket-inbox-filter'}
                 onClick={() => setStatusFilter(value)}
               >
-                {label} ({countFor(value)})
+                {label}
+                <span className="ticket-inbox-count">{countFor(value)}</span>
               </button>
             ))}
           </nav>
@@ -7001,25 +7002,36 @@ function SupportTicketsAdminPanel({ scope }) {
           </label>
           {rows.length ? (
             <div className="ticket-inbox-rows">
-              {rows.map((ticket) => (
-                <button
-                  type="button"
-                  key={ticket.id}
-                  className={String(ticket.id) === ticketId ? 'ticket-inbox-row active' : 'ticket-inbox-row'}
-                  onClick={() => openTicket(ticket.id)}
-                >
-                  <span className="ticket-inbox-row-top">
-                    <strong>{ticket.subject}</strong>
-                    <SupportStatusBadge status={ticket.status} side="staff" />
-                  </span>
-                  {!isSuper && ticket.super_admin_only && <span className="muted">Super Admin answers this topic</span>}
-                  <span className="muted">
-                    {ticket.ticket_number} · {[ticket.first_name, ticket.last_name].filter(Boolean).join(' ') || ticket.user?.name || 'Unknown'}
-                    {isSuper ? ` · ${ticket.municipality?.name || 'All LGUs'}` : !ticket.municipality_id ? ' · All LGUs' : ''}
-                  </span>
-                  <span className="muted">{SUPPORT_CATEGORY_LABELS[ticket.category] || ticket.category} · {formatMessageTimestamp(ticket.last_activity_at || ticket.created_at)}</span>
-                </button>
-              ))}
+              {rows.map((ticket) => {
+                const sender = [ticket.first_name, ticket.last_name].filter(Boolean).join(' ') || ticket.user?.name || 'Unknown'
+                const where = isSuper ? ticket.municipality?.name || 'All LGUs' : !ticket.municipality_id ? 'All LGUs' : ''
+                const who = [sender, where].filter(Boolean).join(' · ')
+                const topic = SUPPORT_CATEGORY_LABELS[ticket.category] || ticket.category
+                // Every line is one line, cut with an ellipsis -- the full
+                // text is in the tooltip and in the ticket itself -- so every
+                // row is the same shape and the badges line up.
+                return (
+                  <button
+                    type="button"
+                    key={ticket.id}
+                    className={String(ticket.id) === ticketId ? 'ticket-inbox-row active' : 'ticket-inbox-row'}
+                    onClick={() => openTicket(ticket.id)}
+                  >
+                    <span className="ticket-inbox-row-top">
+                      <strong title={ticket.subject}>{ticket.subject}</strong>
+                      <SupportStatusBadge status={ticket.status} side="staff" />
+                    </span>
+                    <span className="ticket-inbox-row-line" title={who}>
+                      <span className="ticket-inbox-number">{ticket.ticket_number}</span> · {who}
+                    </span>
+                    <span className="ticket-inbox-row-foot">
+                      <span className="ticket-inbox-topic" title={topic}>{topic}</span>
+                      <span>{formatMessageTimestamp(ticket.last_activity_at || ticket.created_at)}</span>
+                    </span>
+                    {!isSuper && ticket.super_admin_only && <span className="ticket-inbox-tag">Super Admin answers this topic</span>}
+                  </button>
+                )
+              })}
             </div>
           ) : <EmptyState message="No tickets match this filter." icon={LifeBuoy} />}
         </aside>
