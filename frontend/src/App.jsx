@@ -9890,6 +9890,18 @@ function FloatingAi() {
   const [chat, setChat] = useState([])
   const [error, setError] = useState(null)
   const [language, setLanguage] = useState(storedAiLanguage)
+  // Optional photo for the next question (muddy pond water, a sick fish...).
+  const [photo, setPhotoState] = useState(null)
+  const [photoPreview, setPhotoPreview] = useState(null)
+  // The preview URL is made and released together with the photo itself.
+  const setPhoto = (file) => {
+    setPhotoPreview((previous) => {
+      if (previous) URL.revokeObjectURL(previous)
+      return file ? URL.createObjectURL(file) : null
+    })
+    setPhotoState(file)
+  }
+  const photoInputRef = useRef(null)
   const chatLogRef = useRef(null)
   // This widget also renders on the PUBLIC layout, where there is no session.
   // Both AI endpoints sit behind auth:sanctum, so a guest's question came back
@@ -9926,7 +9938,7 @@ function FloatingAi() {
   // effect racing the query's async resolution -- `chat` only ever holds
   // messages sent during this mount.
   const historyMessages = (history.data || []).flatMap((entry) => [
-    { role: 'user', text: entry.message },
+    { role: 'user', text: entry.message, photo: entry.photo_url },
     { role: 'ai', text: entry.response },
   ])
   const displayChat = [aiGreeting, ...historyMessages, ...chat]
@@ -9934,32 +9946,55 @@ function FloatingAi() {
   const ask = useMutation({
     // language is omitted when set to Auto, so the backend keeps detecting it
     // from the message exactly as it always has.
-    mutationFn: async (question) => (await api.post('/ai-assistant/ask', { question, language: language || null })).data.response,
+    mutationFn: async ({ question, photo: file }) => {
+      if (!file) return (await api.post('/ai-assistant/ask', { question, language: language || null })).data.response
+      const body = new FormData()
+      if (question) body.append('question', question)
+      if (language) body.append('language', language)
+      body.append('photo', file)
+      return (await api.post('/ai-assistant/ask', body)).data.response
+    },
   })
+
+  const choosePhoto = (file) => {
+    if (!file) return
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setError({ message: 'Please choose a JPG, PNG or WEBP photo.' })
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setError({ message: 'That photo is over 5 MB. Please choose a smaller one.' })
+      return
+    }
+    setError(null)
+    setPhoto(file)
+  }
 
   useEffect(() => {
     if (chatLogRef.current) chatLogRef.current.scrollTop = chatLogRef.current.scrollHeight
   }, [displayChat.length, ask.isPending])
 
-  const sendQuestion = (question) => {
+  const sendQuestion = (question, file = null) => {
     setError(null)
-    ask.mutate(question, {
+    ask.mutate({ question, photo: file }, {
       onSuccess: (response) => setChat((current) => [...current, { role: 'ai', text: response }]),
-      onError: (err) => setError({ message: aiErrorMessage(err), question }),
+      onError: (err) => setError({ message: aiErrorMessage(err), question, photo: file }),
     })
   }
 
   const submit = () => {
     const question = message.trim()
-    if (!question || ask.isPending) return
-    setChat((current) => [...current, { role: 'user', text: question }])
+    if ((!question && !photo) || ask.isPending) return
+    // Its own object URL, so clearing the picker does not blank the chat bubble.
+    setChat((current) => [...current, { role: 'user', text: question, photo: photo ? URL.createObjectURL(photo) : null }])
     setMessage('')
-    sendQuestion(question)
+    sendQuestion(question, photo)
+    setPhoto(null)
   }
 
   const retry = () => {
-    if (!error?.question || ask.isPending) return
-    sendQuestion(error.question)
+    if ((!error?.question && !error?.photo) || ask.isPending) return
+    sendQuestion(error.question, error.photo)
   }
 
   return (
@@ -9980,7 +10015,12 @@ function FloatingAi() {
             </select>
           </div>
           <div className="chat-log" ref={chatLogRef}>
-            {displayChat.map((m, i) => <p className={m.role} key={`${m.role}-${i}`}>{m.text}</p>)}
+            {displayChat.map((m, i) => (
+              <p className={m.role} key={`${m.role}-${i}`}>
+                {m.photo && <img className="chat-photo" src={m.photo} alt="Photo sent to the AI assistant" />}
+                {m.text}
+              </p>
+            ))}
             {ask.isPending && (
               <p className="ai ai-typing"><span className="typing-dots"><span /><span /><span /></span></p>
             )}
@@ -10013,7 +10053,7 @@ function FloatingAi() {
           {error && (
             <div className="ai-error">
               <p className="error">{error.message}</p>
-              <button type="button" className="ghost" onClick={retry} disabled={ask.isPending}>Retry</button>
+              {(error.question || error.photo) && <button type="button" className="ghost" onClick={retry} disabled={ask.isPending}>Retry</button>}
             </div>
           )}
           {!isGuest && (
@@ -10027,12 +10067,38 @@ function FloatingAi() {
                     submit()
                   }
                 }}
-                placeholder={AI_PLACEHOLDER_BY_ROLE[role] || AI_PLACEHOLDER_BY_ROLE.buyer}
+                placeholder={photo ? 'Ask about this photo, e.g. "Will my fingerlings survive in this water?"' : AI_PLACEHOLDER_BY_ROLE[role] || AI_PLACEHOLDER_BY_ROLE.buyer}
                 disabled={ask.isPending}
               />
-              <button onClick={submit} type="button" disabled={ask.isPending || !message.trim()}>
-                {ask.isPending ? 'Thinking...' : 'Ask AbaiMarket AI'}
-              </button>
+              {photoPreview && (
+                <div className="ai-photo-preview">
+                  <img src={photoPreview} alt="Photo to send" />
+                  <span className="muted">{photo?.name}</span>
+                  <button type="button" className="link-action" onClick={() => setPhoto(null)} disabled={ask.isPending} aria-label="Remove photo"><X size={16} /></button>
+                </div>
+              )}
+              <div className="ai-send-row">
+                <input
+                  ref={photoInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  hidden
+                  onChange={(e) => { choosePhoto(e.target.files?.[0] || null); e.target.value = '' }}
+                />
+                <button
+                  type="button"
+                  className="ghost ai-photo-button"
+                  onClick={() => photoInputRef.current?.click()}
+                  disabled={ask.isPending}
+                  title="Add a photo (e.g. your pond water or fish)"
+                  aria-label="Add a photo"
+                >
+                  <Camera size={18} />
+                </button>
+                <button className="ai-send-button" onClick={submit} type="button" disabled={ask.isPending || (!message.trim() && !photo)}>
+                  {ask.isPending ? 'Thinking...' : 'Ask AbaiMarket AI'}
+                </button>
+              </div>
             </>
           )}
         </div>

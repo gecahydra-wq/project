@@ -11,5 +11,5 @@ class AiConversation extends Model
 
     protected $table = 'ai_chats';
 
-    protected $fillable = ['user_id', 'language', 'message', 'response', 'data_subject'];
+    protected $fillable = ['user_id', 'language', 'message', 'photo_url', 'response', 'data_subject'];
 }

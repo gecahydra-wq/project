@@ -35,6 +35,17 @@ class GeminiService
 
     private bool $lastWasFallback = false;
 
+    /** Said when a photo was sent but Gemini could not be reached to look at it. */
+    private const PHOTO_UNAVAILABLE = [
+        'English' => "Sorry, I can't look at photos right now. Please try again in a little while, or describe what you see in words and I'll help from that.",
+        'Tagalog' => 'Paumanhin, hindi ko matingnan ang mga larawan ngayon. Pakisubukan ulit mamaya, o ilarawan mo sa salita ang nakikita mo at tutulungan kita mula roon.',
+        'Bisaya' => 'Pasayloa, dili nako matan-aw ang mga litrato karon. Palihug sulayi usab unya, o ihulagway sa pulong ang imong nakita ug tabangan tika gikan niana.',
+    ];
+
+    private const PHOTO_FARM_INSTRUCTION = 'The farmer attached a photo, and their question is about what it shows. Look at it carefully and answer from what you actually see. For water: judge its colour (clear, green, brown, muddy or milky), how cloudy it is, whether there is scum, foam, oil, dead plants or dead fish, and what that means for the fish -- e.g. muddy brown water is suspended clay or soil that clogs gills, blocks light and often comes with low oxygen; deep green can mean an algae bloom with oxygen crashes at dawn. For fish: judge the body, fins, skin, eyes, colour and behaviour you can see. If they ask whether their fingerlings will survive, or whether it is safe, START with a clear verdict -- safe, risky, or not safe -- in one sentence, then the reasons you can see, then what to do before stocking or right now (with numbers: target dissolved oxygen, pH, how long to let mud settle, water exchange percentage, liming amounts), then what to measure to confirm, because a photo cannot show oxygen, pH or ammonia. Name the species where it changes the answer (tilapia and hito tolerate murky water far better than bangus fry). If the photo is not about fish, water or fish farming, say politely that you can only help with fish farming and AbaiMarket questions, and do not describe it further.';
+
+    private const PHOTO_APP_INSTRUCTION = 'The user attached a photo (often a screenshot of AbaiMarket). Use it only to understand what they are asking about; the facts in your answer still come only from the CONTEXT above.';
+
     /**
      * $user and $history are optional and only ever populated by the real
      * controller -- every pre-existing 2-arg call site (all current tests)
@@ -52,13 +63,22 @@ class GeminiService
      * phrase that context naturally, never to invent AbaiMarket facts or
      * ask clarifying questions about how the system works.
      */
-    public function answer(string $prompt, string $language = 'English', ?User $user = null, array $history = [], ?string $preferredLanguage = null): string
+    public function answer(string $prompt, string $language = 'English', ?User $user = null, array $history = [], ?string $preferredLanguage = null, ?array $image = null): string
     {
         $this->lastLanguage = $language;
         $this->lastSubject = null;
         $this->lastCategory = null;
         $this->lastWasFallback = false;
         $role = $user->role ?? 'buyer';
+
+        // A photo with no words: nothing to classify, so Gemini looks at the
+        // photo as the farming advisor (which declines anything off-topic).
+        if ($image && trim($prompt) === '') {
+            $this->lastLanguage = $preferredLanguage ?? $language;
+            $this->lastCategory = 'Fish Care';
+
+            return $this->answerAsFarmingAdvisor('What can you tell me from this photo?', null, $role, $this->lastLanguage, $history, $image);
+        }
 
         if ($user) {
             // An explicit choice from the language picker wins over sniffing
@@ -77,7 +97,7 @@ class GeminiService
                 $this->lastSubject = $dataResult['subject'];
                 $this->lastCategory = 'Data Query';
 
-                return $this->answerWithContext($prompt, $dataResult, $language, $history);
+                return $this->answerWithContext($prompt, $dataResult, $language, $history, $image);
             }
 
             $recommendationResult = AiRecommendationEngine::resolve($prompt, $user, $previousSubject);
@@ -85,11 +105,20 @@ class GeminiService
                 $this->lastSubject = $recommendationResult['subject'];
                 $this->lastCategory = 'Recommendation';
 
-                return $this->answerWithContext($prompt, $recommendationResult, $language, $history);
+                return $this->answerWithContext($prompt, $recommendationResult, $language, $history, $image);
             }
         }
 
         $intent = AiIntentClassifier::classify($prompt);
+
+        // With a photo, words the classifier does not recognise ("what is
+        // this?", "is this okay?") are about the photo, so the farming advisor
+        // looks at it rather than the off-topic refusal answering blind.
+        if ($image && in_array($intent['category'], ['Unknown', 'Greeting'], true)) {
+            $this->lastCategory = 'Fish Care';
+
+            return $this->answerAsFarmingAdvisor($prompt, null, $role, $language, $history, $image);
+        }
 
         // Off-topic messages are refused before ever reaching the model, so a
         // trivia/politics/sports/programming/homework question can never get
@@ -118,7 +147,7 @@ class GeminiService
         // aquaculture guidance instead; every other category stays strictly
         // grounded in app knowledge or live data below.
         if ($intent['category'] === 'Fish Care') {
-            return $this->answerAsFarmingAdvisor($prompt, $intent['topic'], $role, $language, $history);
+            return $this->answerAsFarmingAdvisor($prompt, $intent['topic'], $role, $language, $history, $image);
         }
 
         $topicResult = [
@@ -127,7 +156,7 @@ class GeminiService
             'fallback' => AiIntentClassifier::topicFallback($intent['topic'], $role),
         ];
 
-        return $this->answerWithContext($prompt, $topicResult, $language, $history);
+        return $this->answerWithContext($prompt, $topicResult, $language, $history, $image);
     }
 
     public function lastLanguage(): ?string
@@ -168,7 +197,7 @@ class GeminiService
      * the app already teaches) and null for an open question rescued by
      * AiIntentClassifier::looksLikeFarmingQuestion().
      */
-    private function answerAsFarmingAdvisor(string $prompt, ?array $topic, string $role, string $language, array $history): string
+    private function answerAsFarmingAdvisor(string $prompt, ?array $topic, string $role, string $language, array $history, ?array $image = null): string
     {
         $fallbackText = $topic
             ? AiIntentClassifier::topicFallback($topic, $role)
@@ -194,10 +223,20 @@ class GeminiService
         - Do NOT state facts about the AbaiMarket app itself -- its fees, features, prices, stock or policies. If they ask about those, tell them to ask about it directly and you will answer from the system.{$appNote}
         TXT;
 
-        $answer = $this->generate($prompt, $systemInstruction, $history);
+        if ($image) {
+            $systemInstruction .= "\n\n".self::PHOTO_FARM_INSTRUCTION;
+        }
+
+        $answer = $this->generate($prompt, $systemInstruction, $history, $image);
 
         if ($answer === null) {
             $this->lastWasFallback = true;
+
+            // The scripted fallback cannot see the photo, so it would answer
+            // a question nobody asked.
+            if ($image) {
+                return self::PHOTO_UNAVAILABLE[$language] ?? self::PHOTO_UNAVAILABLE['English'];
+            }
 
             return $fallbackText[$language] ?? $fallbackText['English'];
         }
@@ -218,7 +257,7 @@ class GeminiService
      * error, since every caller of this method already has a real answer
      * ready even when Gemini is down.
      */
-    private function answerWithContext(string $prompt, array $context, string $language, array $history): string
+    private function answerWithContext(string $prompt, array $context, string $language, array $history, ?array $image = null): string
     {
         // Marks this answer as a fallback (Gemini unavailable/failed) for the
         // usage telemetry, then returns the app's own scripted answer.
@@ -230,7 +269,11 @@ class GeminiService
 
         $systemInstruction = "You are the AbaiMarket AI assistant, an expert built specifically for this Fisheries Marketplace application -- not a general-purpose chatbot. Use ONLY the following application knowledge/data to answer -- never invent or estimate anything beyond it, and never ask the user a clarifying question about how AbaiMarket works (e.g. what item they mean) since this context already fully describes it. Respond fluently in {$language} (or whichever language the user's message is predominantly written in, if it mixes languages), concisely and naturally.\n\nCONTEXT: {$context['context']}";
 
-        return $this->generate($prompt, $systemInstruction, $history) ?? $fallback();
+        if ($image) {
+            $systemInstruction .= "\n\n".self::PHOTO_APP_INSTRUCTION;
+        }
+
+        return $this->generate($prompt, $systemInstruction, $history, $image) ?? $fallback();
     }
 
     /**
@@ -239,7 +282,7 @@ class GeminiService
      * every caller already has its own real answer to fall back to, so a null
      * here is a routine outcome rather than an error to surface to the user.
      */
-    private function generate(string $prompt, string $systemInstruction, array $history): ?string
+    private function generate(string $prompt, string $systemInstruction, array $history, ?array $image = null): ?string
     {
         $apiKey = config('services.gemini.api_key');
 
@@ -253,10 +296,16 @@ class GeminiService
 
             $contents = [];
             foreach ($history as $turn) {
-                $contents[] = ['role' => 'user', 'parts' => [['text' => $turn->message]]];
+                // Earlier photos are not re-sent (size and quota); a photo-only
+                // turn is still marked so the conversation reads correctly.
+                $contents[] = ['role' => 'user', 'parts' => [['text' => $turn->message !== '' ? $turn->message : '(sent a photo)']]];
                 $contents[] = ['role' => 'model', 'parts' => [['text' => $turn->response]]];
             }
-            $contents[] = ['role' => 'user', 'parts' => [['text' => $prompt]]];
+            $parts = [['text' => $prompt]];
+            if ($image) {
+                $parts[] = ['inlineData' => ['mimeType' => $image['mime'], 'data' => $image['data']]];
+            }
+            $contents[] = ['role' => 'user', 'parts' => $parts];
 
             $response = Http::timeout(30)->post($url, [
                 'contents' => $contents,

@@ -3405,6 +3405,63 @@ a.activity-log-item:hover {
   justify-self: end;
 }
 
+/* A photo sent with a question, inside the user's bubble. */
+.chat-photo {
+  border-radius: var(--radius-sm);
+  display: block;
+  margin-bottom: 0.4rem;
+  max-height: 180px;
+  max-width: 100%;
+  object-fit: cover;
+}
+
+.chat-log .user:has(.chat-photo:only-child) {
+  padding: 0.35rem;
+}
+
+.chat-log .user .chat-photo:only-child {
+  margin-bottom: 0;
+}
+
+.ai-photo-preview {
+  align-items: center;
+  background: var(--color-surface-subtle);
+  border-radius: var(--radius-sm);
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
+}
+
+.ai-photo-preview img {
+  border-radius: 6px;
+  height: 44px;
+  object-fit: cover;
+  width: 44px;
+}
+
+.ai-photo-preview .muted {
+  flex: 1;
+  font-size: var(--fs-xs);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-send-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.ai-photo-button {
+  flex-shrink: 0;
+  padding: 0.5rem 0.75rem;
+}
+
+.ai-send-button {
+  flex: 1;
+}
+
 .ai-typing {
   align-items: center;
   display: flex;

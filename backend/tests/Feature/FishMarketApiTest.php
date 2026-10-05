@@ -1743,6 +1743,73 @@ class FishMarketApiTest extends TestCase
     }
 
     /**
+     * A photo goes to Gemini with the question, so "will my fingerlings
+     * survive in this water?" is answered from what the photo shows. The
+     * photo is kept for the chat history; a photo alone is a valid question.
+     */
+    public function test_a_photo_is_sent_to_gemini_with_the_farming_question(): void
+    {
+        Storage::fake('public');
+        config(['services.gemini.api_key' => 'test-key']);
+        Http::fake([
+            'generativelanguage.googleapis.com/*' => Http::response([
+                'candidates' => [['content' => ['parts' => [['text' => 'Risky: the water is muddy brown. Let it settle before stocking.']]]]],
+            ], 200),
+        ]);
+
+        Sanctum::actingAs($this->makeBuyer());
+
+        $conversation = $this->post('/api/ai-assistant/ask', [
+            'question' => 'will my fingerlings survive with these kind of water?',
+            'photo' => UploadedFile::fake()->image('pond.jpg')->size(300),
+        ], ['Accept' => 'application/json'])
+            ->assertCreated()
+            ->assertJsonPath('response', 'Risky: the water is muddy brown. Let it settle before stocking.')
+            ->json();
+
+        $this->assertNotNull($conversation['photo_url']);
+        Http::assertSent(function ($request) {
+            $parts = collect($request->data()['contents'])->last()['parts'];
+            $instruction = $request->data()['systemInstruction']['parts'][0]['text'];
+
+            return $parts[0]['text'] === 'will my fingerlings survive with these kind of water?'
+                && ($parts[1]['inlineData']['mimeType'] ?? null) === 'image/jpeg'
+                && ! empty($parts[1]['inlineData']['data'])
+                && str_contains($instruction, 'fish-farming question')
+                && str_contains($instruction, 'START with a clear verdict');
+        });
+
+        // A photo with no words is answered too, and kept in the history.
+        $this->post('/api/ai-assistant/ask', ['photo' => UploadedFile::fake()->image('fish.png')->size(200)], ['Accept' => 'application/json'])
+            ->assertCreated()
+            ->assertJsonPath('message', '');
+        $this->getJson('/api/ai-assistant/history')->assertOk()->assertJsonCount(2)->assertJsonPath('1.photo_url', fn ($url) => ! empty($url));
+
+        // Neither words nor a photo is still rejected, and only images are accepted.
+        $this->postJson('/api/ai-assistant/ask', [])->assertStatus(422)->assertJsonValidationErrors('question');
+        $this->post('/api/ai-assistant/ask', ['photo' => UploadedFile::fake()->create('notes.pdf', 50, 'application/pdf')], ['Accept' => 'application/json'])
+            ->assertStatus(422)->assertJsonValidationErrors('photo');
+    }
+
+    /**
+     * When Gemini is down, a photo question says so instead of giving a
+     * scripted answer that never saw the photo.
+     */
+    public function test_a_photo_question_without_gemini_says_the_photo_could_not_be_read(): void
+    {
+        Storage::fake('public');
+        config(['services.gemini.api_key' => null]);
+
+        Sanctum::actingAs($this->makeBuyer());
+        $this->post('/api/ai-assistant/ask', [
+            'question' => 'is this water okay for my fish?',
+            'photo' => UploadedFile::fake()->image('pond.jpg'),
+        ], ['Accept' => 'application/json'])
+            ->assertCreated()
+            ->assertJsonPath('response', fn ($text) => str_starts_with($text, "Sorry, I can't look at photos right now."));
+    }
+
+    /**
      * An app question keeps the original strict grounding -- opening up fish
      * care must not have opened up anything else.
      */

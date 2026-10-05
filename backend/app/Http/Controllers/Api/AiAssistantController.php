@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\AiConversation;
 use App\Models\AiUsageEvent;
 use App\Services\GeminiService;
+use App\Support\ImageUploader;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -23,7 +24,9 @@ class AiAssistantController extends Controller
     public function ask(Request $request, GeminiService $gemini)
     {
         $data = $request->validate([
-            'question' => ['required', 'string', 'max:2000'],
+            // A photo on its own is a valid question ("what's wrong here?").
+            'question' => ['nullable', 'required_without:photo', 'string', 'max:2000'],
+            'photo' => ['nullable', 'image', 'mimes:jpeg,jpg,png,webp', 'max:5120'],
             // Optional: omit (or send null) to keep the original behaviour of
             // detecting the language from the message itself.
             'language' => ['nullable', 'string', Rule::in(self::LANGUAGES)],
@@ -42,14 +45,20 @@ class AiAssistantController extends Controller
             ->sortBy('id')
             ->values();
 
+        $question = trim($data['question'] ?? '');
+        $photo = $request->file('photo');
+        // Sent to Gemini inline; the stored copy is only for the chat history.
+        $image = $photo ? ['mime' => $photo->getMimeType(), 'data' => base64_encode($photo->get())] : null;
+
         $startedAt = microtime(true);
-        $answer = $gemini->answer($data['question'], 'English', $user, $history->all(), $data['language'] ?? null);
+        $answer = $gemini->answer($question, 'English', $user, $history->all(), $data['language'] ?? null, $image);
         $responseTimeMs = (int) round((microtime(true) - $startedAt) * 1000);
 
         $conversation = AiConversation::create([
             'user_id' => $user->id,
             'language' => $gemini->lastLanguage(),
-            'message' => $data['question'],
+            'message' => $question,
+            'photo_url' => $photo ? ImageUploader::store($photo, 'ai-photos') : null,
             'response' => $answer,
             'data_subject' => $gemini->lastSubject(),
         ]);
