@@ -168,6 +168,7 @@ Route::middleware(['auth:sanctum', 'verified', 'role:buyer,seller'])->group(func
 
 Route::middleware(['auth:sanctum', 'verified', 'role:buyer,seller,lgu_admin,super_admin'])->group(function () {
     Route::get('messages/threads', [MessageController::class, 'threads']);
+    Route::get('messages/unread-count', [MessageController::class, 'unreadCount']);
     Route::get('messages/thread/{user}', [MessageController::class, 'thread']);
     Route::post('messages', [MessageController::class, 'store']);
     Route::patch('messages/{message}', [MessageController::class, 'update']);

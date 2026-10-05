@@ -8399,6 +8399,41 @@ class FishMarketApiTest extends TestCase
         $this->patchJson("/api/lgu/sellers/{$seller->id}/approve-registration")->assertStatus(422);
     }
 
+    /**
+     * Every role is told about a new message: one in-app notification per
+     * conversation (later messages refresh it), an unread count for the
+     * sidebar and dashboard, and reading the thread clears both.
+     */
+    public function test_a_new_message_notifies_the_receiver_once_per_conversation(): void
+    {
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $seller = $this->makeSeller(
+            ['municipality_id' => $lguAdmin->municipality_id],
+            ['municipality_id' => $lguAdmin->municipality_id]
+        );
+
+        Sanctum::actingAs($seller->user);
+        $this->postJson('/api/messages', ['receiver_id' => $lguAdmin->id, 'body' => 'Hello, I uploaded my permit.'])->assertCreated();
+        $this->postJson('/api/messages', ['receiver_id' => $lguAdmin->id, 'body' => 'Please check when you can.'])->assertCreated();
+
+        $notifications = AppNotification::where('user_id', $lguAdmin->id)->where('type', 'new_message')->get();
+        $this->assertCount(1, $notifications);
+        $this->assertSame("New message from {$seller->user->name} (Seller)", $notifications->first()->title);
+        $this->assertSame('Please check when you can.', $notifications->first()->body);
+
+        Sanctum::actingAs($lguAdmin);
+        $this->getJson('/api/messages/unread-count')->assertOk()->assertJsonPath('count', 2);
+
+        $this->patchJson("/api/messages/thread/{$seller->user_id}/read")->assertOk();
+        $this->getJson('/api/messages/unread-count')->assertJsonPath('count', 0);
+        $this->assertNotNull($notifications->first()->fresh()->read_at);
+
+        // A message after reading starts a fresh notification.
+        Sanctum::actingAs($seller->user);
+        $this->postJson('/api/messages', ['receiver_id' => $lguAdmin->id, 'body' => 'One more thing.'])->assertCreated();
+        $this->assertSame(1, AppNotification::where('user_id', $lguAdmin->id)->where('type', 'new_message')->whereNull('read_at')->count());
+    }
+
     public function test_either_reviewer_can_reject_a_registration_with_a_reason_and_the_seller_is_notified(): void
     {
         $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();

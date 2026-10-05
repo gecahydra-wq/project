@@ -614,6 +614,7 @@ function AppShell({ user, children }) {
     lgu_admin: [['Dashboard', '/lgu/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/lgu/dashboard?tab=marketplace', Search], ['Listing Management', '/lgu/dashboard?tab=listings', Store], ['Sellers', '/lgu/dashboard?tab=sellers', ShieldCheck], ['User Reports', '/lgu/dashboard?tab=user-reports', Flag], ['Notices to Explain', '/lgu/dashboard?tab=notices', ShieldAlert], ['Disputes', '/lgu/dashboard?tab=disputes', Scale], ['Support Tickets', '/lgu/dashboard?tab=support', LifeBuoy], ['Orders', '/lgu/dashboard?tab=orders', ShoppingCart], ['Seller Earnings', '/lgu/dashboard?tab=earnings', Wallet], ['LGU Wallet', '/lgu/dashboard?tab=wallet', Wallet], ['Messages', '/lgu/dashboard?tab=messages', MessageCircle], ['Notifications', '/lgu/dashboard?tab=notifications', Bell], ['Analytics', '/lgu/dashboard?tab=reports', BarChart3], ['Activity Log', '/lgu/dashboard?tab=activity-log', History], ['Reviews & Ratings', '/lgu/dashboard?tab=reviews', Star], ['Users', '/lgu/dashboard?tab=users', UsersIcon], ['Profile', '/lgu/dashboard?tab=profile', CircleUserRound]],
     super_admin: [['Dashboard', '/admin/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/admin/dashboard?tab=marketplace', Search], ['Listing Management', '/admin/dashboard?tab=listings', Store], ['LGU Admins', '/admin/dashboard?tab=lgu-admins', ShieldCheck], ['Sellers', '/admin/dashboard?tab=sellers', Store], ['Users', '/admin/dashboard?tab=users', UsersIcon], ['User Reports', '/admin/dashboard?tab=user-reports', Flag], ['Notices to Explain', '/admin/dashboard?tab=notices', ShieldAlert], ['Disputes', '/admin/dashboard?tab=disputes', Scale], ['Support Tickets', '/admin/dashboard?tab=support', LifeBuoy], ['Seller Earnings', '/admin/dashboard?tab=earnings', Wallet], ['Reviews & Ratings', '/admin/dashboard?tab=reviews', Star], ['Orders', '/admin/dashboard?tab=transactions', ShoppingCart], ['Payout Management', '/admin/dashboard?tab=payouts', Wallet], ['Municipalities', '/admin/dashboard?tab=municipalities', MapPin], ['Announcements', '/admin/dashboard?tab=announcements', Megaphone], ['Messages', '/admin/dashboard?tab=messages', MessageCircle], ['Notifications', '/admin/dashboard?tab=notifications', Bell], ['Moderation Log', '/admin/dashboard?tab=moderation', ShieldAlert], ['Activity Log', '/admin/dashboard?tab=activity-log', History], ['Analytics', '/admin/dashboard?tab=reports', BarChart3], ['Profile', '/admin/dashboard?tab=profile', CircleUserRound]],
   }[user.role]
+  const unreadMessages = useUnreadMessages()
 
   async function logout() {
     try {
@@ -642,7 +643,12 @@ function AppShell({ user, children }) {
           </div>
         </div>
         <nav className="side-nav">
-          {menu.map(([label, path, Icon]) => <Link key={label} to={path} className={path.includes(tab) ? 'active' : ''}><Icon size={18} />{label}</Link>)}
+          {menu.map(([label, path, Icon]) => (
+            <Link key={label} to={path} className={path.includes(tab) ? 'active' : ''}>
+              <Icon size={18} />{label}
+              {label === 'Messages' && unreadMessages > 0 && <span className="side-nav-count" aria-label={`${unreadMessages} unread`}>{unreadMessages}</span>}
+            </Link>
+          ))}
         </nav>
         <button className="ghost full" onClick={logout} type="button"><LogOut size={18} />Logout</button>
       </aside>
@@ -1451,7 +1457,6 @@ function SellerApprovalNotice({ seller, lguContact }) {
         {reason && <p className="helper-text"><strong>Reason:</strong> {/[.!?]$/.test(reason) ? reason : `${reason}.`}</p>}
         <p className="helper-text">This is not final. To have your registration reviewed again:</p>
         <ol className="approval-steps helper-text">
-          <li>Fix what the reason mentions in your <Link to="/seller/dashboard?tab=profile">hatchery profile</Link>.</li>
           <li>
             Tell your LGU it is ready for review:{' '}
             {lguContact
@@ -2443,6 +2448,7 @@ function BuyerDashboard() {
       <SuspendedAccountNotice role="buyer" />
       {tab === 'overview' && (
         <>
+          <UnreadMessagesNotice dashboardPath="/buyer/dashboard" />
           <StatsRow items={[
             ['Active Orders', data?.active_orders ?? 0, false, '/buyer/dashboard?tab=orders'],
             ['Completed Orders', data?.completed_orders ?? 0, false, '/buyer/dashboard?tab=orders'],
@@ -3175,6 +3181,7 @@ function SellerDashboard() {
       <SuspendedAccountNotice role="seller" />
       {tab === 'overview' && (
         <>
+          <UnreadMessagesNotice dashboardPath="/seller/dashboard" />
           <SellerApprovalNotice seller={dashboard.data?.seller} lguContact={dashboard.data?.lgu_contact} />
           {(dashboard.data?.open_notices || []).length > 0 && (
             <div className="card approval-notice approval-notice-danger">
@@ -4664,6 +4671,7 @@ function LguDashboard() {
     >
       {tab === 'overview' && (
         <>
+          <UnreadMessagesNotice dashboardPath="/lgu/dashboard" />
           <StatsRow items={[
             ['Registered Sellers', reports.data?.registered_sellers ?? 0],
             ['Listings', reports.data?.listings ?? 0],
@@ -5733,6 +5741,7 @@ function SuperAdminDashboard() {
     >
       {tab === 'overview' && (
         <>
+          <UnreadMessagesNotice dashboardPath="/admin/dashboard" />
           {/* Executive at-a-glance -- today's pulse and GROSS marketplace
               revenue (today / month / all-time). These are the full buyer-paid
               value, NOT the platform's own income; the Super Admin's actual
@@ -6547,7 +6556,33 @@ function SupportStatusBadge({ status, side = 'user' }) {
 
 /** Notification click-through for the support ticket notifications. */
 function supportNotificationLink(dashboardPath) {
-  return (notification) => (notification.type?.startsWith('support_ticket') ? `${dashboardPath}?tab=support&view=tickets` : null)
+  return (notification) => {
+    if (notification.type === 'new_message') return `${dashboardPath}?tab=messages`
+    return notification.type?.startsWith('support_ticket') ? `${dashboardPath}?tab=support&view=tickets` : null
+  }
+}
+
+/** Unread messages for the signed-in user (any role), polled for the sidebar badge and dashboard notice. */
+function useUnreadMessages() {
+  const unread = useQuery({
+    queryKey: ['messages-unread'],
+    queryFn: async () => (await api.get('/messages/unread-count')).data,
+    retry: false,
+    refetchInterval: 30000,
+  })
+  return Number(unread.data?.count) || 0
+}
+
+/** "You have N unread messages" on a dashboard overview, linking to Messages. */
+function UnreadMessagesNotice({ dashboardPath }) {
+  const count = useUnreadMessages()
+  if (!count) return null
+  return (
+    <Link className="card unread-messages-notice" to={`${dashboardPath}?tab=messages`}>
+      <MessageCircle size={20} />
+      <span><strong>You have {count} unread message{count === 1 ? '' : 's'}.</strong> Open Messages to read and reply.</span>
+    </Link>
+  )
 }
 
 /** Who wrote a staff entry, as the ticket's owner sees it. */
@@ -8904,6 +8939,7 @@ function MessagesPanel({ initialUserId }) {
     mutationFn: async (userId) => (await api.patch(`/messages/thread/${userId}/read`)).data,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['message-threads'] })
+      queryClient.invalidateQueries({ queryKey: ['messages-unread'] })
       queryClient.invalidateQueries({ queryKey: ['buyer-dashboard'] })
       queryClient.invalidateQueries({ queryKey: ['seller-dashboard'] })
     },

@@ -5854,3 +5854,33 @@ button.ticket-inbox-row {
   margin: 0;
   padding-left: 1.25rem;
 }
+
+/* Unread-message count on the sidebar's Messages link. */
+.side-nav-count {
+  background: var(--color-danger);
+  border-radius: var(--radius-full);
+  color: white;
+  font-size: 0.7rem;
+  font-weight: var(--fw-semibold);
+  line-height: 1;
+  margin-left: auto;
+  min-width: 1.4rem;
+  padding: 0.25rem 0.4rem;
+  text-align: center;
+}
+
+/* "You have N unread messages" on a dashboard overview. */
+.unread-messages-notice {
+  align-items: center;
+  background: var(--brand-teal-soft);
+  border: 1px solid var(--color-primary);
+  color: var(--brand-teal-text);
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: var(--space-3);
+  text-decoration: none;
+}
+
+.unread-messages-notice:hover {
+  box-shadow: var(--shadow-md);
+}

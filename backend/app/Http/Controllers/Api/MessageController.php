@@ -3,10 +3,12 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\AppNotification;
 use App\Models\Message;
 use App\Models\SellerProfile;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 class MessageController extends Controller
 {
@@ -152,7 +154,20 @@ class MessageController extends Controller
             'body' => $data['body'],
         ]);
 
+        self::notifyReceiver($sender, $receiver, $data['body']);
+
         return response()->json($message->load(['sender', 'receiver']), 201);
+    }
+
+    /**
+     * Unread messages for the signed-in user, for the sidebar badge and the
+     * dashboard notice (every role).
+     */
+    public function unreadCount(Request $request)
+    {
+        return response()->json([
+            'count' => Message::where('receiver_id', $request->user()->id)->whereNull('read_at')->count(),
+        ]);
     }
 
     public function markThreadRead(Request $request, User $user)
@@ -162,7 +177,51 @@ class MessageController extends Controller
             ->whereNull('read_at')
             ->update(['read_at' => now()]);
 
+        // Reading the conversation clears its "new message" notification too.
+        AppNotification::where('user_id', $request->user()->id)
+            ->where('type', 'new_message')
+            ->where('title', self::notificationTitle($user))
+            ->whereNull('read_at')
+            ->update(['read_at' => now()]);
+
         return response()->json(['message' => 'Marked as read.']);
+    }
+
+    /**
+     * One in-app notification per conversation, not one per message: while
+     * the receiver has not read it, a newer message just refreshes the
+     * preview, so a chatty thread cannot flood their notifications.
+     */
+    private static function notifyReceiver(User $sender, User $receiver, string $body): void
+    {
+        $title = self::notificationTitle($sender);
+        $preview = Str::limit(trim($body), 140);
+
+        $existing = AppNotification::where('user_id', $receiver->id)
+            ->where('type', 'new_message')
+            ->where('title', $title)
+            ->whereNull('read_at')
+            ->first();
+
+        if ($existing) {
+            $existing->update(['body' => $preview, 'created_at' => now()]);
+
+            return;
+        }
+
+        AppNotification::create([
+            'user_id' => $receiver->id,
+            'type' => 'new_message',
+            'title' => $title,
+            'body' => $preview,
+        ]);
+    }
+
+    private static function notificationTitle(User $sender): string
+    {
+        $role = ['buyer' => 'Buyer', 'seller' => 'Seller', 'lgu_admin' => 'LGU', 'super_admin' => 'Super Admin'][$sender->role] ?? 'User';
+
+        return "New message from {$sender->name} ({$role})";
     }
 
     public function update(Request $request, Message $message)
