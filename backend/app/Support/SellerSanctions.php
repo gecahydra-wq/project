@@ -146,7 +146,8 @@ class SellerSanctions
         if ($seller) {
             self::liftFreeze($seller);
             self::notifySeller($seller, 'seller_notice_accepted', 'Explanation Accepted', sprintf(
-                'Your LGU accepted your explanation. Your listings are back on the marketplace. No offense was recorded against your account.%s',
+                '%s accepted your explanation. Your listings are back on the marketplace. No offense was recorded against your account.%s',
+                self::reviewerLabel($actor),
                 $notes ? " Notes: {$notes}" : ''
             ));
         }
@@ -190,7 +191,8 @@ class SellerSanctions
         $offenses = self::offenseCount($seller->id);
 
         self::notifySeller($seller, 'seller_notice_rejected', 'Explanation Rejected', sprintf(
-            'Your LGU rejected your explanation. This is recorded as offense %d against your account. Reason: %s',
+            '%s rejected your explanation. This is recorded as offense %d against your account. Reason: %s',
+            self::reviewerLabel($actor),
             $offenses,
             $reason
         ));
@@ -209,6 +211,15 @@ class SellerSanctions
         ]);
 
         return $notice->fresh();
+    }
+
+    /**
+     * Who decided, as the seller should read it. The Super Admin can decide
+     * a notice too (as the fallback reviewer), so "Your LGU" is not always true.
+     */
+    public static function reviewerLabel(?User $reviewer): string
+    {
+        return $reviewer?->role === 'super_admin' ? 'The Super Admin' : 'Your LGU';
     }
 
     private static function notifySeller(SellerProfile $seller, string $type, string $title, string $body): void

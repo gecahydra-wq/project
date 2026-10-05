@@ -17,6 +17,7 @@ use App\Support\AnalyticsPeriod;
 use App\Support\CommissionCalculator;
 use App\Support\ImageUploader;
 use App\Support\PayoutAccount;
+use App\Support\SellerSanctions;
 use App\Support\SellerWallet;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -323,8 +324,15 @@ class SellerController extends Controller
     {
         $seller = SellerProfile::where('user_id', $request->user()->id)->firstOrFail();
 
+        // reviewed_by_label tells the seller who decided (their LGU or the
+        // Super Admin) without exposing the reviewer's account.
         return response()->json(
-            SellerNotice::where('seller_profile_id', $seller->id)->latest()->get()
+            SellerNotice::with('reviewer:id,role')->where('seller_profile_id', $seller->id)->latest()->get()
+                ->map(function (SellerNotice $notice) {
+                    $notice->reviewed_by_label = $notice->reviewed_by ? SellerSanctions::reviewerLabel($notice->reviewer) : null;
+
+                    return $notice->unsetRelation('reviewer');
+                })
         );
     }
 
