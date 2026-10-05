@@ -112,7 +112,7 @@ class SupportTicketController extends Controller
     public function respond(Request $request, SupportTicket $ticket)
     {
         $user = $request->user();
-        abort_unless(SupportTickets::canAnswer($user, $ticket), 403, $this->cannotAnswerMessage($ticket));
+        abort_unless(SupportTickets::canAnswer($user, $ticket), 403, 'You cannot answer this ticket.');
         abort_if($ticket->status === 'resolved', 422, 'This ticket is closed. It can no longer be replied to.');
 
         $data = $request->validate([
@@ -134,7 +134,7 @@ class SupportTicketController extends Controller
     public function resolve(Request $request, SupportTicket $ticket)
     {
         $user = $request->user();
-        abort_unless(SupportTickets::canAnswer($user, $ticket), 403, $this->cannotAnswerMessage($ticket));
+        abort_unless(SupportTickets::canAnswer($user, $ticket), 403, 'You cannot answer this ticket.');
         abort_if($ticket->status === 'resolved', 422, 'This ticket is already resolved.');
 
         $data = $request->validate(['note' => ['nullable', 'string', 'max:5000']]);
@@ -157,13 +157,6 @@ class SupportTicketController extends Controller
             'messages' => fn ($q) => $q->when(! $staff, fn ($q2) => $q2->where('is_internal', false)),
             'messages.author:id,name,role,profile_picture',
         ]);
-    }
-
-    private function cannotAnswerMessage(SupportTicket $ticket): string
-    {
-        return $ticket->super_admin_only
-            ? 'Only the Super Admin can answer '.SupportTicket::CATEGORIES[$ticket->category]['label'].' tickets.'
-            : 'You cannot answer this ticket.';
     }
 
     private function ownsOrder(Request $request, Order $order): bool

@@ -27,9 +27,8 @@ use Illuminate\Support\Collection;
  * belongs to one municipality (the seller's) and that municipality's LGU
  * Admins and every Super Admin can see it. Buyers have no municipality --
  * they can be anywhere in Cebu -- so a buyer's ticket without an order
- * belongs to none, and every LGU Admin can see it. Whoever picks it up replies,
- * except for Super Admin-only topics (SupportTicket::CATEGORIES): those only
- * the Super Admin can answer, so the LGU can read them but is not notified.
+ * belongs to none, and every LGU Admin can see it. Whoever picks it up replies
+ * -- every topic can be answered, noted on and closed by both.
  */
 class SupportTickets
 {
@@ -190,7 +189,7 @@ class SupportTickets
     {
         return match ($user->role) {
             'super_admin' => true,
-            'lgu_admin' => self::canView($user, $ticket) && ! $ticket->super_admin_only,
+            'lgu_admin' => self::canView($user, $ticket),
             default => false,
         };
     }
@@ -256,22 +255,20 @@ class SupportTickets
     }
 
     /**
-     * Everyone who can answer: every Super Admin, plus -- unless the topic is
-     * Super Admin-only -- the active LGU Admins of the ticket's municipality,
-     * or every active LGU Admin when it belongs to none.
+     * Everyone who can answer: every Super Admin, plus the active LGU Admins
+     * of the ticket's municipality, or every active LGU Admin when it belongs
+     * to none.
      */
     private static function staffRecipients(SupportTicket $ticket): Collection
     {
-        $includeLgu = ! $ticket->super_admin_only;
-
         return User::query()
             ->where(fn ($q) => $q
                 ->where('role', 'super_admin')
-                ->when($includeLgu, fn ($q1) => $q1->orWhere(fn ($q2) => $q2
+                ->orWhere(fn ($q2) => $q2
                     ->where('role', 'lgu_admin')
                     ->where('status', 'active')
                     ->whereNotNull('municipality_id')
-                    ->when($ticket->municipality_id !== null, fn ($q3) => $q3->where('municipality_id', $ticket->municipality_id)))))
+                    ->when($ticket->municipality_id !== null, fn ($q3) => $q3->where('municipality_id', $ticket->municipality_id))))
             ->get();
     }
 

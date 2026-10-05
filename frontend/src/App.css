@@ -5768,15 +5768,6 @@ button.ticket-inbox-row {
   flex-shrink: 0;
 }
 
-.ticket-inbox-tag {
-  align-self: flex-start;
-  background: var(--color-surface-subtle);
-  color: var(--color-text-muted);
-  border-radius: var(--radius-full);
-  font-size: 0.68rem;
-  padding: 1px 7px;
-}
-
 @media (max-width: 900px) {
   .contact-layout,
   .ticket-inbox {

@@ -9616,53 +9616,60 @@ class FishMarketApiTest extends TestCase
         $this->postJson("/api/support/tickets/{$ticketId}/replies", ['body' => 'One more thing.'])->assertStatus(422);
     }
 
-    public function test_super_admin_only_topics_can_be_read_but_not_answered_by_the_lgu(): void
+    /**
+     * Every topic -- account, technical, payment and withdrawal included -- can
+     * be answered, noted on and closed by the LGU as well as the Super Admin,
+     * and both are notified and emailed.
+     */
+    public function test_the_lgu_and_super_admin_can_both_answer_every_topic(): void
     {
         Mail::fake();
         $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
         $superAdmin = User::where('role', 'super_admin')->firstOrFail();
-        $buyer = $this->makeBuyer(['municipality_id' => $lguAdmin->municipality_id]);
+        $newSeller = fn () => $this->makeSeller(
+            ['municipality_id' => $lguAdmin->municipality_id],
+            ['municipality_id' => $lguAdmin->municipality_id]
+        );
 
-        Sanctum::actingAs($buyer);
-        $ticket = $this->postJson('/api/support/tickets', $this->ticketForm([
-            'category' => 'account',
-            'subject' => 'Cannot log in',
-            'body' => 'My password reset link keeps saying it expired.',
-        ]))->assertCreated()->assertJsonPath('super_admin_only', true)->json();
+        foreach (['account', 'technical', 'payment_refund', 'wallet_withdrawal'] as $category) {
+            // A fresh sender per topic keeps clear of the ticket rate limit.
+            $seller = $newSeller();
+            Sanctum::actingAs($seller->user);
+            $ticket = $this->postJson('/api/support/tickets', $this->ticketForm([
+                'category' => $category,
+                'subject' => "Help with {$category}",
+                'body' => 'Something is not working the way I expected.',
+            ]))->assertCreated()->assertJsonMissingPath('super_admin_only')->json('id');
 
-        // Only the Super Admin is told -- the LGU cannot act on it.
-        $this->assertDatabaseHas('notifications', ['user_id' => $superAdmin->id, 'type' => 'support_ticket_opened']);
-        $this->assertDatabaseMissing('notifications', ['user_id' => $lguAdmin->id, 'type' => 'support_ticket_opened']);
+            // Both are told about it.
+            foreach ([$lguAdmin, $superAdmin] as $staff) {
+                $this->assertDatabaseHas('notifications', ['user_id' => $staff->id, 'type' => 'support_ticket_opened']);
+            }
 
-        // The LGU still sees and can read it, but cannot respond, note on, or close it.
-        Sanctum::actingAs($lguAdmin);
-        $listed = collect($this->getJson('/api/lgu/support-tickets')->assertOk()->json())->firstWhere('id', $ticket['id']);
-        $this->assertTrue($listed['super_admin_only']);
-        $this->getJson("/api/support/tickets/{$ticket['id']}")->assertOk();
-        $this->postJson("/api/lgu/support-tickets/{$ticket['id']}/responses", ['body' => 'Try again later.'])
-            ->assertStatus(403)
-            ->assertJsonPath('message', 'Only the Super Admin can answer Account or login tickets.');
-        $this->postJson("/api/lgu/support-tickets/{$ticket['id']}/responses", ['body' => 'Note.', 'internal' => true])->assertStatus(403);
-        $this->patchJson("/api/lgu/support-tickets/{$ticket['id']}/resolve")->assertStatus(403);
+            // The LGU can respond, leave a note, and close it.
+            Sanctum::actingAs($lguAdmin);
+            $this->postJson("/api/lgu/support-tickets/{$ticket}/responses", ['body' => 'We are looking into it.'])
+                ->assertCreated()->assertJsonPath('status', 'answered');
+            $this->postJson("/api/lgu/support-tickets/{$ticket}/responses", ['body' => 'Checked the logs.', 'internal' => true])->assertCreated();
 
-        Sanctum::actingAs($superAdmin);
-        $this->postJson("/api/super-admin/support-tickets/{$ticket['id']}/responses", ['body' => 'I sent you a new reset link.'])
-            ->assertCreated()
-            ->assertJsonPath('status', 'answered');
-        // The buyer's reply is emailed to the Super Admin, not to the LGU that cannot answer it.
-        Sanctum::actingAs($buyer);
-        $this->postJson("/api/support/tickets/{$ticket['id']}/replies", ['body' => 'Got it, thank you!'])->assertCreated();
+            // The user's reply now reaches the LGU by email too.
+            Sanctum::actingAs($seller->user);
+            $this->postJson("/api/support/tickets/{$ticket}/replies", ['body' => 'Thanks, still waiting.'])->assertCreated();
+
+            Sanctum::actingAs($lguAdmin);
+            $this->patchJson("/api/lgu/support-tickets/{$ticket}/resolve")->assertOk();
+        }
+
+        Mail::assertSent(\App\Mail\SupportTicketUserRepliedMail::class, fn ($mail) => $mail->hasTo($lguAdmin->email));
         Mail::assertSent(\App\Mail\SupportTicketUserRepliedMail::class, fn ($mail) => $mail->hasTo($superAdmin->email));
-        Mail::assertNotSent(\App\Mail\SupportTicketUserRepliedMail::class, fn ($mail) => $mail->hasTo($lguAdmin->email));
-        Sanctum::actingAs($superAdmin);
-        $this->patchJson("/api/super-admin/support-tickets/{$ticket['id']}/resolve")->assertOk();
 
-        // A shared topic stays answerable by the LGU.
-        Sanctum::actingAs($buyer);
-        $shared = $this->postJson('/api/support/tickets', $this->ticketForm(['category' => 'listing']))
-            ->assertCreated()->assertJsonPath('super_admin_only', false)->json('id');
-        Sanctum::actingAs($lguAdmin);
-        $this->postJson("/api/lgu/support-tickets/{$shared}/responses", ['body' => 'Which listing?'])->assertCreated();
+        // The Super Admin can still answer any topic as before.
+        $seller = $newSeller();
+        Sanctum::actingAs($seller->user);
+        $other = $this->postJson('/api/support/tickets', $this->ticketForm(['category' => 'account']))->assertCreated()->json('id');
+        Sanctum::actingAs($superAdmin);
+        $this->postJson("/api/super-admin/support-tickets/{$other}/responses", ['body' => 'I sent you a new reset link.'])->assertCreated();
+        $this->patchJson("/api/super-admin/support-tickets/{$other}/resolve")->assertOk();
     }
 
     public function test_a_buyer_ticket_without_an_order_is_open_to_every_lgu_but_a_seller_ticket_stays_local(): void

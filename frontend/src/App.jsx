@@ -6977,8 +6977,8 @@ function SupportTicketsAdminPanel({ scope }) {
     <Section title="Support Tickets">
       <p className="helper-text">
         {isSuper
-          ? 'Tickets and feedback from buyers and sellers on the whole platform. Each one is also visible to the LGU of its municipality (buyer tickets not about an order, to every LGU), so whichever of you picks it up answers it. Account or login, technical, payment or refund, and wallet or withdrawal tickets are yours alone to answer.'
-          : 'Tickets and feedback from sellers in your municipality and buyers ordering from them, plus buyer tickets not about an order, which every LGU can see. The Super Admin sees the same tickets, so whichever of you picks one up answers it. Account or login, technical, payment or refund, and wallet or withdrawal tickets are answered by the Super Admin only; you can read them.'}
+          ? 'Tickets and feedback from buyers and sellers on the whole platform. Each one is also visible to the LGU of its municipality (buyer tickets not about an order, to every LGU), so whichever of you picks it up answers it, whatever the topic.'
+          : 'Tickets and feedback from sellers in your municipality and buyers ordering from them, plus buyer tickets not about an order, which every LGU can see. The Super Admin sees the same tickets, so whichever of you picks one up answers it, whatever the topic.'}
         {' '}This is not real-time support: responses are emailed to the user.
       </p>
       <div className="ticket-inbox">
@@ -7028,7 +7028,6 @@ function SupportTicketsAdminPanel({ scope }) {
                       <span className="ticket-inbox-topic" title={topic}>{topic}</span>
                       <span>{formatMessageTimestamp(ticket.last_activity_at || ticket.created_at)}</span>
                     </span>
-                    {!isSuper && ticket.super_admin_only && <span className="ticket-inbox-tag">Super Admin answers this topic</span>}
                   </button>
                 )
               })}
@@ -7120,11 +7119,7 @@ function StaffSupportTicket({ ticketId, base, onChanged }) {
         </div>
       ))}
 
-      {base === '/lgu' && data.super_admin_only && !closed ? (
-        <p className="helper-text ticket-reply">
-          Only the Super Admin can answer {SUPPORT_CATEGORY_LABELS[data.category] || 'this type of'} tickets, because only they can fix it. You can read this ticket, but not respond, add notes or close it.
-        </p>
-      ) : closed ? (
+      {closed ? (
         <p className="helper-text ticket-reply">
           This ticket is closed{data.resolver?.name ? ` by ${data.resolver.name}` : ''}{data.resolved_at ? ` on ${formatMessageTimestamp(data.resolved_at)}` : ''}. It can no longer be replied to.
         </p>
