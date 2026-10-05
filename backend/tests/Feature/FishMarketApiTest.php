@@ -4710,7 +4710,8 @@ class FishMarketApiTest extends TestCase
         $this->assertSame('google-existing-1', $existing->fresh()->google_id);
     }
 
-    public function test_google_login_blocks_a_suspended_seller(): void
+    /** A suspended seller still signs in with Google, like with a password. */
+    public function test_google_login_lets_a_suspended_seller_sign_in(): void
     {
         $seller = $this->makeSeller(['email' => 'suspended-google-seller@fishmarket.test']);
         $seller->update(['status' => 'suspended']);
@@ -4725,8 +4726,8 @@ class FishMarketApiTest extends TestCase
 
         $response->assertRedirect();
         $location = $response->headers->get('Location');
-        $this->assertStringContainsString('google_error=1', $location);
-        $this->assertStringNotContainsString('token=', $location);
+        $this->assertStringNotContainsString('google_error=1', $location);
+        $this->assertStringContainsString('token=', $location);
     }
 
     public function test_seller_can_update_status_of_their_own_order(): void
@@ -4887,16 +4888,82 @@ class FishMarketApiTest extends TestCase
         $this->assertNotEquals('suspended', $reinstate->json('status'));
     }
 
-    public function test_suspended_seller_cannot_log_in(): void
+    /**
+     * A suspended seller can still sign in -- otherwise they could never read
+     * why, send a support ticket or file a dispute -- but cannot sell.
+     */
+    public function test_a_suspended_seller_can_sign_in_and_ask_for_help_but_cannot_sell(): void
     {
-        $sellerProfile = $this->makeSeller();
+        Mail::fake();
+        Storage::fake('public');
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $sellerProfile = $this->makeSeller(
+            ['municipality_id' => $lguAdmin->municipality_id],
+            ['municipality_id' => $lguAdmin->municipality_id]
+        );
         $sellerUser = $sellerProfile->user;
-        $sellerProfile->update(['status' => 'suspended']);
+        $listing = $this->makeListing($sellerProfile);
+        $buyer = $this->makeBuyer();
+        $order = $this->makeOrder($buyer, $listing, ['status' => 'paid']);
 
-        $this->postJson('/api/auth/login', [
-            'email' => $sellerUser->email,
-            'password' => 'password',
-        ])->assertStatus(403);
+        // Suspending keeps the seller's session and tells them why.
+        $sellerUser->createToken('existing');
+        Sanctum::actingAs($lguAdmin);
+        $this->patchJson("/api/lgu/sellers/{$sellerProfile->id}/suspend", ['reason' => 'Repeated late deliveries'])->assertOk();
+        $this->assertSame(1, $sellerUser->tokens()->count());
+        $notice = AppNotification::where('user_id', $sellerUser->id)->where('type', 'account_suspended')->firstOrFail();
+        $this->assertStringStartsWith('Your LGU suspended your seller account. Reason: Repeated late deliveries.', $notice->body);
+
+        $this->postJson('/api/auth/login', ['email' => $sellerUser->email, 'password' => 'password'])->assertOk();
+
+        Sanctum::actingAs($sellerUser);
+        $this->getJson('/api/auth/me')->assertOk()->assertJsonPath('account_suspended', true);
+        $this->getJson('/api/seller/dashboard')->assertOk();
+
+        // Selling is blocked...
+        $this->patchJson("/api/listings/{$listing->id}", ['quantity' => 5])->assertStatus(403);
+        $this->patchJson("/api/orders/{$order->id}/status", ['status' => 'in_transit'])->assertStatus(403);
+        $this->postJson('/api/seller/withdrawals', ['amount' => 100])->assertStatus(403);
+        $this->postJson('/api/seller/posts', ['body' => 'Fresh stock soon'])->assertStatus(403);
+        $this->postJson('/api/messages', ['receiver_id' => $buyer->id, 'body' => 'Hello'])->assertStatus(403);
+
+        // ...but asking for help is not.
+        $this->postJson('/api/support/tickets', $this->ticketForm(['category' => 'account', 'subject' => 'Why was I suspended?']))
+            ->assertCreated();
+
+        // Reinstating needs a reason, and tells the seller.
+        Sanctum::actingAs($lguAdmin);
+        $this->patchJson("/api/lgu/sellers/{$sellerProfile->id}/reinstate", [])->assertStatus(422)->assertJsonValidationErrors('reason');
+        $this->patchJson("/api/lgu/sellers/{$sellerProfile->id}/reinstate", ['reason' => 'Deliveries back on time'])->assertOk();
+        $this->assertDatabaseHas('notifications', ['user_id' => $sellerUser->id, 'type' => 'account_reinstated']);
+
+        Sanctum::actingAs($sellerUser);
+        $this->getJson('/api/auth/me')->assertJsonPath('account_suspended', false);
+        $this->patchJson("/api/listings/{$listing->id}", ['quantity' => 5])->assertOk();
+    }
+
+    /** A suspended buyer is told in the app, and told again when reinstated. */
+    public function test_a_suspended_buyer_is_notified_and_reinstating_needs_a_reason(): void
+    {
+        Mail::fake();
+        $superAdmin = User::where('role', 'super_admin')->firstOrFail();
+        $buyer = $this->makeBuyer();
+
+        Sanctum::actingAs($superAdmin);
+        $this->patchJson("/api/super-admin/buyers/{$buyer->id}/suspend", ['reason' => 'Fraudulent Orders'])->assertOk();
+        $notice = AppNotification::where('user_id', $buyer->id)->where('type', 'account_suspended')->firstOrFail();
+        $this->assertStringStartsWith('The Super Admin suspended your account. Reason: Fraudulent Orders.', $notice->body);
+
+        Sanctum::actingAs($buyer->fresh());
+        $this->getJson('/api/auth/me')->assertOk()->assertJsonPath('account_suspended', true);
+
+        Sanctum::actingAs($superAdmin);
+        $this->patchJson("/api/super-admin/buyers/{$buyer->id}/reinstate", [])->assertStatus(422)->assertJsonValidationErrors('reason');
+        $this->patchJson("/api/super-admin/buyers/{$buyer->id}/reinstate", ['reason' => 'Appeal accepted'])->assertOk();
+        $this->assertDatabaseHas('notifications', ['user_id' => $buyer->id, 'type' => 'account_reinstated']);
+
+        Sanctum::actingAs($buyer->fresh());
+        $this->getJson('/api/auth/me')->assertJsonPath('account_suspended', false);
     }
 
     public function test_suspended_seller_cannot_create_listing_and_listings_are_hidden_from_marketplace(): void

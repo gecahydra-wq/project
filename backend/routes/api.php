@@ -114,13 +114,13 @@ Route::middleware(['auth:sanctum', 'verified', 'role:seller'])->group(function (
     Route::delete('seller/profile/picture', [SellerController::class, 'removeProfilePicture']);
     Route::post('seller/profile/cover-photo', [SellerController::class, 'uploadCoverPhoto']);
     Route::delete('seller/profile/cover-photo', [SellerController::class, 'removeCoverPhoto']);
-    Route::post('listings', [ListingController::class, 'store']);
-    Route::patch('listings/{listing}', [ListingController::class, 'update']);
-    Route::delete('listings/{listing}', [ListingController::class, 'destroy']);
-    Route::post('listings/{listing}/media', [ListingController::class, 'uploadMedia']);
-    Route::delete('listings/{listing}/media/{media}', [ListingController::class, 'deleteMedia']);
-    Route::patch('listings/{listing}/media/reorder', [ListingController::class, 'reorderMedia']);
-    Route::patch('orders/{order}/status', [OrderController::class, 'updateStatus']);
+    Route::post('listings', [ListingController::class, 'store'])->middleware('active-seller');
+    Route::patch('listings/{listing}', [ListingController::class, 'update'])->middleware('active-seller');
+    Route::delete('listings/{listing}', [ListingController::class, 'destroy'])->middleware('active-seller');
+    Route::post('listings/{listing}/media', [ListingController::class, 'uploadMedia'])->middleware('active-seller');
+    Route::delete('listings/{listing}/media/{media}', [ListingController::class, 'deleteMedia'])->middleware('active-seller');
+    Route::patch('listings/{listing}/media/reorder', [ListingController::class, 'reorderMedia'])->middleware('active-seller');
+    Route::patch('orders/{order}/status', [OrderController::class, 'updateStatus'])->middleware('active-seller');
     // A rejected earnings review or withdrawal used to be the end of the
     // conversation. The seller can now answer it, and the reviewer decides
     // again -- see App\Support\DisputeResolution.
@@ -130,21 +130,21 @@ Route::middleware(['auth:sanctum', 'verified', 'role:seller'])->group(function (
     Route::patch('seller/notifications/read-all', [SellerController::class, 'markAllNotificationsRead']);
     Route::patch('seller/notifications/{notification}/read', [SellerController::class, 'markNotificationRead']);
     Route::get('seller/wallet', [SellerController::class, 'wallet']);
-    Route::post('seller/withdrawals', [SellerController::class, 'requestWithdrawal']);
+    Route::post('seller/withdrawals', [SellerController::class, 'requestWithdrawal'])->middleware('active-seller');
     // Seller Posts -- the seller's own farm/hatchery feed. Reads are public
     // (SellerProfileController::show); these writes are owner-only.
-    Route::post('seller/posts', [SellerPostController::class, 'store']);
-    Route::patch('seller/posts/{post}', [SellerPostController::class, 'update']);
-    Route::delete('seller/posts/{post}', [SellerPostController::class, 'destroy']);
-    Route::post('seller/posts/{post}/media', [SellerPostController::class, 'addMedia']);
-    Route::delete('seller/posts/{post}/media/{media}', [SellerPostController::class, 'deleteMedia']);
+    Route::post('seller/posts', [SellerPostController::class, 'store'])->middleware('active-seller');
+    Route::patch('seller/posts/{post}', [SellerPostController::class, 'update'])->middleware('active-seller');
+    Route::delete('seller/posts/{post}', [SellerPostController::class, 'destroy'])->middleware('active-seller');
+    Route::post('seller/posts/{post}/media', [SellerPostController::class, 'addMedia'])->middleware('active-seller');
+    Route::delete('seller/posts/{post}/media/{media}', [SellerPostController::class, 'deleteMedia'])->middleware('active-seller');
     // Notices to Explain raised against this seller by the automatic
     // low-rating check (App\Support\SellerReputation). The seller can read and
     // answer them; only their LGU can close one.
     Route::get('seller/notices', [SellerController::class, 'notices']);
     Route::post('seller/notices/{notice}/respond', [SellerController::class, 'respondToNotice']);
     Route::get('seller/buyers/{buyer}', [SellerController::class, 'buyerProfile']);
-    Route::patch('orders/{order:order_number}/notes', [OrderController::class, 'updateSellerNotes']);
+    Route::patch('orders/{order:order_number}/notes', [OrderController::class, 'updateSellerNotes'])->middleware('active-seller');
 });
 
 Route::middleware(['auth:sanctum', 'verified', 'role:buyer,seller'])->group(function () {

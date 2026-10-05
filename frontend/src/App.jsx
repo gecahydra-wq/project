@@ -945,6 +945,8 @@ function ListingCard({ item, mode = 'public', onSelect, detailPath }) {
 function ListingDetailPanel({ item, isBuyer = false, checkout, qty, setQty, onPay, addToCart }) {
   const navigate = useNavigate()
   const session = getSession()
+  // A suspended buyer can look but not buy; the server refuses the order too.
+  const suspended = useAccountSuspended()
   const outOfStock = Number(item.quantity) <= 0
   // Unit of Measurement + Minimum Order. The seller's minimum is the floor for
   // a valid order and available stock is the ceiling; when stock has fallen
@@ -1089,8 +1091,14 @@ function ListingDetailPanel({ item, isBuyer = false, checkout, qty, setQty, onPa
                 <ShoppingBag size={16} /> {addToCart.isPending ? 'Adding...' : 'Add to Cart'}
               </button>
             )}
-            <button onClick={onPay} type="button" disabled={!canOrder}>{outOfStock ? 'Out of Stock' : 'Pay with PayMongo'}</button>
+            <button onClick={onPay} type="button" disabled={!canOrder || suspended}>{outOfStock ? 'Out of Stock' : 'Pay with PayMongo'}</button>
           </div>
+          {suspended && (
+            <p className="error">
+              Your account is suspended, so you cannot place orders or pay right now. If you think this is a mistake,{' '}
+              <Link to="/buyer/dashboard?tab=support">send a support ticket</Link>.
+            </p>
+          )}
           {addToCart?.isSuccess && (
             <p className="helper-text">
               Saved to your cart. <Link to="/buyer/dashboard?tab=cart">View cart</Link>
@@ -2411,6 +2419,7 @@ function BuyerDashboard() {
       title="Buyer Dashboard"
       subtitle="Browse, order, pay, review, and track notifications."
     >
+      <SuspendedAccountNotice role="buyer" />
       {tab === 'overview' && (
         <>
           <StatsRow items={[
@@ -3142,6 +3151,7 @@ function SellerDashboard() {
       title="Seller Dashboard"
       subtitle="Manage listings, orders, and analytics."
     >
+      <SuspendedAccountNotice role="seller" />
       {tab === 'overview' && (
         <>
           <SellerApprovalNotice seller={dashboard.data?.seller} />
@@ -5803,7 +5813,7 @@ function SuperAdminDashboard() {
       )}
       {tab === 'users' && (
         <Section title="Buyers (Platform-Wide)">
-          <p className="helper-text">Suspending a buyer blocks placing orders, payments, messaging, reviews, and contacting sellers -- they can still log in. Existing completed orders are unaffected. Removing deletes the account permanently and is only possible for buyers with no order history; suspend anyone who has already traded.</p>
+          <p className="helper-text">Suspending a buyer blocks placing orders, payments, messaging, reviews, and contacting sellers -- they can still log in, and they are notified with the reason. Existing completed orders are unaffected. Reinstating needs a reason. Removing deletes the account permanently and is only possible for buyers with no order history; suspend anyone who has already traded.</p>
           {(usersQuery.data?.buyers || []).length ? (
             <div className="item-list">
               {usersQuery.data.buyers.map((user) => (
@@ -5936,7 +5946,7 @@ function SuperAdminDashboard() {
             extraInvalidateKeys={['super-admin-sellers', 'super-admin-dashboard']}
           />
           <Section title="All Sellers (Platform-Wide)">
-          <p className="helper-text">Super Admin may suspend any seller regardless of municipality. Suspended sellers cannot create, edit, or publish listings, receive new orders, or request withdrawals. Existing completed orders are unaffected. Removing deletes the account and its listings permanently and is only possible for sellers with no order history; suspend anyone who has already traded.</p>
+          <p className="helper-text">Super Admin may suspend any seller regardless of municipality. Suspended sellers cannot create, edit, or publish listings, receive new orders, update orders, request withdrawals, or message buyers -- they can still log in to see why, send a support ticket, or file a dispute. Existing completed orders are unaffected. Reinstating needs a reason. Removing deletes the account and its listings permanently and is only possible for sellers with no order history; suspend anyone who has already traded.</p>
           {(sellersQuery.data || []).length ? (
             <div className="item-list">
               {sellersQuery.data.map((seller) => (
@@ -7706,6 +7716,46 @@ function WithdrawalRow({ request, onApprove, onReject, onMarkPaid, type = 'selle
           <button type="button" className="danger" onClick={submitReject} disabled={!reason.trim()}>Confirm Reject</button>
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * Whether the signed-in buyer or seller is suspended, read fresh from
+ * /auth/me (the stored session can be days old). A suspended account can
+ * still sign in -- to read why and ask for help -- but cannot buy or sell.
+ */
+function useAccountSuspended() {
+  const session = getSession()
+  const relevant = ['buyer', 'seller'].includes(session?.role)
+  const me = useQuery({
+    queryKey: ['auth-me'],
+    queryFn: async () => (await api.get('/auth/me')).data,
+    enabled: relevant,
+    retry: false,
+    staleTime: 30000,
+  })
+  return relevant && Boolean(me.data?.account_suspended)
+}
+
+/** The "your account is suspended" notice shown across a buyer's or seller's dashboard. */
+function SuspendedAccountNotice({ role }) {
+  const suspended = useAccountSuspended()
+  if (!suspended) return null
+  const base = role === 'seller' ? '/seller/dashboard' : '/buyer/dashboard'
+  return (
+    <div className="card approval-notice approval-notice-danger">
+      <div className="card-row">
+        <strong>Your account is suspended</strong>
+        <Badge tone="danger">Suspended</Badge>
+      </div>
+      <p className="helper-text">
+        {role === 'seller'
+          ? 'Your listings are off the marketplace, and you cannot add or edit listings, update orders, request withdrawals, post or message buyers until you are reinstated. You can still sign in, see your account, answer Notices to Explain and dispute rejected earnings or withdrawals.'
+          : 'You cannot place orders, pay, message sellers or leave reviews until you are reinstated. You can still sign in, browse and see your orders.'}
+        {' '}The reason is in your <Link to={`${base}?tab=notifications`}>Notifications</Link> and in the email we sent. If you think this is a mistake,{' '}
+        <Link to={`${base}?tab=support`}>send a support ticket</Link>.
+      </p>
     </div>
   )
 }

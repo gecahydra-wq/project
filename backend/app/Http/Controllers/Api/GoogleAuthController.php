@@ -168,13 +168,6 @@ class GoogleAuthController extends Controller
             $user->markEmailAsVerified();
         }
 
-        if ($user->role === 'seller') {
-            $sellerProfile = SellerProfile::where('user_id', $user->id)->first();
-            if ($sellerProfile?->status === 'suspended') {
-                return redirect($frontend.'/login?google_error=1&reason=suspended');
-            }
-        }
-
         if ($user->role === 'lgu_admin' && $user->status === 'disabled') {
             return redirect($frontend.'/login?google_error=1&reason=disabled');
         }

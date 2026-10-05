@@ -11,9 +11,9 @@ use Illuminate\Queue\SerializesModels;
 
 /**
  * Sent whenever App\Support\AccountModeration suspends an account, for any
- * role. The restriction list and login-access line are role-aware -- a
- * suspended Buyer can still log in and browse, a suspended Seller or LGU
- * Admin cannot log in at all.
+ * role. The restriction list is role-aware -- a suspended Buyer or Seller
+ * can still log in (to read why, send a support ticket or file a dispute),
+ * a disabled LGU Admin cannot log in at all.
  */
 class AccountSuspendedMail extends Mailable
 {
@@ -35,11 +35,11 @@ class AccountSuspendedMail extends Mailable
             'Access marketplace purchasing features',
         ],
         'seller' => [
-            'Log in to your account',
             'Create listings',
             'Edit or publish listings',
-            'Receive new orders',
+            'Receive new orders or update existing ones',
             'Request withdrawals',
+            'Message buyers or post updates',
         ],
         'lgu_admin' => [
             'Log in to your account',
@@ -91,7 +91,9 @@ class AccountSuspendedMail extends Mailable
                 'introLine' => "Your AbaiMarket {$roleLabel} account has been suspended by an administrator.",
                 'restrictions' => self::RESTRICTIONS[$this->role] ?? [],
                 'rows' => $rows,
-                'appealLine' => 'If you believe this was a mistake, or would like to appeal this decision, please contact AbaiMarket support and reference the date and reason above.',
+                'appealLine' => $this->role === 'lgu_admin'
+                    ? 'If you believe this was a mistake, or would like to appeal this decision, please contact AbaiMarket support and reference the date and reason above.'
+                    : 'You can still log in. If you believe this was a mistake, or would like to appeal this decision, send a support ticket from Help & Support and reference the date and reason above.',
             ],
         );
     }

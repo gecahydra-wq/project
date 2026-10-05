@@ -5,6 +5,7 @@ namespace App\Support;
 use App\Mail\AccountReinstatedMail;
 use App\Mail\AccountRemovedMail;
 use App\Mail\AccountSuspendedMail;
+use App\Models\AppNotification;
 use App\Models\ModerationLog;
 use App\Models\SellerProfile;
 use App\Models\User;
@@ -22,9 +23,12 @@ use App\Models\User;
  *
  * Each role stores its status differently (users.status for Buyers and LGU
  * Admins, seller_profiles.status for Sellers) and has different
- * consequences (a suspended Buyer can still log in; a suspended Seller or
- * LGU Admin cannot, so their tokens are revoked immediately) -- but every
- * action always produces exactly one ModerationLog row and one email.
+ * consequences. A suspended Buyer or Seller can still log in -- they need to,
+ * to read why, send a support ticket or file a dispute -- but cannot buy or
+ * sell (see the per-action guards and the active-seller middleware). A
+ * disabled LGU Admin cannot log in, so their tokens are revoked immediately.
+ * Every action produces exactly one ModerationLog row and one email, and a
+ * Buyer or Seller also gets an in-app notification.
  */
 class AccountModeration
 {
@@ -38,6 +42,11 @@ class AccountModeration
 
         self::log($buyer, 'buyer', $moderator, 'suspended', $reason, $notes, 'suspended');
         SafeMailer::send($buyer->email, new AccountSuspendedMail($buyer, 'buyer', $moderator, $reason, $notes));
+        self::notify($buyer, 'account_suspended', 'Account Suspended', sprintf(
+            '%s suspended your account.%s You can still sign in and see your orders, but you cannot place orders, pay, message sellers or leave reviews. If you think this is a mistake, send a support ticket from Help & Support.',
+            SellerSanctions::reviewerLabel($moderator),
+            self::reasonSentence($reason, $notes)
+        ));
 
         return $buyer->fresh();
     }
@@ -48,6 +57,11 @@ class AccountModeration
 
         self::log($buyer, 'buyer', $moderator, 'reinstated', $reason, $notes, 'active');
         SafeMailer::send($buyer->email, new AccountReinstatedMail($buyer, 'buyer', $moderator, $reason, $notes));
+        self::notify($buyer, 'account_reinstated', 'Account Reinstated', sprintf(
+            '%s reinstated your account.%s You can place orders, pay, message sellers and leave reviews again.',
+            SellerSanctions::reviewerLabel($moderator),
+            self::reasonSentence($reason, $notes)
+        ));
 
         return $buyer->fresh();
     }
@@ -55,11 +69,18 @@ class AccountModeration
     public static function suspendSeller(SellerProfile $seller, User $moderator, ?string $reason = null, ?string $notes = null): SellerProfile
     {
         $seller->update(['status' => 'suspended']);
-        $seller->user?->tokens()->delete();
+        // Deliberately NOT revoking tokens: a suspended seller stays signed in
+        // so they can read why, send a support ticket or file a dispute. What
+        // they cannot do is sell -- see the active-seller middleware.
 
         if ($seller->user) {
             self::log($seller->user, 'seller', $moderator, 'suspended', $reason, $notes, 'suspended');
             SafeMailer::send($seller->user->email, new AccountSuspendedMail($seller->user, 'seller', $moderator, $reason, $notes));
+            self::notify($seller->user, 'account_suspended', 'Account Suspended', sprintf(
+                '%s suspended your seller account.%s Your listings are off the marketplace. You can still sign in, but you cannot add or edit listings, update orders, request withdrawals, post or message buyers. If you think this is a mistake, send a support ticket from Help & Support.',
+                SellerSanctions::reviewerLabel($moderator),
+                self::reasonSentence($reason, $notes)
+            ));
         }
 
         return $seller->fresh();
@@ -77,6 +98,11 @@ class AccountModeration
         if ($seller->user) {
             self::log($seller->user, 'seller', $moderator, 'reinstated', $reason, $notes, $seller->status);
             SafeMailer::send($seller->user->email, new AccountReinstatedMail($seller->user, 'seller', $moderator, $reason, $notes));
+            self::notify($seller->user, 'account_reinstated', 'Account Reinstated', sprintf(
+                '%s reinstated your seller account.%s Your listings are back on the marketplace and you can sell again.',
+                SellerSanctions::reviewerLabel($moderator),
+                self::reasonSentence($reason, $notes)
+            ));
         }
 
         return $seller->fresh();
@@ -179,6 +205,16 @@ class AccountModeration
 
         $account->tokens()->delete();
         $account->delete();
+    }
+
+    private static function notify(User $account, string $type, string $title, string $body): void
+    {
+        AppNotification::create(['user_id' => $account->id, 'type' => $type, 'title' => $title, 'body' => $body]);
+    }
+
+    private static function reasonSentence(?string $reason, ?string $notes): string
+    {
+        return ($reason ? " Reason: {$reason}." : '').($notes ? " Notes: {$notes}" : '');
     }
 
     private static function log(User $subject, string $role, User $moderator, string $action, ?string $reason, ?string $notes, string $resultingStatus): void

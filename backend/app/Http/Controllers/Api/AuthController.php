@@ -91,10 +91,11 @@ class AuthController extends Controller
     /**
      * Authenticate and issue a Sanctum token. Enforces three gates in order:
      * valid credentials, a verified email, and account standing -- a
-     * LGU-suspended seller or a Super-Admin-disabled LGU admin is refused with
-     * a 403 explaining who to contact. Note a *suspended buyer* is intentionally
-     * allowed to log in (they're only blocked from transacting; see the guards
-     * in OrderController/MessageController/ReviewController).
+     * Super-Admin-disabled LGU admin is refused with a 403. A *suspended buyer
+     * or seller* is intentionally allowed to log in, so they can read why and
+     * send a support ticket or dispute; they are only blocked from buying and
+     * selling (OrderController/MessageController/ReviewController guards and
+     * the active-seller middleware).
      *
      * @return \Illuminate\Http\JsonResponse  422 on bad credentials, 403 when
      *         unverified/suspended/disabled, otherwise the user + token.
@@ -132,13 +133,6 @@ class AuthController extends Controller
             ], 403);
         }
 
-        if ($user->role === 'seller') {
-            $sellerProfile = SellerProfile::where('user_id', $user->id)->first();
-            if ($sellerProfile?->status === 'suspended') {
-                return response()->json(['message' => 'This seller account has been suspended by the LGU. Contact your local government unit for assistance.'], 403);
-            }
-        }
-
         if ($user->role === 'lgu_admin' && $user->status === 'disabled') {
             return response()->json(['message' => 'This LGU admin account has been disabled by the Super Admin.'], 403);
         }
@@ -152,7 +146,15 @@ class AuthController extends Controller
     /** Return the currently authenticated user (used to rehydrate the SPA session). */
     public function me(Request $request)
     {
-        return $request->user();
+        $user = $request->user();
+
+        // One flag the frontend can use for every role's "you are suspended"
+        // notice -- a seller's standing lives on their seller profile.
+        $user->setAttribute('account_suspended', $user->role === 'seller'
+            ? SellerProfile::where('user_id', $user->id)->value('status') === 'suspended'
+            : $user->status === 'suspended');
+
+        return $user;
     }
 
     /** Revoke only the token used for THIS request, leaving the user's other sessions intact. */

@@ -141,6 +141,7 @@ class MessageController extends Controller
 
         $sender = $request->user();
         abort_if($sender->role === 'buyer' && $sender->status === 'suspended', 403, 'Your account has been suspended and cannot send messages. Contact support for assistance.');
+        abort_if($sender->role === 'seller' && SellerProfile::where('user_id', $sender->id)->value('status') === 'suspended', 403, 'Your seller account has been suspended and cannot send messages. Send a support ticket from Help & Support if you think this is a mistake.');
 
         $receiver = User::findOrFail($data['receiver_id']);
         $this->assertCanMessage($sender, $receiver);

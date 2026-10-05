@@ -15,6 +15,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'demo.auth' => \App\Http\Middleware\DemoAuth::class,
             'role' => \App\Http\Middleware\EnsureRole::class,
+            'active-seller' => \App\Http\Middleware\EnsureActiveSeller::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
