@@ -8415,6 +8415,14 @@ class FishMarketApiTest extends TestCase
         $notification = AppNotification::where('user_id', $seller->user_id)->where('type', 'seller_registration_rejected')->firstOrFail();
         $this->assertStringContainsString('Business permit is missing.', $notification->body);
 
+        // The rejected seller is pointed at their own LGU -- the reviewer --
+        // and can message them straight from the notice.
+        Sanctum::actingAs($seller->user);
+        $this->getJson('/api/seller/dashboard')->assertOk()
+            ->assertJsonPath('lgu_contact.id', $lguAdmin->id)
+            ->assertJsonPath('lgu_contact.municipality', $seller->municipality->name);
+        $this->postJson('/api/messages', ['receiver_id' => $lguAdmin->id, 'body' => 'I have uploaded my business permit.'])->assertCreated();
+
         // A rejection is reversible -- and by either reviewer, not only the
         // one who rejected it.
         Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());

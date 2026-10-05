@@ -5846,3 +5846,11 @@ button.ticket-inbox-row {
     border-bottom: 1px solid var(--color-border);
   }
 }
+
+/* Numbered "how to get reviewed again" steps on a rejected registration. */
+.approval-steps {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+  padding-left: 1.25rem;
+}

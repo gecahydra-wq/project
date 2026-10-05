@@ -1433,22 +1433,43 @@ function ListingEditModal({ listing, onClose }) {
  * creation is refused server-side, so the dashboard says so up front rather
  * than letting them fill in a form that will 403.
  */
-function SellerApprovalNotice({ seller }) {
+function SellerApprovalNotice({ seller, lguContact }) {
   const status = seller?.approval_status
   if (!status || status === 'approved') return null
+
+  // A rejection is not final: spell out how to get a second review, with a
+  // direct link to message the seller's own LGU and one to Help & Support.
+  if (status === 'rejected') {
+    const reason = (seller.registration_rejection_reason || '').trim()
+    const town = lguContact?.municipality || seller.municipality?.name
+    return (
+      <div className="card approval-notice approval-notice-danger">
+        <div className="card-row">
+          <strong>Registration rejected</strong>
+          <Badge tone="danger">{seller.approval_status_label || 'Rejected'}</Badge>
+        </div>
+        {reason && <p className="helper-text"><strong>Reason:</strong> {/[.!?]$/.test(reason) ? reason : `${reason}.`}</p>}
+        <p className="helper-text">This is not final. To have your registration reviewed again:</p>
+        <ol className="approval-steps helper-text">
+          <li>Fix what the reason mentions in your <Link to="/seller/dashboard?tab=profile">hatchery profile</Link>.</li>
+          <li>
+            Tell your LGU it is ready for review:{' '}
+            {lguContact
+              ? <Link to={`/seller/dashboard?tab=messages&with=${lguContact.id}`}>message {town ? `${town} LGU` : 'your LGU'} ({lguContact.name})</Link>
+              : <span>contact {town ? `${town} LGU` : 'your LGU'}</span>}
+            {' '}or <Link to="/seller/dashboard?tab=support">send a support ticket</Link> under &quot;Seller registration or verification&quot;.
+          </li>
+          <li>Once they approve it you will get a notification and can start creating listings.</li>
+        </ol>
+      </div>
+    )
+  }
 
   const copy = {
     pending: {
       tone: 'warning',
       title: 'Registration pending approval',
       body: 'Your hatchery registration is waiting to be reviewed by your LGU Admin. You can start creating listings as soon as it is approved.',
-    },
-    rejected: {
-      tone: 'danger',
-      title: 'Registration rejected',
-      body: seller.registration_rejection_reason
-        ? `Reason: ${seller.registration_rejection_reason} Update your hatchery profile and contact your LGU to have it reviewed again.`
-        : 'Update your hatchery profile and contact your LGU to have it reviewed again.',
     },
   }[status]
 
@@ -3154,7 +3175,7 @@ function SellerDashboard() {
       <SuspendedAccountNotice role="seller" />
       {tab === 'overview' && (
         <>
-          <SellerApprovalNotice seller={dashboard.data?.seller} />
+          <SellerApprovalNotice seller={dashboard.data?.seller} lguContact={dashboard.data?.lgu_contact} />
           {(dashboard.data?.open_notices || []).length > 0 && (
             <div className="card approval-notice approval-notice-danger">
               <div className="card-row">
@@ -3194,7 +3215,7 @@ function SellerDashboard() {
       )}
       {tab === 'listings' && (
         <>
-          <SellerApprovalNotice seller={dashboard.data?.seller} />
+          <SellerApprovalNotice seller={dashboard.data?.seller} lguContact={dashboard.data?.lgu_contact} />
           {canManageListings && (
             <Section title="Create Listing">
               <div className="card listing-create-card">

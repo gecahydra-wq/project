@@ -50,7 +50,27 @@ class SellerController extends Controller
                 ->whereIn('status', SellerNotice::OPEN_STATUSES)
                 ->latest()
                 ->get(),
+            // Who to message about the registration: the seller's own LGU --
+            // the admin who reviewed it if still active, else any active LGU
+            // Admin of the municipality. Null when the town has none.
+            'lgu_contact' => $this->lguContact($seller),
         ]);
+    }
+
+    private function lguContact(SellerProfile $seller): ?array
+    {
+        $admins = User::where('role', 'lgu_admin')
+            ->where('status', 'active')
+            ->where('municipality_id', $seller->municipality_id);
+
+        $admin = ($seller->lgu_reviewed_by ? (clone $admins)->whereKey($seller->lgu_reviewed_by)->first() : null)
+            ?? $admins->orderBy('id')->first();
+
+        return $admin ? [
+            'id' => $admin->id,
+            'name' => $admin->name,
+            'municipality' => $seller->municipality?->name,
+        ] : null;
     }
 
     public function analytics(Request $request)
