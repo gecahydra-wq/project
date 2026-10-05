@@ -860,6 +860,10 @@ class SuperAdminController extends Controller
             'availability_status' => ['nullable', 'string'],
         ]);
 
+        if (isset($data['species'])) {
+            $data['species'] = FingerlingListing::normalizeSpecies($data['species']);
+        }
+
         $listing->update($data);
 
         return response()->json($listing->fresh(['sellerProfile', 'municipality', 'media']));

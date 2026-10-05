@@ -814,6 +814,7 @@ function BrowsePage() {
   const [filters, setFilters] = useState({
     q: '',
     species: SPECIES_OPTIONS.includes(requestedSpecies) ? requestedSpecies : 'All',
+    variety: 'All',
     municipality: 'All',
   })
   const { data = [] } = useQuery({
@@ -823,15 +824,16 @@ function BrowsePage() {
     placeholderData: [],
   })
   const filtered = data.filter((item) => {
-    const haystack = `${item.title} ${item.species} ${item.seller} ${item.municipality}`.toLowerCase()
-    return haystack.includes(filters.q.toLowerCase()) && (filters.species === 'All' || item.species === filters.species) && (filters.municipality === 'All' || item.municipality === filters.municipality)
+    const haystack = `${item.title} ${item.species} ${item.variety || ''} ${item.seller} ${item.municipality}`.toLowerCase()
+    return haystack.includes(filters.q.toLowerCase()) && matchesSpeciesFilter(item, filters) && (filters.municipality === 'All' || item.municipality === filters.municipality)
   })
   return (
     <main className="page-grid">
       <aside className="filter-card">
         <h2>Advanced Filters</h2>
         <label className="filter-label">Search<input placeholder="Search listings" value={filters.q} onChange={(e) => setFilters({ ...filters, q: e.target.value })} /></label>
-        <label className="filter-label">Species<select value={filters.species} onChange={(e) => setFilters({ ...filters, species: e.target.value })}><option>All</option>{SPECIES_OPTIONS.map((s) => <option key={s}>{s}</option>)}</select></label>
+        <label className="filter-label">Species<select value={filters.species} onChange={(e) => setFilters({ ...filters, species: e.target.value, variety: 'All' })}><option>All</option>{SPECIES_OPTIONS.map((s) => <option key={s}>{s}</option>)}</select></label>
+        <VarietyFilter listings={data} filters={filters} setFilters={setFilters} />
         <label className="filter-label">Municipality<select value={filters.municipality} onChange={(e) => setFilters({ ...filters, municipality: e.target.value })}><option>All</option>{['Mandaue', 'Consolacion', 'Compostela', 'Talisay', 'Lapu-Lapu', 'Carmen'].map((s) => <option key={s}>{s}</option>)}</select></label>
       </aside>
       {filtered.length ? <ListingGrid items={filtered} /> : <EmptyState message="No listings match your filters yet." />}
@@ -840,7 +842,7 @@ function BrowsePage() {
 }
 
 function MarketplaceBrowser({ detailPath }) {
-  const [filters, setFilters] = useState({ q: '', species: 'All', municipality: 'All' })
+  const [filters, setFilters] = useState({ q: '', species: 'All', variety: 'All', municipality: 'All' })
   const { data = [] } = useQuery({
     queryKey: ['listings'],
     queryFn: async () => (await api.get('/listings')).data.map(mapListing),
@@ -848,14 +850,15 @@ function MarketplaceBrowser({ detailPath }) {
     placeholderData: [],
   })
   const filtered = data.filter((item) => {
-    const haystack = `${item.title} ${item.species} ${item.seller} ${item.municipality}`.toLowerCase()
-    return haystack.includes(filters.q.toLowerCase()) && (filters.species === 'All' || item.species === filters.species) && (filters.municipality === 'All' || item.municipality === filters.municipality)
+    const haystack = `${item.title} ${item.species} ${item.variety || ''} ${item.seller} ${item.municipality}`.toLowerCase()
+    return haystack.includes(filters.q.toLowerCase()) && matchesSpeciesFilter(item, filters) && (filters.municipality === 'All' || item.municipality === filters.municipality)
   })
   return (
     <div className="buyer-browse">
       <div className="filter-card inline">
         <label className="filter-label">Search<input placeholder="Search listings" value={filters.q} onChange={(e) => setFilters({ ...filters, q: e.target.value })} /></label>
-        <label className="filter-label">Species<select value={filters.species} onChange={(e) => setFilters({ ...filters, species: e.target.value })}><option>All</option>{SPECIES_OPTIONS.map((s) => <option key={s}>{s}</option>)}</select></label>
+        <label className="filter-label">Species<select value={filters.species} onChange={(e) => setFilters({ ...filters, species: e.target.value, variety: 'All' })}><option>All</option>{SPECIES_OPTIONS.map((s) => <option key={s}>{s}</option>)}</select></label>
+        <VarietyFilter listings={data} filters={filters} setFilters={setFilters} />
         <label className="filter-label">Municipality<select value={filters.municipality} onChange={(e) => setFilters({ ...filters, municipality: e.target.value })}><option>All</option>{['Mandaue', 'Consolacion', 'Compostela', 'Talisay', 'Lapu-Lapu', 'Carmen'].map((s) => <option key={s}>{s}</option>)}</select></label>
       </div>
       {filtered.length ? (
@@ -864,6 +867,30 @@ function MarketplaceBrowser({ detailPath }) {
         <EmptyState message="No listings available yet. Check back soon as verified sellers add their stock." />
       )}
     </div>
+  )
+}
+
+/**
+ * Species match ignores capitalisation (older listings were typed by hand,
+ * e.g. "tilapia"), and a variety narrows within the species -- a GIFT Tilapia
+ * is still a Tilapia.
+ */
+function matchesSpeciesFilter(item, filters) {
+  const same = (a, b) => (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase()
+  if (filters.species !== 'All' && !same(item.species, filters.species)) return false
+  return !filters.variety || filters.variety === 'All' || same(item.variety, filters.variety)
+}
+
+/** Variety dropdown, built from the varieties actually listed for the chosen species. Hidden when there are none. */
+function VarietyFilter({ listings, filters, setFilters }) {
+  const varieties = [...new Set(
+    listings
+      .filter((item) => item.variety && matchesSpeciesFilter(item, { species: filters.species }))
+      .map((item) => item.variety.trim()),
+  )].sort()
+  if (!varieties.length) return null
+  return (
+    <label className="filter-label">Variety<select value={filters.variety} onChange={(e) => setFilters({ ...filters, variety: e.target.value })}><option>All</option>{varieties.map((v) => <option key={v}>{v}</option>)}</select></label>
   )
 }
 
@@ -1228,6 +1255,7 @@ function WithdrawalConfirmModal({ form, fee = null, pending = false, onConfirm, 
 /** A blank listing form, shared by the create form and the edit popup. */
 const EMPTY_LISTING_FORM = {
   species: '',
+  variety: '',
   quantity: '',
   price: '',
   description: '',
@@ -1240,6 +1268,7 @@ const EMPTY_LISTING_FORM = {
 function listingToForm(listing) {
   return {
     species: listing.species || '',
+    variety: listing.variety || '',
     quantity: String(listing.quantity ?? ''),
     price: String(listing.price_per_piece ?? ''),
     description: listing.description || '',
@@ -1253,7 +1282,8 @@ function listingToForm(listing) {
 function listingPayload(form) {
   return {
     species: form.species,
-    title: `${form.species} Fingerlings`,
+    variety: form.variety?.trim() || null,
+    title: `${form.variety?.trim() ? `${form.variety.trim()} ` : ''}${form.species} Fingerlings`,
     description: form.description,
     quantity: Number(form.quantity),
     price_per_piece: Number(form.price),
@@ -1277,7 +1307,18 @@ function ListingDetailsFields({ form, setForm }) {
     <div className="form grid-form">
       <label className="filter-label">
         Species
-        <input value={form.species} onChange={(e) => set({ species: e.target.value })} placeholder="e.g. Bangus" />
+        {/* Picked from the marketplace list so it always matches the Browse
+            filter. An older listing with a species outside the list keeps it. */}
+        <select value={form.species} onChange={(e) => set({ species: e.target.value })}>
+          <option value="" disabled>Choose a species</option>
+          {SPECIES_OPTIONS.map((s) => <option key={s}>{s}</option>)}
+          {form.species && !SPECIES_OPTIONS.includes(form.species) && <option value={form.species}>{form.species}</option>}
+        </select>
+      </label>
+      <label className="filter-label">
+        Variety (optional)
+        <input value={form.variety || ''} maxLength={60} onChange={(e) => set({ variety: e.target.value })} placeholder="e.g. GIFT, Red, Nile" />
+        <span className="helper-text">The strain, if it matters to buyers. Buyers can filter by it under the species.</span>
       </label>
       <label className="filter-label">
         Price per quantity
@@ -4062,7 +4103,7 @@ function LguReviewCard({ review, onRemove, scope }) {
         </div>
       </div>
       <div className="detail-meta">
-        {listing?.species && <span><strong>Species:</strong> {listing.species}</span>}
+        {listing?.species && <span><strong>Species:</strong> {listing.species}{listing.variety ? ` (${listing.variety})` : ''}</span>}
         {listing?.title && <span><strong>Listing:</strong> {listing.title}</span>}
         {review.order?.order_number && <span><strong>Order ID:</strong> #{review.order.order_number}</span>}
       </div>
@@ -7296,6 +7337,8 @@ function SellerNoticesSection() {
           {notices.data.map((notice) => {
             const open = ['open', 'under_review'].includes(notice.status)
             const draft = drafts[notice.id] ?? ''
+            // Who decided -- the Super Admin can review a notice too.
+            const reviewer = notice.reviewed_by_label || 'Your LGU'
             return (
               <div className="card report-card" key={notice.id}>
                 <div className="card-row">
@@ -7311,12 +7354,12 @@ function SellerNoticesSection() {
                     <p>{notice.seller_response}</p>
                   </div>
                 )}
-                {notice.lgu_notes && <p className="helper-text"><strong>LGU notes:</strong> {notice.lgu_notes}</p>}
+                {notice.lgu_notes && <p className="helper-text"><strong>{reviewer === 'Your LGU' ? 'LGU' : 'Super Admin'} notes:</strong> {notice.lgu_notes}</p>}
                 {notice.status === 'accepted' && (
-                  <p className="helper-text">Your LGU accepted this explanation. Your listings are back on the marketplace and no offense was recorded.</p>
+                  <p className="helper-text">{reviewer} accepted this explanation. Your listings are back on the marketplace and no offense was recorded.</p>
                 )}
                 {notice.status === 'rejected' && (
-                  <p className="error">Your LGU rejected this explanation, so an offense was recorded against your account.</p>
+                  <p className="error">{reviewer} rejected this explanation, so an offense was recorded against your account.</p>
                 )}
                 {open ? (
                   <div className="form grid-form">
@@ -7335,7 +7378,7 @@ function SellerNoticesSection() {
                     </button>
                   </div>
                 ) : (
-                  <p className="helper-text">This notice has been closed by your LGU.</p>
+                  <p className="helper-text">This notice has been closed by {reviewer === 'Your LGU' ? 'your LGU' : 'the Super Admin'}.</p>
                 )}
               </div>
             )

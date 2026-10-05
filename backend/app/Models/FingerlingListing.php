@@ -15,6 +15,9 @@ class FingerlingListing extends Model
         'seller_profile_id',
         'municipality_id',
         'species',
+        // Optional strain within the species (GIFT, Red, Nile...). A GIFT
+        // Tilapia is still a Tilapia to the species filter.
+        'variety',
         'scientific_name',
         'title',
         'description',
@@ -35,6 +38,31 @@ class FingerlingListing extends Model
         'approval_status',
         'rejection_reason',
     ];
+
+    /**
+     * The species the marketplace filters by. Mirrors SPECIES_OPTIONS in the
+     * frontend; keep the two in step.
+     */
+    public const SPECIES = ['Bangus', 'Tilapia', 'Tuna', 'Catfish', 'Sea Bass', 'Carp'];
+
+    /**
+     * Spell a species the way the marketplace lists it ("tilapia" -> "Tilapia"),
+     * so the species filter, charts and AI lookups never split one species in
+     * two by capitalisation. A species outside the list (an older listing) is
+     * only tidied, never rejected.
+     */
+    public static function normalizeSpecies(?string $species): string
+    {
+        $species = trim(preg_replace('/\s+/', ' ', (string) $species));
+
+        foreach (self::SPECIES as $known) {
+            if (strcasecmp($known, $species) === 0) {
+                return $known;
+            }
+        }
+
+        return ucwords(strtolower($species));
+    }
 
     protected $casts = [
         'price_per_piece' => 'decimal:2',

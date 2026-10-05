@@ -44,13 +44,15 @@ class ListingController extends Controller
             // marketplace exactly like suspended ones -- see SellerSanctions.
             ->whereHas('sellerProfile', fn ($q) => $q->where('status', '!=', 'suspended')->whereNull('listings_frozen_at'));
 
-        $query->when($request->species, fn ($q, $species) => $q->where('species', $species));
+        $query->when($request->species, fn ($q, $species) => $q->where('species', FingerlingListing::normalizeSpecies($species)));
+        $query->when($request->variety, fn ($q, $variety) => $q->where('variety', $variety));
         $query->when($request->municipality_id, fn ($q, $id) => $q->where('municipality_id', $id));
         $query->when($request->max_price, fn ($q, $price) => $q->where('price_per_piece', '<=', $price));
         $query->when($request->search, function ($q, $search) {
             $q->where(fn ($inner) => $inner
                 ->where('title', 'like', "%{$search}%")
-                ->orWhere('species', 'like', "%{$search}%"));
+                ->orWhere('species', 'like', "%{$search}%")
+                ->orWhere('variety', 'like', "%{$search}%"));
         });
 
         return response()->json($query->latest()->get());
@@ -90,7 +92,8 @@ class ListingController extends Controller
         }
 
         $data = $request->validate([
-            'species' => ['required', 'string'],
+            'species' => ['required', 'string', 'max:60'],
+            'variety' => ['nullable', 'string', 'max:60'],
             'scientific_name' => ['nullable', 'string'],
             'title' => ['required', 'string'],
             'description' => ['nullable', 'string'],
@@ -141,6 +144,7 @@ class ListingController extends Controller
         // listing down -- monitoring after the fact rather than a queue in
         // front of every post.
         $data['approval_status'] = 'approved';
+        $data = $this->normalizeSpeciesFields($data);
 
         // One transaction so a listing can never be committed without its
         // photos: if a file fails to store, the listing is rolled back too.
@@ -180,7 +184,8 @@ class ListingController extends Controller
         }
 
         $data = $request->validate([
-            'species' => ['sometimes', 'string'],
+            'species' => ['sometimes', 'string', 'max:60'],
+            'variety' => ['nullable', 'string', 'max:60'],
             'scientific_name' => ['nullable', 'string'],
             'title' => ['sometimes', 'string'],
             'description' => ['nullable', 'string'],
@@ -201,7 +206,7 @@ class ListingController extends Controller
             'pieces_per_unit.required' => 'Tell buyers how many fish make up one bulk.',
         ]);
 
-        $listing->update($data);
+        $listing->update($this->normalizeSpeciesFields($data));
 
         return response()->json($listing->fresh(['sellerProfile', 'municipality', 'media']));
     }
@@ -329,6 +334,24 @@ class ListingController extends Controller
      * account that was approved and later had its verification withdrawn must
      * stop being able to post.
      */
+    /**
+     * Spell the species the way the marketplace lists it and tidy the
+     * variety, so "tilapia" and "Tilapia" are one species to the filter.
+     */
+    private function normalizeSpeciesFields(array $data): array
+    {
+        if (array_key_exists('species', $data)) {
+            $data['species'] = FingerlingListing::normalizeSpecies($data['species']);
+        }
+
+        if (array_key_exists('variety', $data)) {
+            $variety = trim((string) $data['variety']);
+            $data['variety'] = $variety === '' ? null : $variety;
+        }
+
+        return $data;
+    }
+
     private function guardRegistrationApproved(SellerProfile $seller): ?\Illuminate\Http\JsonResponse
     {
         if ($seller->verified && SellerApproval::isApproved($seller)) {

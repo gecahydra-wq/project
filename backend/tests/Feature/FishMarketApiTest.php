@@ -8580,9 +8580,12 @@ class FishMarketApiTest extends TestCase
         ])->assertOk()->assertJsonPath('status', 'accepted');
 
         $this->assertDatabaseHas('notifications', ['user_id' => $seller->user_id, 'type' => 'seller_notice_accepted']);
+        $this->assertStringStartsWith('Your LGU accepted your explanation.',
+            AppNotification::where('user_id', $seller->user_id)->where('type', 'seller_notice_accepted')->value('body'));
 
         // Closed notices can no longer be answered.
         Sanctum::actingAs($seller->user);
+        $this->getJson('/api/seller/notices')->assertOk()->assertJsonPath('0.reviewed_by_label', 'Your LGU');
         $this->postJson("/api/seller/notices/{$notice->id}/respond", ['response' => 'One more thing to add here.'])
             ->assertStatus(422);
     }
@@ -8732,9 +8735,56 @@ class FishMarketApiTest extends TestCase
 
         $this->assertNull($seller->fresh()->listings_frozen_at);
 
+        // The seller is told the Super Admin decided, not "your LGU".
+        $this->assertDatabaseHas('notifications', ['user_id' => $seller->user_id, 'type' => 'seller_notice_accepted']);
+        $this->assertStringStartsWith('The Super Admin accepted your explanation.',
+            AppNotification::where('user_id', $seller->user_id)->where('type', 'seller_notice_accepted')->value('body'));
+
+        Sanctum::actingAs($seller->user);
+        $this->getJson('/api/seller/notices')->assertOk()
+            ->assertJsonPath('0.reviewed_by_label', 'The Super Admin')
+            ->assertJsonMissingPath('0.reviewer');
+
+        Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
+
         // A decided notice cannot be decided twice.
         $this->patchJson("/api/super-admin/seller-notices/{$notice->id}/reject", ['reason' => 'Changed my mind about this.'])
             ->assertStatus(422);
+    }
+
+    /**
+     * Species used to be free text, so "tilapia" never matched the Tilapia
+     * filter. It is now stored the way the marketplace lists it, and a
+     * variety (GIFT) narrows within the species instead of replacing it.
+     */
+    public function test_species_is_normalized_and_variety_filters_within_it(): void
+    {
+        $seller = $this->makeSeller();
+        $this->makeListing($seller, ['species' => 'Bangus']);
+
+        Sanctum::actingAs($seller->user);
+        $gift = $this->postListing([
+            'species' => '  tilapia ', 'variety' => ' GIFT ', 'title' => 'GIFT Tilapia Fingerlings',
+            'quantity' => 100, 'price_per_piece' => 3,
+        ])->assertCreated()->assertJsonPath('species', 'Tilapia')->assertJsonPath('variety', 'GIFT')->json('id');
+        $plain = $this->postListing([
+            'species' => 'TILAPIA', 'variety' => '', 'title' => 'Tilapia Fingerlings',
+            'quantity' => 100, 'price_per_piece' => 2,
+        ])->assertCreated()->assertJsonPath('species', 'Tilapia')->assertJsonPath('variety', null)->json('id');
+
+        // Editing keeps the spelling consistent too.
+        $this->patchJson("/api/listings/{$plain}", ['species' => 'tilapia'])->assertOk()->assertJsonPath('species', 'Tilapia');
+
+        // The Tilapia filter finds both, whatever case the buyer sends; the
+        // variety narrows to the GIFT one; search finds it by variety.
+        $ids = fn ($query) => collect($this->getJson("/api/listings?{$query}")->assertOk()->json())->pluck('id')->sort()->values()->all();
+        $this->assertSame(collect([$gift, $plain])->sort()->values()->all(), $ids('species=tilapia'));
+        $this->assertSame([$gift], $ids('species=Tilapia&variety=GIFT'));
+        $this->assertSame([$gift], $ids('search=gift'));
+
+        // A species outside the list is tidied, never rejected.
+        $this->assertSame('Sea Bass', FingerlingListing::normalizeSpecies('sea  bass'));
+        $this->assertSame('Grouper', FingerlingListing::normalizeSpecies('grouper'));
     }
 
     public function test_an_explanation_cannot_be_accepted_before_the_seller_has_given_one(): void
