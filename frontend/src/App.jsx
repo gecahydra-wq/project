@@ -7644,7 +7644,7 @@ function SupportPanel({ role }) {
           <UserSupportTicket ticketId={ticketId} onBack={() => setView('tickets')} onNew={() => setView('contact')} />
         ) : (tickets.data || []).length ? (
           <>
-          {ticketPeriodControls}
+          <div className="support-ticket-period">{ticketPeriodControls}</div>
           {shownTickets.length ? (
           <div className="item-list">
             {shownTickets.map((ticket) => (
@@ -9096,9 +9096,6 @@ function usePeriodFilter(rows, { noun, dateKey = 'created_at', compact = false }
             <button key={value} type="button" className={period === value ? 'tab active' : 'tab'} onClick={() => setPeriod(value)}>{label}</button>
           ))}
         </div>
-      )}
-      {filtered && shown.length > 0 && (
-        <p className="helper-text">{noun.charAt(0).toUpperCase() + noun.slice(1)} {when}: {shown.length} (out of {all.length} in this list).</p>
       )}
     </>
   )

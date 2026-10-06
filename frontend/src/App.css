@@ -5114,6 +5114,12 @@ button.support-ticket-row:hover {
   transform: none;
 }
 
+/* My Tickets date filter: its own line under the Help / My Tickets / Contact tabs. */
+.support-ticket-period {
+  display: flex;
+  margin-block: var(--space-3);
+}
+
 .support-ticket-row .muted {
   font-size: var(--fs-xs);
   margin: 0;
