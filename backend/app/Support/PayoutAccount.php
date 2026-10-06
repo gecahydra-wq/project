@@ -15,12 +15,28 @@ use Illuminate\Validation\Rule;
  *
  * Every withdrawal, seller or LGU, must be at least MIN_AMOUNT pesos.
  *
+ * A bank transfer also names the bank (bank_name). The form offers BANKS and
+ * an "Other" option where the user types the name, so the server accepts any
+ * bank name up to 100 characters rather than only the listed ones.
+ *
  * The frontend mirrors these patterns, the minimum and the messages
  * (withdrawalFormIssue in frontend/src/App.jsx); keep the two in sync.
  */
 class PayoutAccount
 {
     public const METHODS = ['gcash', 'maya', 'bank_transfer'];
+
+    /** Philippine banks offered in the withdrawal form (frontend PH_BANKS mirrors this list). */
+    public const BANKS = [
+        'BDO Unibank', 'Bank of the Philippine Islands (BPI)', 'Metrobank', 'Land Bank of the Philippines',
+        'Philippine National Bank (PNB)', 'China Bank', 'Security Bank', 'UnionBank of the Philippines',
+        'RCBC', 'EastWest Bank', 'Development Bank of the Philippines (DBP)', 'PSBank',
+        'Asia United Bank (AUB)', 'Bank of Commerce', 'Philippine Veterans Bank', 'Maybank Philippines',
+        'CIMB Bank Philippines', 'PBCom', 'Sterling Bank of Asia', 'GoTyme Bank', 'Tonik Digital Bank',
+        'UNO Digital Bank', 'Maya Bank', 'BDO Network Bank', 'Card Bank',
+    ];
+
+    public const BANK_NAME_MESSAGE = 'Choose your bank.';
 
     public const MOBILE_PATTERN = '/^09\d{9}$/';
 
@@ -48,6 +64,7 @@ class PayoutAccount
             'method' => ['required', Rule::in(self::METHODS)],
             'account_name' => ['required', 'string'],
             'account_number' => ['required', 'string', 'regex:'.$pattern],
+            'bank_name' => [Rule::requiredIf($method === 'bank_transfer'), 'nullable', 'string', 'max:100'],
             'amount' => ['required', 'numeric', 'min:'.self::MIN_AMOUNT],
         ];
     }
@@ -59,8 +76,23 @@ class PayoutAccount
     {
         return [
             'account_number.regex' => $method === 'bank_transfer' ? self::BANK_MESSAGE : self::MOBILE_MESSAGE,
+            'bank_name.required' => self::BANK_NAME_MESSAGE,
             'amount.numeric' => self::AMOUNT_MESSAGE,
             'amount.min' => self::MIN_AMOUNT_MESSAGE,
         ];
+    }
+
+    /** The bank, only for a bank transfer -- GCash / Maya never store one. */
+    public static function bankFor(array $data): ?string
+    {
+        return ($data['method'] ?? null) === 'bank_transfer' ? trim((string) ($data['bank_name'] ?? '')) ?: null : null;
+    }
+
+    /** "GCash", "Maya", or "Bank Transfer (BDO Unibank)" -- for emails and notifications. */
+    public static function methodLabel(?string $method, ?string $bankName = null): string
+    {
+        $label = ['gcash' => 'GCash', 'maya' => 'Maya', 'bank_transfer' => 'Bank Transfer'][$method] ?? (string) $method;
+
+        return $method === 'bank_transfer' && $bankName ? "{$label} ({$bankName})" : $label;
     }
 }

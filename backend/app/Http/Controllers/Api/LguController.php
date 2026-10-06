@@ -956,6 +956,7 @@ class LguController extends Controller
             'municipality_id' => $municipalityId,
             'requested_by' => $request->user()->id,
             'method' => $data['method'],
+            'bank_name' => PayoutAccount::bankFor($data),
             'account_name' => $data['account_name'],
             'account_number' => $data['account_number'],
             'amount' => $data['amount'],

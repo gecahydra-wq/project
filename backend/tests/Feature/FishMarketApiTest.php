@@ -1088,7 +1088,7 @@ class FishMarketApiTest extends TestCase
 
         Sanctum::actingAs($seller->user);
         $request = fn (string $method, string $number) => $this->postJson('/api/seller/withdrawals', [
-            'method' => $method, 'account_name' => 'Test Seller', 'account_number' => $number, 'amount' => 100,
+            'method' => $method, 'bank_name' => 'BDO Unibank', 'account_name' => 'Test Seller', 'account_number' => $number, 'amount' => 100,
         ]);
 
         // GCash / Maya: an 11-digit mobile number starting with 09.
@@ -2440,6 +2440,46 @@ class FishMarketApiTest extends TestCase
         $this->patchJson("/api/super-admin/listings/{$listing->id}/archive")->assertStatus(422)->assertJsonValidationErrors('reason');
         $this->patchJson("/api/super-admin/lgu-admins/{$lguAdmin->id}/disable")->assertStatus(422)->assertJsonValidationErrors('reason');
         $this->assertSame('active', $lguAdmin->fresh()->status ?? 'active');
+    }
+
+    public function test_a_bank_transfer_withdrawal_must_name_the_bank_and_stores_it(): void
+    {
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $seller = $this->makeSeller([], ['municipality_id' => $lguAdmin->municipality_id]);
+        $order = $this->makeOrder($this->makeBuyer(), $this->makeListing($seller), ['status' => 'completed', 'total_amount' => 10000]);
+        $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 10000]);
+        $this->makeSettlement($order, $payment);
+        $bankForm = ['method' => 'bank_transfer', 'account_name' => 'Payee', 'account_number' => '001234567890', 'amount' => 150];
+
+        // Seller: no bank -> refused; with a bank -> saved with the request.
+        Sanctum::actingAs($seller->user);
+        $this->postJson('/api/seller/withdrawals', $bankForm)
+            ->assertStatus(422)->assertJsonPath('errors.bank_name.0', PayoutAccount::BANK_NAME_MESSAGE);
+        $this->postJson('/api/seller/withdrawals', $bankForm + ['bank_name' => 'BDO Unibank'])
+            ->assertCreated()->assertJsonPath('bank_name', 'BDO Unibank');
+
+        // GCash never stores a bank, even if one is sent.
+        $this->assertDatabaseHas('withdrawal_requests', ['seller_profile_id' => $seller->id, 'bank_name' => 'BDO Unibank']);
+
+        // LGU: the same rule.
+        Sanctum::actingAs($lguAdmin);
+        $this->postJson('/api/lgu/withdrawals', $bankForm)->assertStatus(422)->assertJsonValidationErrors('bank_name');
+        $this->postJson('/api/lgu/withdrawals', ['method' => 'gcash', 'account_name' => 'Treasury', 'account_number' => '09171234567', 'amount' => 150, 'bank_name' => 'BDO Unibank'])
+            ->assertCreated()->assertJsonPath('bank_name', null);
+    }
+
+    public function test_the_buyer_order_list_returns_every_order_with_its_seller(): void
+    {
+        $buyer = $this->makeBuyer();
+        $seller = $this->makeSeller();
+        foreach (range(1, 7) as $i) {
+            $this->makeOrder($buyer, $this->makeListing($seller));
+        }
+
+        Sanctum::actingAs($buyer);
+        $orders = $this->getJson('/api/orders')->assertOk()->json();
+        $this->assertCount(7, $orders);
+        $this->assertSame($seller->user->name, $orders[0]['sellerProfile']['user']['name']);
     }
 
     public function test_dismissing_a_user_report_requires_a_reason(): void

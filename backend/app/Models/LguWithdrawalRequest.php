@@ -13,6 +13,7 @@ class LguWithdrawalRequest extends Model
         'municipality_id',
         'requested_by',
         'method',
+        'bank_name',
         'account_name',
         'account_number',
         'amount',

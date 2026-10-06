@@ -42,7 +42,7 @@ class SellerWithdrawalApprovedMail extends Mailable
             ['Requested Amount', '₱'.number_format((float) $withdrawal->amount, 2)],
             ['Platform Payout Fee', '₱'.number_format((float) $withdrawal->platform_fee, 2)],
             ['Amount You Will Receive', '₱'.number_format($withdrawal->net_amount, 2)],
-            ['Method', ucfirst(str_replace('_', ' ', $withdrawal->method))],
+            ['Method', \App\Support\PayoutAccount::methodLabel($withdrawal->method, $withdrawal->bank_name)],
             ['Approval Date', ($withdrawal->reviewed_at ?? now())->format('M d, Y g:i A')],
             ['Status', 'Approved -- Awaiting Payout'],
         ];

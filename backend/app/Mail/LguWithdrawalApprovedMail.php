@@ -45,7 +45,7 @@ class LguWithdrawalApprovedMail extends Mailable
         $rows = [
             ['Reference Number', 'LGU-WD-'.str_pad((string) $withdrawal->id, 6, '0', STR_PAD_LEFT)],
             ['Withdrawal Amount', '₱'.number_format((float) $withdrawal->amount, 2)],
-            ['Method', ucfirst(str_replace('_', ' ', $withdrawal->method))],
+            ['Method', \App\Support\PayoutAccount::methodLabel($withdrawal->method, $withdrawal->bank_name)],
             ['Approval Date', ($withdrawal->reviewed_at ?? now())->format('M d, Y g:i A')],
             ['Status', 'Approved -- Awaiting Payout'],
         ];

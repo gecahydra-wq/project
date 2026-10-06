@@ -54,7 +54,8 @@ class OrderController extends Controller
     {
         $user = $request->user();
 
-        $query = Order::with(['listing', 'payment', 'review']);
+        // sellerProfile.user names the seller on the buyer's My Orders list.
+        $query = Order::with(['listing', 'payment', 'review', 'sellerProfile.user']);
 
         if ($user->role === 'seller') {
             $seller = SellerProfile::where('user_id', $user->id)->first();

@@ -47,7 +47,7 @@ class LguWithdrawalReleasedMail extends Mailable
         $rows = [
             ['Reference Number', 'LGU-WD-'.str_pad((string) $withdrawal->id, 6, '0', STR_PAD_LEFT)],
             ['Withdrawal Amount', '₱'.number_format((float) $withdrawal->amount, 2)],
-            ['Method', ucfirst(str_replace('_', ' ', $withdrawal->method))],
+            ['Method', \App\Support\PayoutAccount::methodLabel($withdrawal->method, $withdrawal->bank_name)],
             ['Payment Date', ($withdrawal->paid_at ?? now())->format('M d, Y g:i A')],
             ['Status', 'Paid'],
         ];

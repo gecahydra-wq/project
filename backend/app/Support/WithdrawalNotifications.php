@@ -15,14 +15,12 @@ use App\Models\WithdrawalRequest;
  */
 class WithdrawalNotifications
 {
-    private const METHOD_LABELS = ['gcash' => 'GCash', 'maya' => 'Maya', 'bank_transfer' => 'Bank Transfer'];
-
     public static function sellerRequested(WithdrawalRequest $withdrawal): void
     {
         $withdrawal->loadMissing('sellerProfile.user');
         $seller = $withdrawal->sellerProfile;
         $amount = self::money($withdrawal->amount);
-        $method = self::method($withdrawal->method);
+        $method = PayoutAccount::methodLabel($withdrawal->method, $withdrawal->bank_name);
 
         self::notifySuperAdmins(
             "withdrawal_requested:{$withdrawal->id}",
@@ -59,7 +57,7 @@ class WithdrawalNotifications
         $withdrawal->loadMissing(['municipality', 'requestedBy']);
         $municipality = $withdrawal->municipality?->name ?? 'A municipality';
         $amount = self::money($withdrawal->amount);
-        $method = self::method($withdrawal->method);
+        $method = PayoutAccount::methodLabel($withdrawal->method, $withdrawal->bank_name);
 
         self::notifySuperAdmins(
             "lgu_withdrawal_requested:{$withdrawal->id}",
@@ -103,10 +101,5 @@ class WithdrawalNotifications
     private static function money($value): string
     {
         return number_format((float) $value, 2);
-    }
-
-    private static function method(?string $method): string
-    {
-        return self::METHOD_LABELS[$method] ?? (string) $method;
     }
 }

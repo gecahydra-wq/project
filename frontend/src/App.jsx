@@ -293,8 +293,53 @@ function formatOrderDate(value, { withTime = true } = {}) {
   return withTime ? `${day}, ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : day
 }
 
-function withdrawalMethodLabel(method) {
-  return ({ gcash: 'GCash', maya: 'Maya', bank_transfer: 'Bank Transfer' })[method] || method
+function withdrawalMethodLabel(method, bankName = null) {
+  const label = ({ gcash: 'GCash', maya: 'Maya', bank_transfer: 'Bank Transfer' })[method] || method
+  return method === 'bank_transfer' && bankName ? `${label} (${bankName})` : label
+}
+
+/** Mirrors App\Support\PayoutAccount::BANKS. "Other" lets the user type a bank that is not listed. */
+const PH_BANKS = [
+  'BDO Unibank', 'Bank of the Philippine Islands (BPI)', 'Metrobank', 'Land Bank of the Philippines',
+  'Philippine National Bank (PNB)', 'China Bank', 'Security Bank', 'UnionBank of the Philippines',
+  'RCBC', 'EastWest Bank', 'Development Bank of the Philippines (DBP)', 'PSBank',
+  'Asia United Bank (AUB)', 'Bank of Commerce', 'Philippine Veterans Bank', 'Maybank Philippines',
+  'CIMB Bank Philippines', 'PBCom', 'Sterling Bank of Asia', 'GoTyme Bank', 'Tonik Digital Bank',
+  'UNO Digital Bank', 'Maya Bank', 'BDO Network Bank', 'Card Bank',
+]
+const OTHER_BANK = '__other__'
+
+/** The bank actually sent to the server: the picked one, or the typed name for "Other". */
+function selectedBankName(form) {
+  if (form.method !== 'bank_transfer') return null
+  return (form.bank_choice === OTHER_BANK ? form.bank_other : form.bank_choice)?.trim() || null
+}
+
+/**
+ * Bank picker + the reminder to double-check the account, shown only for a
+ * bank transfer. Shared by the seller and LGU withdrawal forms.
+ */
+function BankTransferFields({ form, setForm }) {
+  if (form.method !== 'bank_transfer') return null
+  return (
+    <>
+      <select value={form.bank_choice} onChange={(e) => setForm({ ...form, bank_choice: e.target.value })} aria-label="Bank">
+        <option value="">Choose your bank</option>
+        {PH_BANKS.map((bank) => <option key={bank} value={bank}>{bank}</option>)}
+        <option value={OTHER_BANK}>Other bank (type the name)</option>
+      </select>
+      {form.bank_choice === OTHER_BANK && (
+        <input value={form.bank_other} onChange={(e) => setForm({ ...form, bank_other: e.target.value })} placeholder="Bank name" maxLength={100} />
+      )}
+      <p role="note" className="full-span m-0 flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+        <TriangleAlert size={17} className="mt-0.5 shrink-0 text-amber-600" />
+        <span>
+          Please make sure the <strong>bank</strong>, <strong>account number</strong> and <strong>account name</strong> are correct and match your bank records exactly.
+          A transfer sent to a wrong account may not be recoverable, and AbaiMarket cannot reverse a bank transfer once it has been sent.
+        </span>
+      </p>
+    </>
+  )
 }
 
 /**
@@ -338,6 +383,7 @@ function withdrawalFormIsIncomplete(form) {
     || !form.account_name.trim()
     || !form.account_number.trim()
     || !String(form.amount).trim()
+    || (form.method === 'bank_transfer' && !selectedBankName(form))
 }
 
 /** Spaces and dashes people type into account numbers ("0995 475 7102"). */
@@ -371,6 +417,7 @@ function BelowMinimumWarning({ amount }) {
 function withdrawalFormIssue(form) {
   const accountNumber = normalizeAccountNumber(form.account_number)
   if (form.method === 'bank_transfer') {
+    if (!selectedBankName(form)) return 'Choose your bank.'
     if (!/^\d{10,16}$/.test(accountNumber)) return 'Enter a valid bank account number (10 to 16 digits, numbers only).'
   } else if (!/^09\d{9}$/.test(accountNumber)) {
     return 'Enter a valid 11-digit mobile number starting with 09 (e.g. 09954757102).'
@@ -1809,6 +1856,7 @@ function WithdrawalConfirmModal({ form, fee = null, pending = false, onConfirm, 
   const amount = Number(form.amount) || 0
   const rows = [
     ['Payout method', withdrawalMethodLabel(form.method)],
+    ...(form.method === 'bank_transfer' ? [['Bank', selectedBankName(form)]] : []),
     ['Account name', form.account_name.trim()],
     [form.method === 'bank_transfer' ? 'Bank account number' : 'Mobile number', normalizeAccountNumber(form.account_number)],
     ['Amount requested', currency(amount)],
@@ -2933,6 +2981,18 @@ function BuyerDashboard() {
   })
 
   const orders = data?.recent_orders || []
+  // The dashboard payload carries only the five most recent orders (for the
+  // overview); the Orders tab needs every one of them.
+  const allOrders = useQuery({
+    queryKey: ['buyer-orders'],
+    queryFn: async () => (await api.get('/orders')).data,
+    enabled: tab === 'orders',
+    retry: false,
+  })
+  const refreshOrders = () => {
+    queryClient.invalidateQueries({ queryKey: ['buyer-dashboard'] })
+    queryClient.invalidateQueries({ queryKey: ['buyer-orders'] })
+  }
   const notifications = (data?.notifications || []).filter((notification) => !visibleNotificationIds.includes(notification.id))
   const handleMarkRead = (id) => {
     setVisibleNotificationIds((current) => (current.includes(id) ? current : [...current, id]))
@@ -2951,7 +3011,7 @@ function BuyerDashboard() {
   })
   const submitReview = useMutation({
     mutationFn: async ({ orderId, rating, title, comment }) => (await api.post(`/orders/${orderId}/review`, { rating, title, comment })).data,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['buyer-dashboard'] }),
+    onSuccess: refreshOrders,
   })
   const handleReview = (orderId, { rating, title, comment }) => submitReview.mutateAsync({ orderId, rating, title, comment })
 
@@ -2961,14 +3021,14 @@ function BuyerDashboard() {
   const resumePayment = useMutation({
     mutationFn: async (orderId) => (await api.post(`/orders/${orderId}/checkout`)).data,
     onSuccess: (data) => window.location.assign(data.checkout_url),
-    onError: () => queryClient.invalidateQueries({ queryKey: ['buyer-dashboard'] }),
+    onError: refreshOrders,
   })
   // The buyer confirms the fingerlings arrived. This is what releases the
   // payment into the seller's LGU earnings queue, so it is the buyer's call
   // alone -- the seller has no equivalent action.
   const confirmReceived = useMutation({
     mutationFn: async (orderId) => (await api.patch(`/orders/${orderId}/confirm-received`)).data,
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ['buyer-dashboard'] }),
+    onSettled: refreshOrders,
   })
   const updateBuyerProfile = useMutation({
     mutationFn: async (form) => (await api.patch('/buyer/profile', {
@@ -3057,18 +3117,24 @@ function BuyerDashboard() {
       {tab === 'support' && <SupportPanel role="buyer" />}
       {tab === 'orders' && (
         <Section title="My Orders">
-          <OrderTable
-            rows={orders}
-            onReview={handleReview}
-            onConfirmReceived={(orderId) => confirmReceived.mutate(orderId)}
-            confirmPendingOrderId={confirmReceived.isPending ? confirmReceived.variables : null}
-            onPay={(orderId) => resumePayment.mutate(orderId)}
-            payPendingOrderId={resumePayment.isPending ? resumePayment.variables : null}
-            detailsEndpoint={(orderNumber) => `/orders/${orderNumber}`}
-            initialExpandedOrderNumber={searchParams.get('order')}
-            paymentView="buyer"
-            showOrderDate
-          />
+          {allOrders.isLoading ? <LoadingState label="Loading orders..." /> : (
+            <PeriodFilteredOrders rows={allOrders.data || orders}>
+              {(shown) => (
+                <OrderTable
+                  rows={shown}
+                  onReview={handleReview}
+                  onConfirmReceived={(orderId) => confirmReceived.mutate(orderId)}
+                  confirmPendingOrderId={confirmReceived.isPending ? confirmReceived.variables : null}
+                  onPay={(orderId) => resumePayment.mutate(orderId)}
+                  payPendingOrderId={resumePayment.isPending ? resumePayment.variables : null}
+                  detailsEndpoint={(orderNumber) => `/orders/${orderNumber}`}
+                  initialExpandedOrderNumber={searchParams.get('order')}
+                  paymentView="buyer"
+                  showOrderDate
+                />
+              )}
+            </PeriodFilteredOrders>
+          )}
         </Section>
       )}
       {tab === 'messages' && <Section title="Messages"><MessagesPanel initialUserId={searchParams.get('with') ? Number(searchParams.get('with')) : null} /></Section>}
@@ -3583,7 +3649,7 @@ function SellerDashboard() {
   const [editingListingId, setEditingListingId] = useState(null)
   const [stagedImages, setStagedImages] = useState([])
   const [visibleNotificationIds, setVisibleNotificationIds] = useState([])
-  const [withdrawForm, setWithdrawForm] = useState({ method: 'gcash', account_name: '', account_number: '', amount: '' })
+  const [withdrawForm, setWithdrawForm] = useState({ method: 'gcash', bank_choice: '', bank_other: '', account_name: '', account_number: '', amount: '' })
   const dashboard = useQuery({
     queryKey: ['seller-dashboard'],
     queryFn: async () => (await api.get('/seller/dashboard')).data,
@@ -3633,12 +3699,13 @@ function SellerDashboard() {
   const requestWithdrawal = useMutation({
     mutationFn: async () => (await api.post('/seller/withdrawals', {
       method: withdrawForm.method,
+      bank_name: selectedBankName(withdrawForm),
       account_name: withdrawForm.account_name,
       account_number: normalizeAccountNumber(withdrawForm.account_number),
       amount: Number(withdrawForm.amount),
     })).data,
     onSuccess: () => {
-      setWithdrawForm({ method: 'gcash', account_name: '', account_number: '', amount: '' })
+      setWithdrawForm({ method: 'gcash', bank_choice: '', bank_other: '', account_name: '', account_number: '', amount: '' })
       queryClient.invalidateQueries({ queryKey: ['seller-wallet'] })
     },
   })
@@ -3845,10 +3912,14 @@ function SellerDashboard() {
         <>
           <SellerOrderLookup />
           <Section title="Order Management">
-            <SellerOrderTable
-              rows={dashboard.data?.orders || []}
-              onUpdateStatus={(orderId, status, cancellationReason) => updateOrderStatus.mutateAsync({ orderId, status, cancellationReason })}
-            />
+            <PeriodFilteredOrders rows={dashboard.data?.orders || []}>
+              {(shown) => (
+                <SellerOrderTable
+                  rows={shown}
+                  onUpdateStatus={(orderId, status, cancellationReason) => updateOrderStatus.mutateAsync({ orderId, status, cancellationReason })}
+                />
+              )}
+            </PeriodFilteredOrders>
           </Section>
         </>
       )}
@@ -3872,6 +3943,7 @@ function SellerDashboard() {
                 <option value="maya">Maya</option>
                 <option value="bank_transfer">Bank Transfer</option>
               </select>
+              <BankTransferFields form={withdrawForm} setForm={setWithdrawForm} />
               <input value={withdrawForm.account_name} onChange={(e) => setWithdrawForm({ ...withdrawForm, account_name: e.target.value })} placeholder="Account name" />
               <input value={withdrawForm.account_number} onChange={(e) => setWithdrawForm({ ...withdrawForm, account_number: e.target.value })} placeholder={accountNumberPlaceholder(withdrawForm.method)} inputMode="numeric" />
               <input value={withdrawForm.amount} onChange={(e) => setWithdrawForm({ ...withdrawForm, amount: e.target.value })} placeholder="Amount to withdraw" type="number" min={MIN_WITHDRAWAL} step="0.01" />
@@ -3914,7 +3986,7 @@ function SellerDashboard() {
                     <span>{currency(request.amount)}</span>
                     <span>{currency(request.platform_fee)}</span>
                     <span>{currency(request.net_amount)}</span>
-                    <span>{withdrawalMethodLabel(request.method)}</span>
+                    <span>{withdrawalMethodLabel(request.method, request.bank_name)}</span>
                     <span>{request.account_name} · {request.account_number}</span>
                     <span><Badge status={request.status}>{withdrawalStatusLabel(request.status)}</Badge></span>
                     <span>{new Date(request.created_at).toLocaleDateString()}</span>
@@ -5211,18 +5283,19 @@ function LguDashboard() {
     retry: false,
     placeholderData: { available_balance: 0, pending_balance: 0, processing_amount: 0, total_revenue: 0, withdrawn_amount: 0, revenue_history: [], withdrawal_requests: [] },
   })
-  const [lguWithdrawForm, setLguWithdrawForm] = useState({ method: 'gcash', account_name: '', account_number: '', amount: '' })
+  const [lguWithdrawForm, setLguWithdrawForm] = useState({ method: 'gcash', bank_choice: '', bank_other: '', account_name: '', account_number: '', amount: '' })
   const [lguWithdrawFormError, setLguWithdrawFormError] = useState('')
   const [confirmingLguWithdrawal, setConfirmingLguWithdrawal] = useState(false)
   const requestLguWithdrawal = useMutation({
     mutationFn: async () => (await api.post('/lgu/withdrawals', {
       method: lguWithdrawForm.method,
+      bank_name: selectedBankName(lguWithdrawForm),
       account_name: lguWithdrawForm.account_name,
       account_number: normalizeAccountNumber(lguWithdrawForm.account_number),
       amount: Number(lguWithdrawForm.amount),
     })).data,
     onSuccess: () => {
-      setLguWithdrawForm({ method: 'gcash', account_name: '', account_number: '', amount: '' })
+      setLguWithdrawForm({ method: 'gcash', bank_choice: '', bank_other: '', account_name: '', account_number: '', amount: '' })
       queryClient.invalidateQueries({ queryKey: ['lgu-wallet'] })
     },
   })
@@ -5385,6 +5458,7 @@ function LguDashboard() {
                 <option value="maya">Maya</option>
                 <option value="bank_transfer">Bank Transfer</option>
               </select>
+              <BankTransferFields form={lguWithdrawForm} setForm={setLguWithdrawForm} />
               <input value={lguWithdrawForm.account_name} onChange={(e) => setLguWithdrawForm({ ...lguWithdrawForm, account_name: e.target.value })} placeholder="Account name" />
               <input value={lguWithdrawForm.account_number} onChange={(e) => setLguWithdrawForm({ ...lguWithdrawForm, account_number: e.target.value })} placeholder={accountNumberPlaceholder(lguWithdrawForm.method)} inputMode="numeric" />
               <input value={lguWithdrawForm.amount} onChange={(e) => setLguWithdrawForm({ ...lguWithdrawForm, amount: e.target.value })} placeholder="Amount to withdraw" type="number" min={MIN_WITHDRAWAL} step="0.01" />
@@ -5415,7 +5489,7 @@ function LguDashboard() {
                   <Fragment key={request.id}>
                   <div className="table-row">
                     <span>{currency(request.amount)}</span>
-                    <span>{withdrawalMethodLabel(request.method)}</span>
+                    <span>{withdrawalMethodLabel(request.method, request.bank_name)}</span>
                     <span>{request.account_name} · {request.account_number}</span>
                     <span><Badge status={request.status}>{withdrawalStatusLabel(request.status)}</Badge></span>
                     <span>{request.requestedBy?.name || 'Unknown'}</span>
@@ -8554,7 +8628,7 @@ function WithdrawalRow({ request, onApprove, onReject, onMarkPaid, type = 'selle
           <Badge status={request.status}>{withdrawalStatusLabel(request.status)}</Badge>
         </div>
         <p>
-          Request #{request.id} · {currency(request.amount)} requested via {withdrawalMethodLabel(request.method)}<br />
+          Request #{request.id} · {currency(request.amount)} requested via {withdrawalMethodLabel(request.method, request.bank_name)}<br />
           {request.account_name} · {request.account_number}
         </p>
         {isLgu ? (
@@ -8921,6 +8995,51 @@ function OrderTable({ rows, onReview, onConfirmReceived, confirmPendingOrderId, 
  * which puts it in the Seller Earnings queue. It does not release any money
  * itself -- earnings approval is still a separate step.
  */
+/**
+ * Narrows an order list to orders placed today / this week / this month /
+ * this year, by each order's created_at. Used on every role's Orders page;
+ * the lists are already fully loaded, so this filters in the browser.
+ */
+const ORDER_PERIODS = [
+  ['all', 'All'],
+  ['today', 'Today'],
+  ['week', 'This Week'],
+  ['month', 'This Month'],
+  ['year', 'This Year'],
+]
+
+function orderPeriodStart(period) {
+  const now = new Date()
+  if (period === 'today') return new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  if (period === 'week') {
+    // Weeks start on Monday, like the analytics charts (Carbon's startOfWeek).
+    const daysSinceMonday = (now.getDay() + 6) % 7
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysSinceMonday)
+  }
+  if (period === 'month') return new Date(now.getFullYear(), now.getMonth(), 1)
+  if (period === 'year') return new Date(now.getFullYear(), 0, 1)
+  return null
+}
+
+function PeriodFilteredOrders({ rows, children }) {
+  const [period, setPeriod] = useState('all')
+  const start = orderPeriodStart(period)
+  const all = rows || []
+  const shown = start ? all.filter((row) => new Date(row.created_at) >= start) : all
+
+  return (
+    <>
+      <div className="tab-bar" role="group" aria-label="Show orders placed">
+        {ORDER_PERIODS.map(([value, label]) => (
+          <button key={value} type="button" className={period === value ? 'tab active' : 'tab'} onClick={() => setPeriod(value)}>{label}</button>
+        ))}
+      </div>
+      {period !== 'all' && <p className="helper-text">Showing {shown.length} of {all.length} orders placed {ORDER_PERIODS.find(([value]) => value === period)[1].toLowerCase()}.</p>}
+      {children(shown)}
+    </>
+  )
+}
+
 function AdminOrderTable({ rows, base, invalidateKeys }) {
   const queryClient = useQueryClient()
   const markReceived = useMutation({
@@ -8935,13 +9054,17 @@ function AdminOrderTable({ rows, base, invalidateKeys }) {
   return (
     <>
       {markReceived.error && <p className="error">{markReceived.error.response?.data?.message || 'Could not mark this order as received.'}</p>}
-      <OrderTable
-        rows={rows}
-        detailsEndpoint={(orderNumber) => `${base}/orders/${orderNumber}`}
-        onMarkReceived={handleMarkReceived}
-        markReceivedPendingOrderId={markReceived.isPending ? markReceived.variables : null}
-        showOrderDate
-      />
+      <PeriodFilteredOrders rows={rows}>
+        {(shown) => (
+          <OrderTable
+            rows={shown}
+            detailsEndpoint={(orderNumber) => `${base}/orders/${orderNumber}`}
+            onMarkReceived={handleMarkReceived}
+            markReceivedPendingOrderId={markReceived.isPending ? markReceived.variables : null}
+            showOrderDate
+          />
+        )}
+      </PeriodFilteredOrders>
     </>
   )
 }
