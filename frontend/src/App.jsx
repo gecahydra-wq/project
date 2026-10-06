@@ -3118,7 +3118,7 @@ function BuyerDashboard() {
       {tab === 'orders' && (
         <Section title="My Orders">
           {allOrders.isLoading ? <LoadingState label="Loading orders..." /> : (
-            <PeriodFilteredOrders rows={allOrders.data || orders}>
+            <PeriodFilteredRows rows={allOrders.data || orders}>
               {(shown) => (
                 <OrderTable
                   rows={shown}
@@ -3133,7 +3133,7 @@ function BuyerDashboard() {
                   showOrderDate
                 />
               )}
-            </PeriodFilteredOrders>
+            </PeriodFilteredRows>
           )}
         </Section>
       )}
@@ -3912,14 +3912,14 @@ function SellerDashboard() {
         <>
           <SellerOrderLookup />
           <Section title="Order Management">
-            <PeriodFilteredOrders rows={dashboard.data?.orders || []}>
+            <PeriodFilteredRows rows={dashboard.data?.orders || []}>
               {(shown) => (
                 <SellerOrderTable
                   rows={shown}
                   onUpdateStatus={(orderId, status, cancellationReason) => updateOrderStatus.mutateAsync({ orderId, status, cancellationReason })}
                 />
               )}
-            </PeriodFilteredOrders>
+            </PeriodFilteredRows>
           </Section>
         </>
       )}
@@ -3968,7 +3968,8 @@ function SellerDashboard() {
             )}
           </Section>
           <Section title="Withdrawal Requests">
-            {(wallet.data?.withdrawal_requests || []).length ? (
+            <PeriodFilteredRows rows={wallet.data?.withdrawal_requests || []} noun="withdrawal requests made">
+              {(shown) => (shown.length ? (
               <div className="table">
                 <div className="table-row first">
                   <span>Amount Requested</span>
@@ -3980,7 +3981,7 @@ function SellerDashboard() {
                   <span>Requested</span>
                   <span>Notes</span>
                 </div>
-                {wallet.data.withdrawal_requests.map((request) => (
+                {shown.map((request) => (
                   <Fragment key={request.id}>
                   <div className="table-row">
                     <span>{currency(request.amount)}</span>
@@ -4007,7 +4008,8 @@ function SellerDashboard() {
                   </Fragment>
                 ))}
               </div>
-            ) : <EmptyState message="No withdrawal requests yet." />}
+            ) : <EmptyState message="No withdrawal requests yet." />)}
+            </PeriodFilteredRows>
           </Section>
           <Section title="Payment History">
             {(wallet.data?.payment_history || []).length ? (
@@ -5474,7 +5476,8 @@ function LguDashboard() {
             {requestLguWithdrawal.isSuccess && <p className="helper-text">Withdrawal request submitted for {currency(requestLguWithdrawal.data?.amount)}. You&apos;ll be notified once the Super Admin pays it out.</p>}
           </Section>
           <Section title="Withdrawal Requests">
-            {(wallet.data?.withdrawal_requests || []).length ? (
+            <PeriodFilteredRows rows={wallet.data?.withdrawal_requests || []} noun="withdrawal requests made">
+              {(shown) => (shown.length ? (
               <div className="table">
                 <div className="table-row first">
                   <span>Amount</span>
@@ -5485,7 +5488,7 @@ function LguDashboard() {
                   <span>Requested</span>
                   <span>Notes</span>
                 </div>
-                {wallet.data.withdrawal_requests.map((request) => (
+                {shown.map((request) => (
                   <Fragment key={request.id}>
                   <div className="table-row">
                     <span>{currency(request.amount)}</span>
@@ -5512,7 +5515,8 @@ function LguDashboard() {
                   </Fragment>
                 ))}
               </div>
-            ) : <EmptyState message="No withdrawal requests yet." />}
+            ) : <EmptyState message="No withdrawal requests yet." />)}
+            </PeriodFilteredRows>
           </Section>
           <Section title="Revenue History">
             {(wallet.data?.revenue_history || []).length ? (
@@ -6698,9 +6702,10 @@ function SuperAdminDashboard() {
       {tab === 'payouts' && (
         <>
         <Section title="Seller Payouts" id="seller-payouts">
-          {(withdrawals.data || []).length ? (
+          <PeriodFilteredRows rows={withdrawals.data || []} noun="withdrawal requests made">
+            {(shown) => (shown.length ? (
             <div className="item-list">
-              {withdrawals.data.map((request) => (
+              {shown.map((request) => (
                 <WithdrawalRow
                   key={request.id}
                   request={request}
@@ -6710,12 +6715,14 @@ function SuperAdminDashboard() {
                 />
               ))}
             </div>
-          ) : <EmptyState message="No withdrawal requests yet." />}
+          ) : <EmptyState message="No withdrawal requests yet." />)}
+          </PeriodFilteredRows>
         </Section>
         <Section title="LGU Payouts" id="lgu-payouts">
-          {(lguWithdrawals.data || []).length ? (
+          <PeriodFilteredRows rows={lguWithdrawals.data || []} noun="withdrawal requests made">
+            {(shown) => (shown.length ? (
             <div className="item-list">
-              {lguWithdrawals.data.map((request) => (
+              {shown.map((request) => (
                 <WithdrawalRow
                   key={request.id}
                   request={request}
@@ -6726,7 +6733,8 @@ function SuperAdminDashboard() {
                 />
               ))}
             </div>
-          ) : <EmptyState message="No LGU withdrawal requests yet." />}
+          ) : <EmptyState message="No LGU withdrawal requests yet." />)}
+          </PeriodFilteredRows>
         </Section>
         <Section title="Refunds">
           <p className="helper-text">Paid orders that were cancelled or expired. Refund the buyer in the PayMongo dashboard, then mark it refunded here.</p>
@@ -8996,9 +9004,10 @@ function OrderTable({ rows, onReview, onConfirmReceived, confirmPendingOrderId, 
  * itself -- earnings approval is still a separate step.
  */
 /**
- * Narrows an order list to orders placed today / this week / this month /
- * this year, by each order's created_at. Used on every role's Orders page;
- * the lists are already fully loaded, so this filters in the browser.
+ * Narrows a list (orders, withdrawal requests) to rows created today / this
+ * week / this month / this year, by each row's created_at. Used on every
+ * role's Orders page and on the withdrawal request lists; the lists are
+ * already fully loaded, so this filters in the browser.
  */
 const ORDER_PERIODS = [
   ['all', 'All'],
@@ -9021,7 +9030,7 @@ function orderPeriodStart(period) {
   return null
 }
 
-function PeriodFilteredOrders({ rows, children }) {
+function PeriodFilteredRows({ rows, children, noun = 'orders placed' }) {
   const [period, setPeriod] = useState('all')
   const start = orderPeriodStart(period)
   const all = rows || []
@@ -9029,12 +9038,12 @@ function PeriodFilteredOrders({ rows, children }) {
 
   return (
     <>
-      <div className="tab-bar" role="group" aria-label="Show orders placed">
+      <div className="tab-bar" role="group" aria-label={`Show ${noun}`}>
         {ORDER_PERIODS.map(([value, label]) => (
           <button key={value} type="button" className={period === value ? 'tab active' : 'tab'} onClick={() => setPeriod(value)}>{label}</button>
         ))}
       </div>
-      {period !== 'all' && <p className="helper-text">Showing {shown.length} of {all.length} orders placed {ORDER_PERIODS.find(([value]) => value === period)[1].toLowerCase()}.</p>}
+      {period !== 'all' && <p className="helper-text">Showing {shown.length} of {all.length} {noun} {ORDER_PERIODS.find(([value]) => value === period)[1].toLowerCase()}.</p>}
       {children(shown)}
     </>
   )
@@ -9054,7 +9063,7 @@ function AdminOrderTable({ rows, base, invalidateKeys }) {
   return (
     <>
       {markReceived.error && <p className="error">{markReceived.error.response?.data?.message || 'Could not mark this order as received.'}</p>}
-      <PeriodFilteredOrders rows={rows}>
+      <PeriodFilteredRows rows={rows}>
         {(shown) => (
           <OrderTable
             rows={shown}
@@ -9064,7 +9073,7 @@ function AdminOrderTable({ rows, base, invalidateKeys }) {
             showOrderDate
           />
         )}
-      </PeriodFilteredOrders>
+      </PeriodFilteredRows>
     </>
   )
 }
