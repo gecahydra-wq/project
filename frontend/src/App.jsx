@@ -1697,29 +1697,31 @@ function ListingDetailPanel({ item, isBuyer = false, checkout, qty, setQty, onPa
                     : `Minimum ${minimum.toLocaleString()} · ${available.toLocaleString()} available · ${currency(item.price)} each`}
                 </span>
               </label>
-              {/* Takes the whole remaining stock in one click. Always switches to
-                  plain quantity: the stock need not be a whole number of bulks. */}
-              <button
-                type="button"
-                className="ghost buy-all-button"
-                disabled={!buyingInBulk && enteredQty === available}
-                onClick={() => {
-                  setOrderMode('quantity')
-                  setQty(String(available))
-                }}
-              >
-                Buy all stock ({available.toLocaleString()})
-              </button>
+              <div className="buy-actions">
+                {/* Takes the whole remaining stock in one click. Always switches to
+                    plain quantity: the stock need not be a whole number of bulks. */}
+                <button
+                  type="button"
+                  className="ghost buy-all-button"
+                  disabled={!buyingInBulk && enteredQty === available}
+                  onClick={() => {
+                    setOrderMode('quantity')
+                    setQty(String(available))
+                  }}
+                >
+                  Buy all stock ({available.toLocaleString()})
+                </button>
+                {addToCart && (
+                  <button className="ghost" type="button" disabled={!canOrder || addToCart.isPending} onClick={() => addToCart.mutate(safeQty)}>
+                    <ShoppingBag size={16} /> {addToCart.isPending ? 'Adding...' : 'Add to Cart'}
+                  </button>
+                )}
+              </div>
             </>
           )}
           {quantityError && <p className="error">{quantityError}</p>}
           <div className="checkout-bar">
             <strong className="price">Total: {currency(canOrder ? safeQty * item.price : 0)}</strong>
-            {addToCart && (
-              <button className="ghost" type="button" disabled={!canOrder || addToCart.isPending} onClick={() => addToCart.mutate(safeQty)}>
-                <ShoppingBag size={16} /> {addToCart.isPending ? 'Adding...' : 'Add to Cart'}
-              </button>
-            )}
             <button onClick={onPay} type="button" disabled={!canOrder || suspended}>{outOfStock ? 'Out of Stock' : 'Pay with PayMongo'}</button>
           </div>
           {suspended && (

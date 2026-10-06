@@ -1703,6 +1703,13 @@ body,
   justify-self: start;
 }
 
+/* Buy all stock and Add to Cart side by side, under the quantity field. */
+.buy-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
 .detail-meta {
   color: var(--color-text-muted);
   display: grid;
