@@ -320,7 +320,10 @@ body {
   min-width: 0;
 }
 
-a {
+/* :where() keeps plain element specificity; the Tailwind-built navigation
+   (data-tw) sets its own link colours, which this unlayered rule would
+   otherwise override. */
+a:where(:not([data-tw])) {
   color: inherit;
   text-decoration: none;
 }
@@ -361,7 +364,10 @@ a {
   color: var(--neutral-slate);
 }
 
-button,
+/* :where() keeps these at plain element specificity (0,0,1), exactly as
+   before, while letting the Tailwind-built navigation opt out with data-tw --
+   an unlayered rule here would otherwise beat every Tailwind utility on it. */
+button:where(:not([data-tw])),
 .button {
   align-items: center;
   background: var(--color-primary);
@@ -386,21 +392,21 @@ button,
   white-space: nowrap;
 }
 
-button:hover,
+button:where(:not([data-tw])):hover,
 .button:hover {
   background: var(--color-primary-hover);
   box-shadow: var(--shadow-md);
   transform: translateY(-1px);
 }
 
-button:active,
+button:where(:not([data-tw])):active,
 .button:active,
 .ghost:active {
   box-shadow: var(--shadow-xs);
   transform: translateY(0);
 }
 
-button:disabled,
+button:where(:not([data-tw])):disabled,
 .button[aria-disabled="true"] {
   box-shadow: none;
   cursor: not-allowed;
@@ -410,7 +416,7 @@ button:disabled,
 
 /* Disabled controls must not animate on hover -- a lifting button that does
    nothing reads as broken. */
-button:disabled:hover,
+button:where(:not([data-tw])):disabled:hover,
 .button[aria-disabled="true"]:hover {
   background: var(--color-primary);
   box-shadow: none;
@@ -5883,4 +5889,21 @@ button.ticket-inbox-row {
 
 .unread-messages-notice:hover {
   box-shadow: var(--shadow-md);
+}
+
+/* ---------------------------------------------------------------------------
+   Top navigation (Tailwind-built TopBar / PublicHeader / BuyerBottomNav).
+   Only what Tailwind utilities can't reach lives here.
+   --------------------------------------------------------------------------- */
+.avatar.nav-avatar-lg {
+  height: 44px;
+  width: 44px;
+}
+
+/* The buyer's mobile bottom tab bar sits where the floating AI button used to,
+   so lift the button above it on phone widths. */
+@media (max-width: 1023px) {
+  .has-bottom-nav .ai-widget {
+    bottom: calc(5rem + env(safe-area-inset-bottom));
+  }
 }

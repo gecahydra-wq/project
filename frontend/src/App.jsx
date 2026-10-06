@@ -20,12 +20,14 @@ import {
   Bot,
   CheckCircle,
   Clock,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CircleUserRound,
   Fish,
   Heart,
   History,
+  Home,
   Image as ImageIcon,
   LayoutDashboard,
   LifeBuoy,
@@ -33,6 +35,7 @@ import {
   MapPin,
   Scale,
   Megaphone,
+  Menu,
   MessageCircle,
   PlayCircle,
   Search,
@@ -543,29 +546,7 @@ function PublicLayout() {
   return (
     <>
       <SiteAnnouncementBar />
-      <header className="site-header">
-        <Link className="brand" to={homeRoute}><span><Fish size={22} /></span>AbaiMarket</Link>
-        <nav>
-          <Link to="/">Home</Link>
-          <Link to="/browse">Browse</Link>
-          <Link to="/sellers">Sellers</Link>
-          <Link to="/about">About</Link>
-          <Link to="/help">Help</Link>
-        </nav>
-        {session ? (
-          // Browse/Sellers/About stay reachable while signed in, so without
-          // this the header offers a signed-in visitor no way back into the
-          // app -- Login/Register are hidden and nothing replaces them.
-          <div className="nav-actions">
-            <Link className="button" to={homeRoute}>Go to Dashboard</Link>
-          </div>
-        ) : (
-          <div className="nav-actions">
-            <Link className="ghost" to="/login">Login</Link>
-            <Link className="button" to="/register">Register</Link>
-          </div>
-        )}
-      </header>
+      <PublicHeader homeRoute={homeRoute} signedIn={Boolean(session)} />
       {/* Scope wrapper: the storefront-scale type and section rhythm below
           apply to the public marketing pages only. The four role dashboards
           are dense tables and approval queues where that spacing would mean
@@ -628,36 +609,537 @@ function AppShell({ user, children }) {
     }
   }
 
+  // Same destinations as the old sidebar, regrouped for a top bar. A link is
+  // the current page when its ?tab= value matches exactly -- the sidebar's
+  // path.includes(tab) also lit up "User Reports" whenever Analytics
+  // (tab=reports) was open.
+  const isActive = (path) => new URLSearchParams(path.split('?')[1] || '').get('tab') === tab
+  const nav = buildRoleNav(user.role, menu)
+  const isBuyer = user.role === 'buyer'
+
   return (
-    <div className="shell">
-      <aside className="sidebar">
-        <Link className="brand" to={homeRoute}><span><Fish size={22} /></span>AbaiMarket</Link>
-        <div className="profile-chip">
-          <Avatar src={user.profile_picture} alt={user.name} className="profile-chip-avatar" />
-          <div className="profile-chip-info">
-            <strong className="profile-chip-name">{user.name}</strong>
-            <span className="profile-chip-meta">
-              <RoleBadge role={user.role} />
-              {user.municipality && <span className="profile-chip-municipality">{user.municipality}</span>}
-            </span>
-          </div>
-        </div>
-        <nav className="side-nav">
-          {menu.map(([label, path, Icon]) => (
-            <Link key={label} to={path} className={path.includes(tab) ? 'active' : ''}>
-              <Icon size={18} />{label}
-              {label === 'Messages' && unreadMessages > 0 && <span className="side-nav-count" aria-label={`${unreadMessages} unread`}>{unreadMessages}</span>}
-            </Link>
-          ))}
-        </nav>
-        <button className="ghost full" onClick={logout} type="button"><LogOut size={18} />Logout</button>
-      </aside>
-      <main className="app-main">
+    <div className={`min-h-screen ${isBuyer ? 'has-bottom-nav' : ''}`}>
+      <TopBar
+        user={user}
+        homeRoute={homeRoute}
+        nav={nav}
+        isActive={isActive}
+        unreadMessages={unreadMessages}
+        onLogout={logout}
+      />
+      <main className="app-main mx-auto w-full max-w-[1500px]">
         <SiteAnnouncementBar />
         {children}
       </main>
+      {isBuyer && <BuyerBottomNav nav={nav} isActive={isActive} />}
       <FloatingAi />
     </div>
+  )
+}
+
+/**
+ * How each role's menu is arranged in the top bar. Labels refer to entries in
+ * AppShell's existing `menu`, so every destination stays exactly as it was:
+ * this only decides WHERE a link appears. Messages and Notifications become
+ * icons on the right, Profile moves into the avatar menu.
+ */
+const ROLE_NAV_LAYOUT = {
+  buyer: {
+    breakpoint: 'lg',
+    main: ['Dashboard', 'Browse', 'Cart', 'Orders', { label: 'More', items: ['Analytics', 'AI Assistant', 'Help & Support'] }],
+    bottom: [['Dashboard', 'Home'], ['Browse', 'Browse'], ['Cart', 'Cart'], ['Orders', 'Orders'], ['Profile', 'Profile']],
+  },
+  seller: {
+    breakpoint: 'lg',
+    main: ['Dashboard', 'Marketplace', 'Listings', 'Orders', 'Wallet', { label: 'More', items: ['Analytics', 'Notices', 'Help & Support'] }],
+  },
+  lgu_admin: {
+    breakpoint: 'xl',
+    main: [
+      'Dashboard',
+      'Marketplace',
+      { label: 'Sellers', items: ['Sellers', 'Listing Management', 'User Reports', 'Notices to Explain', 'Disputes', 'Reviews & Ratings'] },
+      { label: 'Money', items: ['Orders', 'Seller Earnings', 'LGU Wallet'] },
+      ['Support Tickets', 'Support'],
+      { label: 'Insights', items: ['Analytics', 'Activity Log', 'Users'] },
+    ],
+  },
+  super_admin: {
+    breakpoint: 'xl',
+    main: [
+      'Dashboard',
+      'Marketplace',
+      { label: 'People', items: ['LGU Admins', 'Sellers', 'Users'] },
+      { label: 'Moderation', items: ['Listing Management', 'User Reports', 'Notices to Explain', 'Disputes', 'Reviews & Ratings', 'Moderation Log'] },
+      { label: 'Money', items: ['Orders', 'Seller Earnings', 'Payout Management'] },
+      ['Support Tickets', 'Support'],
+      { label: 'System', items: ['Municipalities', 'Announcements', 'Analytics', 'Activity Log'] },
+    ],
+  },
+}
+
+/** Resolves ROLE_NAV_LAYOUT labels against the role's menu entries ([label, path, Icon]). */
+function buildRoleNav(role, menu) {
+  const layout = ROLE_NAV_LAYOUT[role] || { breakpoint: 'lg', main: menu.map(([label]) => label) }
+  const byLabel = Object.fromEntries(menu.map((entry) => [entry[0], entry]))
+  // A string is a plain link; [label, shortLabel] is a link shown under a
+  // shorter name in the top bar; an object is a dropdown group.
+  const toLink = (ref) => {
+    const [label, short] = Array.isArray(ref) ? ref : [ref, ref]
+    const entry = byLabel[label]
+    return entry ? { label, short, path: entry[1], Icon: entry[2] } : null
+  }
+  const main = layout.main
+    .map((ref) => (ref && !Array.isArray(ref) && typeof ref === 'object'
+      ? { label: ref.label, items: ref.items.map(toLink).filter(Boolean) }
+      : toLink(ref)))
+    .filter(Boolean)
+  return {
+    breakpoint: layout.breakpoint,
+    main,
+    messages: toLink('Messages'),
+    notifications: toLink('Notifications'),
+    profile: toLink('Profile'),
+    bottom: (layout.bottom || []).map(toLink).filter(Boolean),
+  }
+}
+
+/** Closes a popover on an outside click or Escape. */
+function useDismiss(open, setOpen) {
+  const ref = useRef(null)
+  useEffect(() => {
+    if (!open) return undefined
+    const onPointer = (event) => {
+      if (ref.current && !ref.current.contains(event.target)) setOpen(false)
+    }
+    const onKey = (event) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onPointer)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onPointer)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open, setOpen])
+  return ref
+}
+
+function BrandMark({ to, dark = false }) {
+  return (
+    <Link data-tw to={to} className={`group flex shrink-0 items-center gap-2.5 text-lg font-bold tracking-tight ${dark ? 'text-white' : 'text-abai-navy'}`}>
+      <span className="grid size-10 place-items-center rounded-xl bg-linear-to-br from-abai-teal to-abai-navy text-white shadow-lg shadow-abai-teal/30 ring-1 ring-white/20 transition duration-300 group-hover:-rotate-6 group-hover:scale-105">
+        <Fish size={22} />
+      </span>
+      AbaiMarket
+    </Link>
+  )
+}
+
+const topLinkBase = 'relative inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-sm font-medium transition-all duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-abai-seafoam'
+const topLinkIdle = 'text-white/75 hover:bg-white/10 hover:text-white'
+const topLinkActive = 'bg-white/15 text-white shadow-inner ring-1 ring-white/15'
+
+function NavDropdown({ group, isActive }) {
+  const [open, setOpen] = useState(false)
+  const ref = useDismiss(open, setOpen)
+  const active = group.items.some((item) => isActive(item.path))
+  return (
+    <div ref={ref} className="relative">
+      <button
+        data-tw
+        type="button"
+        aria-haspopup="true"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className={`${topLinkBase} cursor-pointer ${active || open ? topLinkActive : topLinkIdle}`}
+      >
+        {group.label}
+        <ChevronDown size={15} className={`transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+        {active && <span className="absolute inset-x-4 -bottom-2 h-0.5 rounded-full bg-abai-seafoam" />}
+      </button>
+      <div
+        className={`absolute left-0 top-full z-50 mt-3 w-72 origin-top-left rounded-2xl bg-white p-2 shadow-2xl shadow-abai-navy/25 ring-1 ring-black/5 transition duration-200 ${open ? 'translate-y-0 scale-100 opacity-100' : 'pointer-events-none -translate-y-1 scale-95 opacity-0'}`}
+      >
+        {group.items.map(({ label, path, Icon }) => {
+          const current = isActive(path)
+          return (
+            <Link
+              data-tw
+              key={label}
+              to={path}
+              onClick={() => setOpen(false)}
+              tabIndex={open ? 0 : -1}
+              className={`group/item flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition ${current ? 'bg-abai-teal-soft font-semibold text-abai-teal-text' : 'text-slate-700 hover:bg-slate-50 hover:text-abai-navy'}`}
+            >
+              <span className={`grid size-9 place-items-center rounded-lg transition ${current ? 'bg-abai-teal text-white' : 'bg-slate-100 text-slate-500 group-hover/item:bg-abai-teal group-hover/item:text-white'}`}>
+                <Icon size={17} />
+              </span>
+              {label}
+              <ChevronRight size={15} className="ml-auto -translate-x-1 opacity-0 transition group-hover/item:translate-x-0 group-hover/item:opacity-60" />
+            </Link>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function IconLink({ link, isActive, count }) {
+  if (!link) return null
+  const { label, path, Icon } = link
+  return (
+    <Link
+      data-tw
+      to={path}
+      title={label}
+      aria-label={count ? `${label} (${count} unread)` : label}
+      className={`relative grid size-10 place-items-center rounded-full transition duration-200 hover:scale-105 ${isActive(path) ? 'bg-white/20 text-white' : 'text-white/80 hover:bg-white/10 hover:text-white'}`}
+    >
+      <Icon size={20} />
+      {count > 0 && (
+        <span className="absolute -right-0.5 -top-0.5 grid min-w-5 place-items-center rounded-full bg-red-500 px-1 text-[0.68rem] font-bold leading-5 text-white ring-2 ring-abai-navy">
+          {count > 99 ? '99+' : count}
+        </span>
+      )}
+    </Link>
+  )
+}
+
+function ProfileMenu({ user, profile, onLogout }) {
+  const [open, setOpen] = useState(false)
+  const ref = useDismiss(open, setOpen)
+  return (
+    <div ref={ref} className="relative">
+      <button
+        data-tw
+        type="button"
+        aria-haspopup="true"
+        aria-expanded={open}
+        aria-label="Account menu"
+        onClick={() => setOpen((value) => !value)}
+        className={`flex cursor-pointer items-center gap-2 rounded-full p-1 pr-2 transition hover:bg-white/10 ${open ? 'bg-white/10' : ''}`}
+      >
+        <span className="rounded-full ring-2 ring-abai-seafoam/70 transition">
+          <Avatar src={user.profile_picture} alt={user.name} />
+        </span>
+        <ChevronDown size={15} className={`text-white/80 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+      </button>
+      <div
+        className={`absolute right-0 top-full z-50 mt-3 w-72 origin-top-right overflow-hidden rounded-2xl bg-white shadow-2xl shadow-abai-navy/25 ring-1 ring-black/5 transition duration-200 ${open ? 'translate-y-0 scale-100 opacity-100' : 'pointer-events-none -translate-y-1 scale-95 opacity-0'}`}
+      >
+        <div className="flex items-center gap-3 bg-linear-to-br from-abai-navy to-abai-teal p-4 text-white">
+          <Avatar src={user.profile_picture} alt={user.name} className="nav-avatar-lg ring-2 ring-white/40" />
+          <div className="min-w-0">
+            <p className="m-0 truncate font-semibold">{user.name}</p>
+            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-white/80">
+              <RoleBadge role={user.role} />
+              {user.municipality && <span className="truncate">{user.municipality}</span>}
+            </div>
+          </div>
+        </div>
+        <div className="p-2">
+          {profile && (
+            <Link
+              data-tw
+              to={profile.path}
+              onClick={() => setOpen(false)}
+              tabIndex={open ? 0 : -1}
+              className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-slate-700 transition hover:bg-slate-50 hover:text-abai-navy"
+            >
+              <profile.Icon size={17} className="text-slate-500" />My Profile
+            </Link>
+          )}
+          <button
+            data-tw
+            type="button"
+            onClick={onLogout}
+            tabIndex={open ? 0 : -1}
+            className="flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-red-600 transition hover:bg-red-50"
+          >
+            <LogOut size={17} />Logout
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Slide-in menu for phones and tablets: every link, grouped the same way as the top bar. */
+function MobileDrawer({ open, onClose, children, header, dark = true }) {
+  useEffect(() => {
+    if (!open) return undefined
+    const onKey = (event) => {
+      if (event.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    const previous = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.style.overflow = previous
+    }
+  }, [open, onClose])
+  return (
+    <div className={`fixed inset-0 z-[60] ${open ? '' : 'pointer-events-none'}`} aria-hidden={!open}>
+      <div
+        onClick={onClose}
+        className={`absolute inset-0 bg-abai-navy-deep/50 backdrop-blur-sm transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0'}`}
+      />
+      <aside
+        className={`absolute inset-y-0 right-0 flex w-[min(22rem,88vw)] flex-col shadow-2xl transition-transform duration-300 ease-out ${dark ? 'bg-abai-navy text-white' : 'bg-white text-slate-800'} ${open ? 'translate-x-0' : 'translate-x-full'}`}
+      >
+        <div className={`flex items-center justify-between gap-3 border-b p-4 ${dark ? 'border-white/10' : 'border-slate-200'}`}>
+          {header}
+          <button
+            data-tw
+            type="button"
+            onClick={onClose}
+            aria-label="Close menu"
+            className={`grid size-10 shrink-0 cursor-pointer place-items-center rounded-full transition ${dark ? 'text-white/80 hover:bg-white/10' : 'text-slate-500 hover:bg-slate-100'}`}
+          >
+            <X size={20} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-3">{children}</div>
+      </aside>
+    </div>
+  )
+}
+
+function DrawerLink({ link, isActive, onNavigate, count }) {
+  const { label, path, Icon } = link
+  const current = isActive(path)
+  return (
+    <Link
+      data-tw
+      to={path}
+      onClick={onNavigate}
+      className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition ${current ? 'bg-abai-teal font-semibold text-white' : 'text-white/80 hover:bg-white/10 hover:text-white'}`}
+    >
+      <Icon size={18} className={current ? '' : 'text-abai-seafoam/80'} />
+      {label}
+      {count > 0 && <span className="ml-auto rounded-full bg-red-500 px-2 py-0.5 text-xs font-bold text-white">{count}</span>}
+    </Link>
+  )
+}
+
+function TopBar({ user, homeRoute, nav, isActive, unreadMessages, onLogout }) {
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const closeDrawer = useCallback(() => setDrawerOpen(false), [])
+  // Tailwind only ships classes it can see written out in full, so the
+  // breakpoint picks between complete class strings.
+  const desktop = nav.breakpoint === 'xl' ? 'hidden xl:flex' : 'hidden lg:flex'
+  const mobileOnly = nav.breakpoint === 'xl' ? 'xl:hidden' : 'lg:hidden'
+
+  // The drawer renders beside the header, not inside it: backdrop-blur makes
+  // the header the containing block for position:fixed children, which would
+  // trap the drawer inside the 64px bar.
+  return (
+    <>
+    <header className="sticky top-0 z-40 border-b border-white/10 bg-abai-navy/90 text-white shadow-lg shadow-abai-navy/20 backdrop-blur-xl">
+      <div className="mx-auto flex h-16 max-w-[1500px] items-center gap-4 px-4 sm:px-6">
+        <BrandMark to={homeRoute} dark />
+        <nav className={`${desktop} min-w-0 flex-1 items-center gap-1`} aria-label="Main">
+          {nav.main.map((item) => (item.items
+            ? <NavDropdown key={item.label} group={item} isActive={isActive} />
+            : (
+              <Link
+                data-tw
+                key={item.label}
+                to={item.path}
+                className={`${topLinkBase} ${isActive(item.path) ? topLinkActive : topLinkIdle}`}
+              >
+                {item.short}
+                {isActive(item.path) && <span className="absolute inset-x-4 -bottom-2 h-0.5 rounded-full bg-abai-seafoam" />}
+              </Link>
+            )))}
+        </nav>
+        <div className="ml-auto flex items-center gap-1">
+          <IconLink link={nav.messages} isActive={isActive} count={unreadMessages} />
+          <IconLink link={nav.notifications} isActive={isActive} />
+          <div className={desktop}>
+            <ProfileMenu user={user} profile={nav.profile} onLogout={onLogout} />
+          </div>
+          <button
+            data-tw
+            type="button"
+            onClick={() => setDrawerOpen(true)}
+            aria-label="Open menu"
+            className={`${mobileOnly} grid size-10 cursor-pointer place-items-center rounded-full text-white transition hover:bg-white/10`}
+          >
+            <Menu size={22} />
+          </button>
+        </div>
+      </div>
+    </header>
+
+      <MobileDrawer
+        open={drawerOpen}
+        onClose={closeDrawer}
+        header={(
+          <div className="flex min-w-0 items-center gap-3">
+            <Avatar src={user.profile_picture} alt={user.name} className="nav-avatar-lg ring-2 ring-abai-seafoam/60" />
+            <div className="min-w-0">
+              <p className="m-0 truncate font-semibold">{user.name}</p>
+              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-white/70">
+                <RoleBadge role={user.role} />
+                {user.municipality && <span className="truncate">{user.municipality}</span>}
+              </div>
+            </div>
+          </div>
+        )}
+      >
+        <div className="grid gap-1">
+          {nav.main.map((item) => (item.items ? (
+            <div key={item.label} className="mt-3 grid gap-1">
+              <p className="m-0 px-3 pb-1 text-[0.7rem] font-semibold uppercase tracking-wider text-abai-seafoam/70">{item.label}</p>
+              {item.items.map((link) => <DrawerLink key={link.label} link={link} isActive={isActive} onNavigate={closeDrawer} />)}
+            </div>
+          ) : <DrawerLink key={item.label} link={item} isActive={isActive} onNavigate={closeDrawer} />))}
+          <div className="mt-3 grid gap-1 border-t border-white/10 pt-3">
+            {nav.messages && <DrawerLink link={nav.messages} isActive={isActive} onNavigate={closeDrawer} count={unreadMessages} />}
+            {nav.notifications && <DrawerLink link={nav.notifications} isActive={isActive} onNavigate={closeDrawer} />}
+            {nav.profile && <DrawerLink link={nav.profile} isActive={isActive} onNavigate={closeDrawer} />}
+          </div>
+          <button
+            data-tw
+            type="button"
+            onClick={onLogout}
+            className="mt-4 flex cursor-pointer items-center justify-center gap-2 rounded-full border border-white/40 px-4 py-2.5 text-sm font-semibold text-white transition hover:border-white hover:bg-white/10"
+          >
+            <LogOut size={18} />Logout
+          </button>
+        </div>
+      </MobileDrawer>
+    </>
+  )
+}
+
+/** App-style tab bar for buyers on phones and tablets. */
+function BuyerBottomNav({ nav, isActive }) {
+  if (!nav.bottom.length) return null
+  return (
+    <>
+      {/* Keeps the last bit of the page clear of the fixed bar. */}
+      <div className="h-20 lg:hidden" aria-hidden="true" />
+      <nav
+        aria-label="Quick links"
+        className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200/80 bg-white/90 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_30px_rgba(11,46,79,0.08)] backdrop-blur-xl lg:hidden"
+      >
+        <div className="mx-auto grid max-w-lg grid-cols-5">
+          {nav.bottom.map(({ label, short, path, Icon }) => {
+            const current = isActive(path)
+            return (
+              <Link
+                data-tw
+                key={label}
+                to={path}
+                className={`group relative flex flex-col items-center gap-1 py-2.5 text-[0.7rem] font-medium transition ${current ? 'text-abai-teal-text' : 'text-slate-500 hover:text-abai-navy'}`}
+              >
+                <span className={`absolute inset-x-6 top-0 h-0.5 rounded-full bg-abai-teal transition-transform duration-300 ${current ? 'scale-x-100' : 'scale-x-0'}`} />
+                <span className={`grid h-8 w-12 place-items-center rounded-full transition duration-300 ${current ? 'bg-abai-teal-soft' : 'group-hover:bg-slate-100'}`}>
+                  {label === 'Dashboard' ? <Home size={20} /> : <Icon size={20} />}
+                </span>
+                {short}
+              </Link>
+            )
+          })}
+        </div>
+      </nav>
+    </>
+  )
+}
+
+const PUBLIC_NAV = [['Home', '/'], ['Browse', '/browse'], ['Sellers', '/sellers'], ['About', '/about'], ['Help', '/help']]
+
+function PublicHeader({ homeRoute, signedIn }) {
+  const location = useLocation()
+  const [scrolled, setScrolled] = useState(false)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const closeDrawer = useCallback(() => setDrawerOpen(false), [])
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 8)
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
+  const current = (path) => (path === '/' ? location.pathname === '/' : location.pathname.startsWith(path))
+  const primaryCta = 'inline-flex items-center justify-center rounded-full bg-abai-teal px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-abai-teal/30 transition duration-200 hover:-translate-y-0.5 hover:bg-abai-teal-hover hover:shadow-xl'
+  const secondaryCta = 'inline-flex items-center justify-center rounded-full px-5 py-2.5 text-sm font-semibold text-abai-navy ring-1 ring-slate-300 transition duration-200 hover:bg-slate-50 hover:ring-abai-teal'
+
+  return (
+    <>
+    <header
+      className={`sticky top-0 z-40 border-b transition-all duration-300 ${scrolled ? 'border-slate-200/80 bg-white/85 shadow-lg shadow-abai-navy/5 backdrop-blur-xl' : 'border-transparent bg-white/70 backdrop-blur-md'}`}
+    >
+      <div className={`mx-auto flex max-w-[1500px] items-center gap-6 px-4 transition-all duration-300 sm:px-6 ${scrolled ? 'h-16' : 'h-20'}`}>
+        <BrandMark to={homeRoute} />
+        <nav className="hidden flex-1 items-center justify-center gap-1 md:flex" aria-label="Main">
+          {PUBLIC_NAV.map(([label, path]) => (
+            <Link
+              data-tw
+              key={path}
+              to={path}
+              className={`relative rounded-full px-4 py-2 text-sm font-medium transition duration-200 ${current(path) ? 'bg-abai-teal-soft text-abai-teal-text' : 'text-slate-600 hover:bg-slate-100 hover:text-abai-navy'}`}
+            >
+              {label}
+            </Link>
+          ))}
+        </nav>
+        <div className="ml-auto hidden items-center gap-2 md:flex">
+          {signedIn ? (
+            // Browse/Sellers/About stay reachable while signed in, so without
+            // this the header offers a signed-in visitor no way back into the
+            // app -- Login/Register are hidden and nothing replaces them.
+            <Link data-tw className={primaryCta} to={homeRoute}>Go to Dashboard</Link>
+          ) : (
+            <>
+              <Link data-tw className={secondaryCta} to="/login">Login</Link>
+              <Link data-tw className={primaryCta} to="/register">Register</Link>
+            </>
+          )}
+        </div>
+        <button
+          data-tw
+          type="button"
+          onClick={() => setDrawerOpen(true)}
+          aria-label="Open menu"
+          className="ml-auto grid size-10 cursor-pointer place-items-center rounded-full text-abai-navy transition hover:bg-slate-100 md:hidden"
+        >
+          <Menu size={22} />
+        </button>
+      </div>
+    </header>
+
+      <MobileDrawer open={drawerOpen} onClose={closeDrawer} dark={false} header={<BrandMark to={homeRoute} />}>
+        <div className="grid gap-1">
+          {PUBLIC_NAV.map(([label, path]) => (
+            <Link
+              data-tw
+              key={path}
+              to={path}
+              onClick={closeDrawer}
+              className={`rounded-xl px-4 py-3 text-base font-medium transition ${current(path) ? 'bg-abai-teal-soft text-abai-teal-text' : 'text-slate-700 hover:bg-slate-50'}`}
+            >
+              {label}
+            </Link>
+          ))}
+          <div className="mt-4 grid gap-2 border-t border-slate-200 pt-4">
+            {signedIn ? (
+              <Link data-tw className={primaryCta} to={homeRoute} onClick={closeDrawer}>Go to Dashboard</Link>
+            ) : (
+              <>
+                <Link data-tw className={secondaryCta} to="/login" onClick={closeDrawer}>Login</Link>
+                <Link data-tw className={primaryCta} to="/register" onClick={closeDrawer}>Register</Link>
+              </>
+            )}
+          </div>
+        </div>
+      </MobileDrawer>
+    </>
   )
 }
 

@@ -1,5 +1,19 @@
 @import "tailwindcss";
 
+/* Brand colours for Tailwind utilities (bg-abai-navy, text-abai-teal...).
+   'inline' makes each one point at the App.css token instead of copying the
+   hex, so App.css :root stays the single source of truth for the palette. */
+@theme inline {
+  --color-abai-navy: var(--brand-navy);
+  --color-abai-navy-deep: var(--brand-navy-deep);
+  --color-abai-teal: var(--brand-teal);
+  --color-abai-teal-hover: var(--brand-teal-hover);
+  --color-abai-teal-soft: var(--brand-teal-soft);
+  --color-abai-teal-text: var(--brand-teal-text);
+  --color-abai-seafoam: var(--brand-seafoam);
+  --color-abai-coral: var(--brand-coral);
+}
+
 html {
   scroll-behavior: smooth;
 }
