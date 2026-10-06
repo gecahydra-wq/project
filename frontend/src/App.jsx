@@ -15,6 +15,7 @@ import {
 } from 'react-router-dom'
 import {
   Archive,
+  ArrowRight,
   BarChart3,
   Bell,
   Bot,
@@ -29,6 +30,7 @@ import {
   History,
   Home,
   Image as ImageIcon,
+  Info,
   LayoutDashboard,
   LifeBuoy,
   LogOut,
@@ -1053,7 +1055,7 @@ function BuyerBottomNav({ nav, isActive }) {
   )
 }
 
-const PUBLIC_NAV = [['Home', '/'], ['Browse', '/browse'], ['Sellers', '/sellers'], ['About', '/about'], ['Help', '/help']]
+const PUBLIC_NAV = [['Home', '/', Home], ['Browse', '/browse', Search], ['Sellers', '/sellers', Store], ['About', '/about', Info], ['Help', '/help', LifeBuoy]]
 
 function PublicHeader({ homeRoute, signedIn }) {
   const location = useLocation()
@@ -1069,38 +1071,49 @@ function PublicHeader({ homeRoute, signedIn }) {
   }, [])
 
   const current = (path) => (path === '/' ? location.pathname === '/' : location.pathname.startsWith(path))
-  const primaryCta = 'inline-flex items-center justify-center rounded-full bg-abai-teal px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-abai-teal/30 transition duration-200 hover:-translate-y-0.5 hover:bg-abai-teal-hover hover:shadow-xl'
-  const secondaryCta = 'inline-flex items-center justify-center rounded-full px-5 py-2.5 text-sm font-semibold text-abai-navy ring-1 ring-slate-300 transition duration-200 hover:bg-slate-50 hover:ring-abai-teal'
+  const primaryCta = 'group/cta inline-flex items-center justify-center gap-2 rounded-full bg-abai-teal px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-black/20 ring-1 ring-white/15 transition duration-200 hover:-translate-y-0.5 hover:bg-abai-teal-hover hover:shadow-xl'
+  const secondaryCta = 'inline-flex items-center justify-center rounded-full px-5 py-2.5 text-sm font-semibold text-white ring-1 ring-white/40 transition duration-200 hover:bg-white/10 hover:ring-white'
+  const arrow = <ArrowRight size={16} className="transition-transform duration-200 group-hover/cta:translate-x-1" />
+  // Menu links slide in one after another while the drawer opens.
+  const stagger = (index) => ({ transitionDelay: drawerOpen ? `${120 + index * 45}ms` : '0ms' })
+  const slideIn = drawerOpen ? 'translate-x-0 opacity-100' : 'translate-x-6 opacity-0'
 
   return (
     <>
     <header
-      className={`sticky top-0 z-40 border-b transition-all duration-300 ${scrolled ? 'border-slate-200/80 bg-white/85 shadow-lg shadow-abai-navy/5 backdrop-blur-xl' : 'border-transparent bg-white/70 backdrop-blur-md'}`}
+      className={`nav-photo sticky top-0 z-40 text-white transition-shadow duration-300 ${scrolled ? 'shadow-lg shadow-abai-navy/25' : ''}`}
     >
       <div className={`mx-auto flex max-w-[1500px] items-center gap-6 px-4 transition-all duration-300 sm:px-6 ${scrolled ? 'h-16' : 'h-20'}`}>
-        <BrandMark to={homeRoute} />
-        <nav className="hidden flex-1 items-center justify-center gap-1 md:flex" aria-label="Main">
-          {PUBLIC_NAV.map(([label, path]) => (
-            <Link
-              data-tw
-              key={path}
-              to={path}
-              className={`relative rounded-full px-4 py-2 text-sm font-medium transition duration-200 ${current(path) ? 'bg-abai-teal-soft text-abai-teal-text' : 'text-slate-600 hover:bg-slate-100 hover:text-abai-navy'}`}
-            >
-              {label}
-            </Link>
-          ))}
+        <BrandMark to={homeRoute} dark />
+        <nav className="hidden flex-1 justify-center lg:flex" aria-label="Main">
+          <div className="flex items-center gap-1 rounded-full bg-white/[0.06] p-1 ring-1 ring-white/10">
+            {PUBLIC_NAV.map(([label, path, Icon]) => {
+              const active = current(path)
+              return (
+                <Link
+                  data-tw
+                  key={path}
+                  to={path}
+                  aria-current={active ? 'page' : undefined}
+                  className={`group/link flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition duration-200 ${active ? 'bg-white text-abai-navy shadow-md' : 'text-white/75 hover:bg-white/10 hover:text-white'}`}
+                >
+                  <Icon size={16} className={`transition duration-200 ${active ? 'text-abai-teal' : 'text-abai-seafoam/70 group-hover/link:-translate-y-px group-hover/link:text-abai-seafoam'}`} />
+                  {label}
+                </Link>
+              )
+            })}
+          </div>
         </nav>
-        <div className="ml-auto hidden items-center gap-2 md:flex">
+        <div className="ml-auto hidden items-center gap-2 lg:flex">
           {signedIn ? (
             // Browse/Sellers/About stay reachable while signed in, so without
             // this the header offers a signed-in visitor no way back into the
             // app -- Login/Register are hidden and nothing replaces them.
-            <Link data-tw className={primaryCta} to={homeRoute}>Go to Dashboard</Link>
+            <Link data-tw className={primaryCta} to={homeRoute}>Go to Dashboard{arrow}</Link>
           ) : (
             <>
               <Link data-tw className={secondaryCta} to="/login">Login</Link>
-              <Link data-tw className={primaryCta} to="/register">Register</Link>
+              <Link data-tw className={primaryCta} to="/register">Register{arrow}</Link>
             </>
           )}
         </div>
@@ -1109,33 +1122,46 @@ function PublicHeader({ homeRoute, signedIn }) {
           type="button"
           onClick={() => setDrawerOpen(true)}
           aria-label="Open menu"
-          className="ml-auto grid size-10 cursor-pointer place-items-center rounded-full text-abai-navy transition hover:bg-slate-100 md:hidden"
+          className="ml-auto grid size-10 cursor-pointer place-items-center rounded-full text-white ring-1 ring-white/20 transition hover:bg-white/10 lg:hidden"
         >
           <Menu size={22} />
         </button>
       </div>
     </header>
 
-      <MobileDrawer open={drawerOpen} onClose={closeDrawer} dark={false} header={<BrandMark to={homeRoute} />}>
-        <div className="grid gap-1">
-          {PUBLIC_NAV.map(([label, path]) => (
-            <Link
-              data-tw
-              key={path}
-              to={path}
-              onClick={closeDrawer}
-              className={`rounded-xl px-4 py-3 text-base font-medium transition ${current(path) ? 'bg-abai-teal-soft text-abai-teal-text' : 'text-slate-700 hover:bg-slate-50'}`}
-            >
-              {label}
-            </Link>
-          ))}
-          <div className="mt-4 grid gap-2 border-t border-slate-200 pt-4">
+      <MobileDrawer open={drawerOpen} onClose={closeDrawer} header={<BrandMark to={homeRoute} dark />}>
+        <div className="flex min-h-full flex-col">
+          <p className={`m-0 mb-4 px-2 text-sm leading-relaxed text-white/70 transition duration-300 ${slideIn}`} style={stagger(0)}>
+            Fresh fingerlings from LGU-verified hatcheries, paid safely through escrow.
+          </p>
+          <div className="grid gap-1.5">
+            {PUBLIC_NAV.map(([label, path, Icon], index) => {
+              const active = current(path)
+              return (
+                <Link
+                  data-tw
+                  key={path}
+                  to={path}
+                  onClick={closeDrawer}
+                  style={stagger(index + 1)}
+                  className={`group/item flex items-center gap-3 rounded-2xl px-3 py-2.5 text-base font-medium transition duration-300 ${slideIn} ${active ? 'bg-white text-abai-navy shadow-md' : 'text-white/85 hover:bg-white/10 hover:text-white'}`}
+                >
+                  <span className={`grid size-10 place-items-center rounded-xl transition ${active ? 'bg-abai-teal text-white' : 'bg-white/10 text-abai-seafoam group-hover/item:bg-white/15'}`}>
+                    <Icon size={19} />
+                  </span>
+                  {label}
+                  <ChevronRight size={18} className={`ml-auto transition ${active ? 'text-abai-teal' : 'text-white/40 group-hover/item:translate-x-0.5 group-hover/item:text-white/70'}`} />
+                </Link>
+              )
+            })}
+          </div>
+          <div className={`mt-auto grid gap-2 border-t border-white/10 pt-5 transition duration-300 ${slideIn}`} style={stagger(PUBLIC_NAV.length + 1)}>
             {signedIn ? (
-              <Link data-tw className={primaryCta} to={homeRoute} onClick={closeDrawer}>Go to Dashboard</Link>
+              <Link data-tw className={`${primaryCta} py-3 text-base`} to={homeRoute} onClick={closeDrawer}>Go to Dashboard{arrow}</Link>
             ) : (
               <>
-                <Link data-tw className={secondaryCta} to="/login" onClick={closeDrawer}>Login</Link>
-                <Link data-tw className={primaryCta} to="/register" onClick={closeDrawer}>Register</Link>
+                <Link data-tw className={`${primaryCta} py-3 text-base`} to="/register" onClick={closeDrawer}>Register{arrow}</Link>
+                <Link data-tw className={`${secondaryCta} py-3 text-base`} to="/login" onClick={closeDrawer}>Login</Link>
               </>
             )}
           </div>
