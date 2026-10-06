@@ -4012,7 +4012,8 @@ function SellerDashboard() {
             </PeriodFilteredRows>
           </Section>
           <Section title="Payment History">
-            {(wallet.data?.payment_history || []).length ? (
+            <PeriodFilteredRows rows={wallet.data?.payment_history || []} noun="payments received">
+              {(shown) => (shown.length ? (
               <div className="table">
                 <div className="table-row first">
                   <span>Order ID</span>
@@ -4022,7 +4023,7 @@ function SellerDashboard() {
                   <span>Release Date</span>
                   <span>Status</span>
                 </div>
-                {wallet.data.payment_history.map((payment) => (
+                {shown.map((payment) => (
                   <div className="table-row" key={payment.id}>
                     <span>{payment.order?.order_number ? `#${payment.order.order_number}` : 'N/A'}</span>
                     <span>{payment.order?.buyer?.name || 'Unknown buyer'}</span>
@@ -4033,7 +4034,8 @@ function SellerDashboard() {
                   </div>
                 ))}
               </div>
-            ) : <EmptyState message="No payment history yet." />}
+            ) : <EmptyState message="No payment history yet." />)}
+            </PeriodFilteredRows>
           </Section>
         </>
       )}
@@ -4745,11 +4747,15 @@ function SellerEarningsPanel({ scope = 'lgu' }) {
             and no revenue is distributed. If a seller disputes one, accepting their explanation on the Disputes tab reopens it and puts it
             back in the queue above.
           </p>
-          <div className="item-list">
-            {rejectedEarnings.data.map((payment) => (
-              <LguRejectedEarningsRow key={payment.id} payment={payment} base={base} dashboardPath={dashboardPath} />
-            ))}
-          </div>
+          <PeriodFilteredRows rows={rejectedEarnings.data} noun="orders rejected" dateKey={(payment) => payment.order?.lgu_reviewed_at}>
+            {(shown) => (shown.length ? (
+              <div className="item-list">
+                {shown.map((payment) => (
+                  <LguRejectedEarningsRow key={payment.id} payment={payment} base={base} dashboardPath={dashboardPath} />
+                ))}
+              </div>
+            ) : <EmptyState message="No rejected orders in this period." />)}
+          </PeriodFilteredRows>
         </Section>
       )}
     </>
@@ -4821,12 +4827,14 @@ function ReviewsAndRatingsSection({ data, scope, scopeLabel = 'on the platform' 
     onSuccess: () => queryClient.invalidateQueries({ queryKey }),
   })
 
-  const reviews = [...(data?.buyer_reviews || [])].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+  const allReviews = [...(data?.buyer_reviews || [])].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+  const { shown: reviews, controls: periodControls } = usePeriodFilter(allReviews, { noun: 'reviews posted' })
 
   return (
     <Section title="Reviews & Ratings">
       <p className="helper-text">Buyers reviewing sellers. Remove any review that isn&apos;t fair to the seller; their rating is recalculated automatically.</p>
       {removeReview.error && <p className="error">{removeReview.error?.response?.data?.message || 'Could not remove that review.'}</p>}
+      {periodControls}
       {reviews.length ? (
         <div className="review-list">
           {reviews.map((review) => (
@@ -5519,7 +5527,8 @@ function LguDashboard() {
             </PeriodFilteredRows>
           </Section>
           <Section title="Revenue History">
-            {(wallet.data?.revenue_history || []).length ? (
+            <PeriodFilteredRows rows={wallet.data?.revenue_history || []} noun="settlements" dateKey="settled_at">
+              {(shown) => (shown.length ? (
               <div className="table">
                 <div className="table-row first">
                   <span>Order</span>
@@ -5528,7 +5537,7 @@ function LguDashboard() {
                   <span>LGU Share</span>
                   <span>Settled Date</span>
                 </div>
-                {wallet.data.revenue_history.map((settlement) => (
+                {shown.map((settlement) => (
                   <div className="table-row" key={settlement.id}>
                     <span>{settlement.order?.order_number ? `#${settlement.order.order_number}` : 'N/A'}</span>
                     <span>{settlement.sellerProfile?.hatchery_name || 'Unknown seller'}</span>
@@ -5538,7 +5547,8 @@ function LguDashboard() {
                   </div>
                 ))}
               </div>
-            ) : <EmptyState message="No settled revenue yet." />}
+            ) : <EmptyState message="No settled revenue yet." />)}
+            </PeriodFilteredRows>
           </Section>
         </>
       )}
@@ -6107,9 +6117,10 @@ function SuperAdminAnnouncements() {
         {save.error && <p className="error">{save.error.response?.data?.message || 'Could not save announcement.'}</p>}
       </Section>
       <Section title="All Announcements">
-        {(list.data || []).length ? (
+        <PeriodFilteredRows rows={list.data || []} noun="announcements created">
+          {(shown) => (shown.length ? (
           <div className="item-list">
-            {list.data.map((a) => (
+            {shown.map((a) => (
               <div className="card action" key={a.id}>
                 <div>
                   <div className="card-row"><strong>{a.title}</strong><Badge tone="neutral">{ANNOUNCEMENT_CATEGORIES.find(([value]) => value === a.category)?.[1] || a.category}</Badge></div>
@@ -6127,7 +6138,8 @@ function SuperAdminAnnouncements() {
               </div>
             ))}
           </div>
-        ) : <EmptyState message="No announcements yet." />}
+        ) : <EmptyState message="No announcements yet." />)}
+        </PeriodFilteredRows>
       </Section>
     </>
   )
@@ -6576,9 +6588,10 @@ function SuperAdminDashboard() {
               <option value="reinstated">Reinstated</option>
             </select>
           </div>
-          {(moderationLog.data || []).length ? (
+          <PeriodFilteredRows rows={moderationLog.data || []} noun="moderation actions">
+            {(shown) => (shown.length ? (
             <div className="item-list">
-              {moderationLog.data.map((log) => (
+              {shown.map((log) => (
                 <div className="card" key={log.id}>
                   <div className="card-row"><strong>{log.user?.name || 'Unknown account'}</strong><Badge status={log.action === 'suspended' ? 'suspended' : 'active'} /></div>
                   <p>{roleLabel(log.role)} · {log.action === 'suspended' ? 'Suspended' : 'Reinstated'} by {log.moderator?.name || 'Unknown'}</p>
@@ -6588,7 +6601,8 @@ function SuperAdminDashboard() {
                 </div>
               ))}
             </div>
-          ) : <EmptyState message="No moderation actions match these filters." />}
+          ) : <EmptyState message="No moderation actions match these filters." />)}
+          </PeriodFilteredRows>
         </Section>
       )}
       {tab === 'reviews' && <ReviewsAndRatingsSection data={reviews.data} scope="super-admin" scopeLabel="on the platform" />}
@@ -6738,13 +6752,15 @@ function SuperAdminDashboard() {
         </Section>
         <Section title="Refunds">
           <p className="helper-text">Paid orders that were cancelled or expired. Refund the buyer in the PayMongo dashboard, then mark it refunded here.</p>
-          {(refunds.data || []).length ? (
+          <PeriodFilteredRows rows={refunds.data || []} noun="refunds updated" dateKey="updated_at">
+            {(shown) => (shown.length ? (
             <div className="item-list">
-              {refunds.data.map((refund) => (
+              {shown.map((refund) => (
                 <RefundRow key={refund.id} refund={refund} onMarkRefunded={(id, reference) => markRefunded.mutateAsync({ id, reference })} />
               ))}
             </div>
-          ) : <EmptyState message="No refunds needed." />}
+          ) : <EmptyState message="No refunds needed." />)}
+          </PeriodFilteredRows>
         </Section>
         </>
       )}
@@ -6994,6 +7010,7 @@ function UserReportsPanel({ endpointBase, queryKey, scopeLabel }) {
     if (statusFilter === 'open') return !['resolved', 'dismissed'].includes(report.status)
     return report.status === statusFilter
   })
+  const { shown: periodRows, controls: periodControls } = usePeriodFilter(rows, { noun: 'reports filed' })
 
   return (
     <Section title="User Reports">
@@ -7011,9 +7028,10 @@ function UserReportsPanel({ endpointBase, queryKey, scopeLabel }) {
           </select>
         </label>
       </div>
-      {rows.length ? (
+      {periodControls}
+      {periodRows.length ? (
         <div className="item-list">
-          {rows.map((report) => (
+          {periodRows.map((report) => (
             <div className="card report-card" key={report.id}>
               <div className="card-row">
                 <strong>
@@ -7600,6 +7618,7 @@ function SupportPanel({ role }) {
     placeholderData: [],
   })
   const replied = (tickets.data || []).filter((ticket) => ticket.status === 'answered').length
+  const { shown: shownTickets, controls: ticketPeriodControls } = usePeriodFilter(tickets.data, { noun: 'tickets sent' })
 
   return (
     <div className={view === 'contact' ? 'support-column support-column-wide' : 'support-column'}>
@@ -7624,8 +7643,11 @@ function SupportPanel({ role }) {
         {view === 'tickets' && (ticketId ? (
           <UserSupportTicket ticketId={ticketId} onBack={() => setView('tickets')} onNew={() => setView('contact')} />
         ) : (tickets.data || []).length ? (
+          <>
+          {ticketPeriodControls}
+          {shownTickets.length ? (
           <div className="item-list">
-            {tickets.data.map((ticket) => (
+            {shownTickets.map((ticket) => (
               <button type="button" className="card support-ticket-row" key={ticket.id} onClick={() => openTicket(ticket.id)}>
                 <div className="card-row">
                   <strong>{ticket.subject}</strong>
@@ -7639,6 +7661,8 @@ function SupportPanel({ role }) {
               </button>
             ))}
           </div>
+          ) : <EmptyState message="No tickets sent in this period." />}
+          </>
         ) : (
           <EmptyState
             title="No tickets yet"
@@ -7935,6 +7959,7 @@ function SupportTicketsAdminPanel({ scope }) {
     return [ticket.ticket_number, ticket.subject, ticket.user?.name, ticket.first_name, ticket.last_name, ticket.contact_email, ticket.order?.order_number, ticket.municipality?.name]
       .some((value) => String(value || '').toLowerCase().includes(needle))
   })
+  const { shown: periodRows, controls: periodControls } = usePeriodFilter(rows, { noun: 'tickets received' })
 
   return (
     <Section title="Support Tickets">
@@ -7963,9 +7988,10 @@ function SupportTicketsAdminPanel({ scope }) {
             <Search size={16} />
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Ticket, name, email or order" />
           </label>
-          {rows.length ? (
+          {periodControls}
+          {periodRows.length ? (
             <div className="ticket-inbox-rows">
-              {rows.map((ticket) => {
+              {periodRows.map((ticket) => {
                 const sender = [ticket.first_name, ticket.last_name].filter(Boolean).join(' ') || ticket.user?.name || 'Unknown'
                 const where = isSuper ? ticket.municipality?.name || 'All LGUs' : !ticket.municipality_id ? 'All LGUs' : ''
                 const who = [sender, where].filter(Boolean).join(' · ')
@@ -8151,6 +8177,8 @@ function SellerNoticesPanel({ scope = 'lgu' }) {
     placeholderData: [],
   })
 
+  const { shown: shownNotices, controls: periodControls } = usePeriodFilter(notices.data, { noun: 'notices issued' })
+
   const refreshNotices = () => {
     setActingId(null)
     setDecision({ status: 'under_review', notes: '' })
@@ -8185,9 +8213,10 @@ function SellerNoticesPanel({ scope = 'lgu' }) {
         suspends anyone automatically -- a rating can fall because a buyer was trolling. Suspension is your call, from the Sellers tab, after
         one notice or never.
       </p>
-      {(notices.data || []).length ? (
+      {periodControls}
+      {shownNotices.length ? (
         <div className="item-list">
-          {notices.data.map((notice) => (
+          {shownNotices.map((notice) => (
             <div className="card report-card" key={notice.id}>
               <div className="card-row">
                 <strong>{notice.sellerProfile?.hatchery_name || 'Seller'}</strong>
@@ -8285,6 +8314,8 @@ function SellerNoticesSection() {
     placeholderData: [],
   })
 
+  const { shown: shownNotices, controls: periodControls } = usePeriodFilter(notices.data, { noun: 'notices issued' })
+
   const respond = useMutation({
     mutationFn: async ({ id, response }) => (await api.post(`/seller/notices/${id}/respond`, { response })).data,
     onSuccess: (_data, variables) => {
@@ -8302,9 +8333,10 @@ function SellerNoticesSection() {
         listings come off the marketplace until your LGU accepts your explanation. Either way this is <strong>not</strong> a suspension: you can
         still sign in, reply to buyers and complete orders already placed. Nothing suspends your account automatically.
       </p>
-      {(notices.data || []).length ? (
+      {periodControls}
+      {shownNotices.length ? (
         <div className="item-list">
-          {notices.data.map((notice) => {
+          {shownNotices.map((notice) => {
             const open = ['open', 'under_review'].includes(notice.status)
             const draft = drafts[notice.id] ?? ''
             // Who decided -- the Super Admin can review a notice too.
@@ -8390,13 +8422,15 @@ function SellerRegistrationQueue({ endpointBase, queryKey, stageLabel, approveLa
   })
 
   const busy = approve.isPending || reject.isPending
+  const { shown, controls: periodControls } = usePeriodFilter(registrations.data, { noun: 'registrations submitted' })
 
   return (
     <Section title="Seller Registration Approvals">
       <p className="helper-text">{stageLabel}</p>
-      {registrations.data?.length ? (
+      {periodControls}
+      {shown.length ? (
         <div className="item-list">
-          {registrations.data.map((seller) => (
+          {shown.map((seller) => (
             <div className="card action" key={seller.id}>
               <div>
                 <div className="card-row">
@@ -9004,10 +9038,7 @@ function OrderTable({ rows, onReview, onConfirmReceived, confirmPendingOrderId, 
  * itself -- earnings approval is still a separate step.
  */
 /**
- * Narrows a list (orders, withdrawal requests) to rows created today / this
- * week / this month / this year, by each row's created_at. Used on every
- * role's Orders page and on the withdrawal request lists; the lists are
- * already fully loaded, so this filters in the browser.
+ * Date filter for history lists -- see usePeriodFilter below.
  */
 const ORDER_PERIODS = [
   ['all', 'All'],
@@ -9030,13 +9061,21 @@ function orderPeriodStart(period) {
   return null
 }
 
-function PeriodFilteredRows({ rows, children, noun = 'orders placed' }) {
+/**
+ * Narrows a history list (orders, withdrawals, payments, reviews, reports,
+ * tickets...) to rows dated today / this week / this month / this year, by
+ * each row's `dateKey` (created_at unless the list is about a later date,
+ * such as settled_at; or a function returning the row's date). Used on every list that has a history, for every
+ * role; the lists are already fully loaded, so this filters in the browser.
+ * Returns the filtered rows and the filter buttons to render above them.
+ */
+function usePeriodFilter(rows, { noun, dateKey = 'created_at' }) {
   const [period, setPeriod] = useState('all')
   const start = orderPeriodStart(period)
   const all = rows || []
-  const shown = start ? all.filter((row) => new Date(row.created_at) >= start) : all
-
-  return (
+  const dateOf = typeof dateKey === 'function' ? dateKey : (row) => row[dateKey]
+  const shown = start ? all.filter((row) => dateOf(row) && new Date(dateOf(row)) >= start) : all
+  const controls = (
     <>
       <div className="tab-bar" role="group" aria-label={`Show ${noun}`}>
         {ORDER_PERIODS.map(([value, label]) => (
@@ -9044,6 +9083,16 @@ function PeriodFilteredRows({ rows, children, noun = 'orders placed' }) {
         ))}
       </div>
       {period !== 'all' && <p className="helper-text">Showing {shown.length} of {all.length} {noun} {ORDER_PERIODS.find(([value]) => value === period)[1].toLowerCase()}.</p>}
+    </>
+  )
+  return { shown, controls }
+}
+
+function PeriodFilteredRows({ rows, children, noun = 'orders placed', dateKey }) {
+  const { shown, controls } = usePeriodFilter(rows, { noun, dateKey })
+  return (
+    <>
+      {controls}
       {children(shown)}
     </>
   )
@@ -9424,7 +9473,7 @@ function DisputesPanel({ scope = 'lgu' }) {
 
   const rows = disputes.data || []
   const openRows = rows.filter((row) => row.status === 'open')
-  const resolvedRows = rows.filter((row) => row.status !== 'open')
+  const { shown: resolvedRows, controls: resolvedPeriodControls } = usePeriodFilter(rows.filter((row) => row.status !== 'open'), { noun: 'resolved disputes filed' })
 
   return (
     <>
@@ -9494,6 +9543,7 @@ function DisputesPanel({ scope = 'lgu' }) {
         ) : <EmptyState message="No open disputes." />}
       </Section>
       <Section title="Resolved Disputes">
+        {resolvedPeriodControls}
         {resolvedRows.length ? (
           <div className="item-list">
             {resolvedRows.map((row) => (
@@ -10729,6 +10779,7 @@ const REVIEW_STARS = [5, 4, 3, 2, 1]
  * fact rather than decoration.
  */
 function SellerReviewsSection({ reviews = [], fallbackAverage }) {
+  const { shown: shownReviews, controls: periodControls } = usePeriodFilter(reviews, { noun: 'reviews posted' })
   const total = reviews.length
   const average = total
     ? reviews.reduce((sum, review) => sum + Number(review.rating || 0), 0) / total
@@ -10767,8 +10818,10 @@ function SellerReviewsSection({ reviews = [], fallbackAverage }) {
               ))}
             </ul>
           </div>
+          {periodControls}
+          {shownReviews.length ? (
           <div className="review-list">
-            {reviews.map((review) => (
+            {shownReviews.map((review) => (
               <article className="card review-item" key={review.id}>
                 <div className="review-card-head">
                   <p className="review-author">
@@ -10787,6 +10840,7 @@ function SellerReviewsSection({ reviews = [], fallbackAverage }) {
               </article>
             ))}
           </div>
+          ) : <EmptyState message="No reviews posted in this period." />}
         </>
       ) : (
         <EmptyState
@@ -10862,9 +10916,10 @@ function BuyerProfileForSellerPage() {
           Whether a buyer completes what they start is the useful signal about them -- more so than a score, which a seller
           could leave out of irritation at a cancelled order.
         </p>
-        {sellerOrders.length ? (
+        <PeriodFilteredRows rows={sellerOrders}>
+          {(shown) => (shown.length ? (
           <div className="item-list">
-            {sellerOrders.map((order) => (
+            {shown.map((order) => (
               <div className="card action" key={order.id}>
                 <div>
                   <div className="card-row">
@@ -10879,14 +10934,16 @@ function BuyerProfileForSellerPage() {
               </div>
             ))}
           </div>
-        ) : <EmptyState message="No orders with this buyer yet." />}
+        ) : <EmptyState message="No orders with this buyer yet." />)}
+        </PeriodFilteredRows>
       </Section>
 
       <Section title="Reviews from this Buyer">
         <p className="helper-text">Reviews this buyer left on your orders.</p>
-        {reviews.length ? (
+        <PeriodFilteredRows rows={reviews} noun="reviews posted">
+          {(shown) => (shown.length ? (
           <div className="review-list">
-            {reviews.map((review) => (
+            {shown.map((review) => (
               <div className="card review-item" key={review.id}>
                 <div className="card-row">
                   <p className="review-author"><Avatar src={buyer.profile_picture} alt={buyer.name} className="review-avatar" />{buyer.name} <RoleBadge role="buyer" /></p>
@@ -10902,7 +10959,8 @@ function BuyerProfileForSellerPage() {
               </div>
             ))}
           </div>
-        ) : <EmptyState message="This buyer hasn't left a review yet." />}
+        ) : <EmptyState message="This buyer hasn't left a review yet." />)}
+        </PeriodFilteredRows>
       </Section>
     </main>
   )
