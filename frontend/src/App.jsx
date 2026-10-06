@@ -3105,7 +3105,6 @@ function BuyerDashboard() {
               showOrderDate
             />
           </Section>
-          <Section title="Notifications"><NotificationStack notifications={notifications.slice(0, 3)} onMarkRead={handleMarkRead} getLink={notificationLinkFor('buyer')} /></Section>
         </>
       )}
       {tab === 'browse' && (
@@ -5364,7 +5363,6 @@ function LguDashboard() {
               </div>
             </Link>
           </Section>
-          <Section title="Notifications"><NotificationStack notifications={notifications.slice(0, 3)} onMarkRead={handleMarkRead} getLink={notificationLink} /></Section>
         </>
       )}
       {tab === 'marketplace' && (
