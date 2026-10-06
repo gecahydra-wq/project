@@ -57,13 +57,14 @@ The system emphasizes correctness of money movement, strict role permissions, a 
 - Seller profiles with a "Farm Posts" social feed (likes + comments), ratings and reviews
 - Buyer ↔ Seller two-way feedback (buyers review sellers; sellers rate buyers)
 - Direct messaging between all roles
-- In-app notifications, with a bell pop-up in the top bar (open one to jump to it, or mark one or all as read)
+- In-app notifications, with a bell pop-up in the top bar (open one to jump to the right page, or mark one or all as read). Every new request notifies whoever has to act on it: withdrawal requests reach the Super Admin, new seller registrations reach the municipality's LGU, and so on
 
 **Orders & Payments**
 - Unified Order Numbers (`ORD-####` presentation; `FG-XXXXXX` internal reference)
 - PayMongo Checkout (with an automatic demo fallback when keys are absent)
 - Escrow-style payment holding until LGU verification
 - Order lifecycle tracking with a visual timeline and global order lookup
+- Every role's Orders page can be filtered to Today, This Week, This Month or This Year
 
 **Wallets, Revenue & Payouts**
 - Seller Wallet and LGU Wallet with Available / Pending / Processing / Withdrawn balances
@@ -71,16 +72,20 @@ The system emphasizes correctness of money movement, strict role permissions, a 
 - Seller payout requests (`PAY-##`) and LGU payout requests (`LGU-##`), released by the Super Admin
 - Platform payout fee accounting
 - **₱100 minimum withdrawal** for sellers and LGUs: the form warns while typing, and the server refuses anything lower (`PayoutAccount::MIN_AMOUNT`)
+- Bank-transfer payouts name the **Philippine bank** (a list, or "Other" with a typed name), with a reminder to double-check the bank, account number and name
+- A **rejected withdrawal holds its amount** until the rejection is final -- the owner accepts it, their one dispute is rejected, or 7 days pass -- so the same money can never be requested twice (`WithdrawalRejection`)
 
 **Governance & Moderation**
 - LGU: seller verification, listing approval/rejection/archival, seller suspension, earnings verification (approve / hold / reject / **reopen** a rejected transaction back into the queue)
 - Super Admin: platform-wide suspension of buyers/sellers/LGU admins, **permanent account removal** (buyers/sellers, with a required reason — blocked when the account has order history, to protect the financial record), listing management, review/rating removal
 - Global Activity Log / audit trail and a dedicated Moderation Log
+- A **reason is required** for every rejection, dismissal, suspension, archive or disable, and the affected user is told why
 
 **Analytics & Reporting**
 - Buyer, Seller, LGU, and Super Admin (executive) analytics dashboards
 - Revenue, orders, listings, sellers, and moderation reports
 - PDF and Excel report exports
+- LGU and Super Admin dashboard cards are clickable and open the page they count (e.g. Pending LGU Withdrawals → LGU Payouts)
 
 **Platform**
 - **Site-wide announcement bar** — Super Admin announcements appear at the top of every page: the public storefront (guests included) and every tab of all four dashboards. Colour-coded by category (maintenance, update, policy, holiday, general), shown only between their start and expiry dates, dismissible per browser (an edited announcement shows again), and also delivered as an in-app notification. Scheduled announcements publish automatically.
@@ -221,7 +226,7 @@ php artisan serve --host=127.0.0.1 --port=8000
 
 The API is served under `http://127.0.0.1:8000/api`.
 
-**Scheduler (optional, for announcements):** the app schedules `announcements:publish` every five minutes. In production, add the Laravel scheduler to cron:
+**Scheduler:** the app schedules `announcements:publish` and `orders:expire-unpaid` every five minutes and `withdrawals:finalize-rejections` hourly. In production, add the Laravel scheduler to cron:
 
 ```cron
 * * * * * cd /path/to/backend && php artisan schedule:run >> /dev/null 2>&1
@@ -443,7 +448,7 @@ abaimarket/
 - **Storage:** run `php artisan storage:link` so uploaded media (`storage/app/public`) is served from `public/storage`. For scale, switch `FILESYSTEM_DISK` to S3.
 - **Media upload limits:** photos and videos are both capped at **25 MB** (`ImageUploader::MAX_IMAGE_KB` / `MAX_VIDEO_KB`); the same rule covers profile and cover pictures. PHP's own defaults (`upload_max_filesize=2M`, `post_max_size=8M`) are lower than that and reject the request *before* Laravel runs — PHP then discards the body, so the app reports a missing-file error rather than a size error. The Dockerfile therefore writes `/etc/php/8.3/cli/conf.d/99-uploads.ini` with `upload_max_filesize=30M`, `post_max_size=60M` and `memory_limit=256M`. Any other host needs the same `php.ini` values, kept above the 25 MB ceiling so the application returns its own message.
 - **Caching:** `php artisan config:cache` and `route:cache` after each deploy.
-- **Scheduler & queues:** add `schedule:run` to cron (for announcements). `QUEUE_CONNECTION` defaults to `database`; run `php artisan queue:work` if you move mail/notifications onto the queue.
+- **Scheduler & queues:** add `schedule:run` to cron (scheduled announcements, expiring unpaid orders, and releasing rejected withdrawals after the 7-day dispute window). `QUEUE_CONNECTION` defaults to `database`; run `php artisan queue:work` if you move mail/notifications onto the queue.
 - **CORS / Sanctum:** ensure the frontend origin is allowed and `FRONTEND_URL` is correct for OAuth and email links.
 - **PayMongo webhook:** register `POST {APP_URL}/api/paymongo/webhook` in the PayMongo dashboard.
 - **Google OAuth:** register `GOOGLE_REDIRECT_URI` in the Google Cloud console.
