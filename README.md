@@ -299,7 +299,7 @@ Fish farmers who purchase fingerlings.
 - Rate buyers after completed orders (so other sellers can gauge legitimacy)
 - View the marketplace read-only (cannot purchase from other sellers)
 - Analytics, messaging, notifications
-- A suspended seller is logged out and blocked from listing, receiving orders, and withdrawing.
+- A suspended seller can still log in (to read why and send a support ticket), but their listings leave the marketplace and they **cannot** add or edit listings, update orders, request withdrawals, post, or message buyers.
 
 ### LGU Admin
 Scoped strictly to their own municipality.
