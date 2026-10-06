@@ -4828,7 +4828,7 @@ function ReviewsAndRatingsSection({ data, scope, scopeLabel = 'on the platform' 
   })
 
   const allReviews = [...(data?.buyer_reviews || [])].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-  const { shown: reviews, controls: periodControls } = usePeriodFilter(allReviews, { noun: 'reviews posted' })
+  const { shown: reviews, controls: periodControls, periodEmpty } = usePeriodFilter(allReviews, { noun: 'reviews posted' })
 
   return (
     <Section title="Reviews & Ratings">
@@ -4846,7 +4846,7 @@ function ReviewsAndRatingsSection({ data, scope, scopeLabel = 'on the platform' 
             />
           ))}
         </div>
-      ) : <EmptyState message={`No buyer reviews yet ${scopeLabel}.`} />}
+      ) : periodEmpty || <EmptyState message={`No buyer reviews yet ${scopeLabel}.`} />}
     </Section>
   )
 }
@@ -7010,7 +7010,7 @@ function UserReportsPanel({ endpointBase, queryKey, scopeLabel }) {
     if (statusFilter === 'open') return !['resolved', 'dismissed'].includes(report.status)
     return report.status === statusFilter
   })
-  const { shown: periodRows, controls: periodControls } = usePeriodFilter(rows, { noun: 'reports filed' })
+  const { shown: periodRows, controls: periodControls, periodEmpty } = usePeriodFilter(rows, { noun: 'reports filed' })
 
   return (
     <Section title="User Reports">
@@ -7086,7 +7086,7 @@ function UserReportsPanel({ endpointBase, queryKey, scopeLabel }) {
             </div>
           ))}
         </div>
-      ) : <EmptyState message="No reports match this filter." />}
+      ) : periodEmpty || <EmptyState message="No reports match this filter." />}
       {updateReport.error && <p className="error">{updateReport.error.response?.data?.message || 'Could not update this report.'}</p>}
     </Section>
   )
@@ -7618,7 +7618,7 @@ function SupportPanel({ role }) {
     placeholderData: [],
   })
   const replied = (tickets.data || []).filter((ticket) => ticket.status === 'answered').length
-  const { shown: shownTickets, controls: ticketPeriodControls } = usePeriodFilter(tickets.data, { noun: 'tickets sent' })
+  const { shown: shownTickets, controls: ticketPeriodControls, periodEmpty: ticketPeriodEmpty } = usePeriodFilter(tickets.data, { noun: 'tickets sent' })
 
   return (
     <div className={view === 'contact' ? 'support-column support-column-wide' : 'support-column'}>
@@ -7661,7 +7661,7 @@ function SupportPanel({ role }) {
               </button>
             ))}
           </div>
-          ) : <EmptyState message="No tickets sent in this period." />}
+          ) : ticketPeriodEmpty}
           </>
         ) : (
           <EmptyState
@@ -7959,7 +7959,7 @@ function SupportTicketsAdminPanel({ scope }) {
     return [ticket.ticket_number, ticket.subject, ticket.user?.name, ticket.first_name, ticket.last_name, ticket.contact_email, ticket.order?.order_number, ticket.municipality?.name]
       .some((value) => String(value || '').toLowerCase().includes(needle))
   })
-  const { shown: periodRows, controls: periodControls } = usePeriodFilter(rows, { noun: 'tickets received' })
+  const { shown: periodRows, controls: periodControls, periodEmpty } = usePeriodFilter(rows, { noun: 'tickets received', compact: true })
 
   return (
     <Section title="Support Tickets">
@@ -8021,7 +8021,7 @@ function SupportTicketsAdminPanel({ scope }) {
                 )
               })}
             </div>
-          ) : <EmptyState message="No tickets match this filter." icon={LifeBuoy} />}
+          ) : periodEmpty || <EmptyState message="No tickets match this filter." icon={LifeBuoy} />}
         </aside>
 
         <div className="ticket-inbox-detail">
@@ -8177,7 +8177,7 @@ function SellerNoticesPanel({ scope = 'lgu' }) {
     placeholderData: [],
   })
 
-  const { shown: shownNotices, controls: periodControls } = usePeriodFilter(notices.data, { noun: 'notices issued' })
+  const { shown: shownNotices, controls: periodControls, periodEmpty } = usePeriodFilter(notices.data, { noun: 'notices issued' })
 
   const refreshNotices = () => {
     setActingId(null)
@@ -8289,7 +8289,7 @@ function SellerNoticesPanel({ scope = 'lgu' }) {
             </div>
           ))}
         </div>
-      ) : <EmptyState message={`No sellers ${scope === 'super_admin' ? '' : 'in your municipality '}are currently flagged for a low rating.`} />}
+      ) : periodEmpty || <EmptyState message={`No sellers ${scope === 'super_admin' ? '' : 'in your municipality '}are currently flagged for a low rating.`} />}
       {(updateNotice.error || acceptNotice.error || rejectNotice.error) && (
         <p className="error">
           {(updateNotice.error || acceptNotice.error || rejectNotice.error).response?.data?.message || 'Could not update this notice.'}
@@ -8314,7 +8314,7 @@ function SellerNoticesSection() {
     placeholderData: [],
   })
 
-  const { shown: shownNotices, controls: periodControls } = usePeriodFilter(notices.data, { noun: 'notices issued' })
+  const { shown: shownNotices, controls: periodControls, periodEmpty } = usePeriodFilter(notices.data, { noun: 'notices issued' })
 
   const respond = useMutation({
     mutationFn: async ({ id, response }) => (await api.post(`/seller/notices/${id}/respond`, { response })).data,
@@ -8386,7 +8386,7 @@ function SellerNoticesSection() {
             )
           })}
         </div>
-      ) : <EmptyState message="You have no notices. Keep your ratings above 3 stars and none will be raised." />}
+      ) : periodEmpty || <EmptyState message="You have no notices. Keep your ratings above 3 stars and none will be raised." />}
       {respond.error && <p className="error">{respond.error.response?.data?.message || 'Could not send your explanation.'}</p>}
     </Section>
   )
@@ -8422,7 +8422,7 @@ function SellerRegistrationQueue({ endpointBase, queryKey, stageLabel, approveLa
   })
 
   const busy = approve.isPending || reject.isPending
-  const { shown, controls: periodControls } = usePeriodFilter(registrations.data, { noun: 'registrations submitted' })
+  const { shown, controls: periodControls, periodEmpty } = usePeriodFilter(registrations.data, { noun: 'registrations submitted' })
 
   return (
     <Section title="Seller Registration Approvals">
@@ -8465,7 +8465,7 @@ function SellerRegistrationQueue({ endpointBase, queryKey, stageLabel, approveLa
             </div>
           ))}
         </div>
-      ) : <EmptyState message={emptyMessage} />}
+      ) : periodEmpty || <EmptyState message={emptyMessage} />}
       {(approve.error || reject.error) && (
         <p className="error">{approve.error?.response?.data?.message || reject.error?.response?.data?.message || 'Could not update this registration.'}</p>
       )}
@@ -9067,33 +9067,51 @@ function orderPeriodStart(period) {
  * each row's `dateKey` (created_at unless the list is about a later date,
  * such as settled_at; or a function returning the row's date). Used on every list that has a history, for every
  * role; the lists are already fully loaded, so this filters in the browser.
- * Returns the filtered rows and the filter buttons to render above them.
+ * Returns the filtered rows, the filter to render above them, and
+ * `periodEmpty`: when a period leaves nothing, an empty state saying so
+ * ("No tickets received today."), to show in place of the list's own empty
+ * message, which would wrongly suggest the whole list is empty.
+ * `compact` renders a dropdown instead of buttons, for narrow columns.
  */
-function usePeriodFilter(rows, { noun, dateKey = 'created_at' }) {
+function usePeriodFilter(rows, { noun, dateKey = 'created_at', compact = false }) {
   const [period, setPeriod] = useState('all')
   const start = orderPeriodStart(period)
   const all = rows || []
   const dateOf = typeof dateKey === 'function' ? dateKey : (row) => row[dateKey]
   const shown = start ? all.filter((row) => dateOf(row) && new Date(dateOf(row)) >= start) : all
+  const when = ORDER_PERIODS.find(([value]) => value === period)[1].toLowerCase()
+  const filtered = period !== 'all' && all.length > 0
   const controls = (
     <>
-      <div className="tab-bar" role="group" aria-label={`Show ${noun}`}>
-        {ORDER_PERIODS.map(([value, label]) => (
-          <button key={value} type="button" className={period === value ? 'tab active' : 'tab'} onClick={() => setPeriod(value)}>{label}</button>
-        ))}
-      </div>
-      {period !== 'all' && <p className="helper-text">Showing {shown.length} of {all.length} {noun} {ORDER_PERIODS.find(([value]) => value === period)[1].toLowerCase()}.</p>}
+      {compact ? (
+        <label className="period-select">
+          <CalendarDays size={16} />
+          <select value={period} onChange={(e) => setPeriod(e.target.value)} aria-label={`Show ${noun}`}>
+            {ORDER_PERIODS.map(([value, label]) => <option key={value} value={value}>{value === 'all' ? 'Any date' : label}</option>)}
+          </select>
+        </label>
+      ) : (
+        <div className="tab-bar" role="group" aria-label={`Show ${noun}`}>
+          {ORDER_PERIODS.map(([value, label]) => (
+            <button key={value} type="button" className={period === value ? 'tab active' : 'tab'} onClick={() => setPeriod(value)}>{label}</button>
+          ))}
+        </div>
+      )}
+      {filtered && shown.length > 0 && (
+        <p className="helper-text">{noun.charAt(0).toUpperCase() + noun.slice(1)} {when}: {shown.length} (out of {all.length} in this list).</p>
+      )}
     </>
   )
-  return { shown, controls }
+  const periodEmpty = filtered && !shown.length ? <EmptyState message={`No ${noun} ${when}.`} /> : null
+  return { shown, controls, periodEmpty }
 }
 
 function PeriodFilteredRows({ rows, children, noun = 'orders placed', dateKey }) {
-  const { shown, controls } = usePeriodFilter(rows, { noun, dateKey })
+  const { shown, controls, periodEmpty } = usePeriodFilter(rows, { noun, dateKey })
   return (
     <>
       {controls}
-      {children(shown)}
+      {periodEmpty || children(shown)}
     </>
   )
 }
@@ -9473,7 +9491,7 @@ function DisputesPanel({ scope = 'lgu' }) {
 
   const rows = disputes.data || []
   const openRows = rows.filter((row) => row.status === 'open')
-  const { shown: resolvedRows, controls: resolvedPeriodControls } = usePeriodFilter(rows.filter((row) => row.status !== 'open'), { noun: 'resolved disputes filed' })
+  const { shown: resolvedRows, controls: resolvedPeriodControls, periodEmpty: resolvedPeriodEmpty } = usePeriodFilter(rows.filter((row) => row.status !== 'open'), { noun: 'resolved disputes filed' })
 
   return (
     <>
@@ -9581,7 +9599,7 @@ function DisputesPanel({ scope = 'lgu' }) {
               </div>
             ))}
           </div>
-        ) : <EmptyState message="No resolved disputes yet." />}
+        ) : resolvedPeriodEmpty || <EmptyState message="No resolved disputes yet." />}
       </Section>
     </>
   )
@@ -10779,7 +10797,7 @@ const REVIEW_STARS = [5, 4, 3, 2, 1]
  * fact rather than decoration.
  */
 function SellerReviewsSection({ reviews = [], fallbackAverage }) {
-  const { shown: shownReviews, controls: periodControls } = usePeriodFilter(reviews, { noun: 'reviews posted' })
+  const { shown: shownReviews, controls: periodControls, periodEmpty } = usePeriodFilter(reviews, { noun: 'reviews posted' })
   const total = reviews.length
   const average = total
     ? reviews.reduce((sum, review) => sum + Number(review.rating || 0), 0) / total
@@ -10840,7 +10858,7 @@ function SellerReviewsSection({ reviews = [], fallbackAverage }) {
               </article>
             ))}
           </div>
-          ) : <EmptyState message="No reviews posted in this period." />}
+          ) : periodEmpty}
         </>
       ) : (
         <EmptyState
