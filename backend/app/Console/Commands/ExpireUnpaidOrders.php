@@ -26,7 +26,7 @@ class ExpireUnpaidOrders extends Command
 
     public function handle(PayMongoService $payMongo): int
     {
-        $minutes = (int) ($this->option('minutes') ?: config('services.paymongo.unpaid_order_timeout_minutes', 60));
+        $minutes = (int) ($this->option('minutes') ?: config('services.paymongo.unpaid_order_timeout_minutes', 30));
 
         $stale = Order::with('payment')
             ->where('status', 'placed')
