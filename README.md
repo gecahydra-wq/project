@@ -64,7 +64,7 @@ The system emphasizes correctness of money movement, strict role permissions, a 
 - PayMongo Checkout (with an automatic demo fallback when keys are absent)
 - Escrow-style payment holding until LGU verification
 - Order lifecycle tracking with a visual timeline and global order lookup
-- Every role's Orders page, and every withdrawal request list, can be filtered to Today, This Week, This Month or This Year
+- Every history list, for every role, can be filtered to Today, This Week, This Month or This Year: orders, withdrawal requests, payment and revenue history, reviews, reports, support tickets, notices, registrations, disputes, refunds, the moderation log and announcements
 
 **Wallets, Revenue & Payouts**
 - Seller Wallet and LGU Wallet with Available / Pending / Processing / Withdrawn balances
