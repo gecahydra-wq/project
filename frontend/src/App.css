@@ -5610,3 +5610,25 @@ button.ticket-inbox-row {
   animation: bell-ring 1.2s ease-in-out 1;
   transform-origin: top center;
 }
+
+/* The school-of-fish photo (public/sidebar-bg.jpg), the app's identity since
+   the old sidebar, behind the dashboard top bar and the mobile menu. A flat
+   navy veil keeps every label legible: even over a pure-white patch of the
+   photo, 82% navy resolves to about #3a5873, which still carries white text
+   at about 7:1. */
+.nav-photo {
+  background-color: var(--brand-navy);
+  background-image: linear-gradient(rgba(11, 46, 79, 0.82), rgba(11, 46, 79, 0.82)), url('/sidebar-bg.jpg');
+  background-position: center 38%;
+  background-repeat: no-repeat;
+  background-size: cover;
+  /* Size both layers to the border box. With the default padding box, the
+     veil stopped at the border while the photo (which overflows its box under
+     'cover') still painted underneath it -- an unveiled bright strip. */
+  background-origin: border-box;
+}
+
+/* The menu is tall and narrow like the photo itself, so show all of it. */
+.nav-photo-tall {
+  background-position: center;
+}

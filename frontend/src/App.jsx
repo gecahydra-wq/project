@@ -760,7 +760,6 @@ function NavDropdown({ group, isActive }) {
       >
         {group.label}
         <ChevronDown size={15} className={`transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
-        {active && <span className="absolute inset-x-4 -bottom-2 h-0.5 rounded-full bg-abai-seafoam" />}
       </button>
       <div
         className={`absolute left-0 top-full z-50 mt-3 w-72 origin-top-left rounded-2xl bg-white p-2 shadow-2xl shadow-abai-navy/25 ring-1 ring-black/5 transition duration-200 ${open ? 'translate-y-0 scale-100 opacity-100' : 'pointer-events-none -translate-y-1 scale-95 opacity-0'}`}
@@ -891,7 +890,7 @@ function MobileDrawer({ open, onClose, children, header, dark = true }) {
         className={`absolute inset-0 bg-abai-navy-deep/50 backdrop-blur-sm transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0'}`}
       />
       <aside
-        className={`absolute inset-y-0 right-0 flex w-[min(22rem,88vw)] flex-col shadow-2xl transition-transform duration-300 ease-out ${dark ? 'bg-abai-navy text-white' : 'bg-white text-slate-800'} ${open ? 'translate-x-0' : 'translate-x-full'}`}
+        className={`absolute inset-y-0 right-0 flex w-[min(22rem,88vw)] flex-col shadow-2xl transition-transform duration-300 ease-out ${dark ? 'nav-photo nav-photo-tall text-white' : 'bg-white text-slate-800'} ${open ? 'translate-x-0' : 'translate-x-full'}`}
       >
         <div className={`flex items-center justify-between gap-3 border-b p-4 ${dark ? 'border-white/10' : 'border-slate-200'}`}>
           {header}
@@ -941,7 +940,7 @@ function TopBar({ user, homeRoute, nav, isActive, unreadMessages, onLogout }) {
   // trap the drawer inside the 64px bar.
   return (
     <>
-    <header className="sticky top-0 z-40 border-b border-white/10 bg-abai-navy/90 text-white shadow-lg shadow-abai-navy/20 backdrop-blur-xl">
+    <header className="nav-photo sticky top-0 z-40 text-white shadow-lg shadow-abai-navy/20">
       <div className="mx-auto flex h-16 max-w-[1500px] items-center gap-4 px-4 sm:px-6">
         <BrandMark to={homeRoute} dark />
         <nav className={`${desktop} min-w-0 flex-1 items-center gap-1`} aria-label="Main">
@@ -955,7 +954,6 @@ function TopBar({ user, homeRoute, nav, isActive, unreadMessages, onLogout }) {
                 className={`${topLinkBase} ${isActive(item.path) ? topLinkActive : topLinkIdle}`}
               >
                 {item.short}
-                {isActive(item.path) && <span className="absolute inset-x-4 -bottom-2 h-0.5 rounded-full bg-abai-seafoam" />}
               </Link>
             )))}
         </nav>
