@@ -57,7 +57,7 @@ The system emphasizes correctness of money movement, strict role permissions, a 
 - Seller profiles with a "Farm Posts" social feed (likes + comments), ratings and reviews
 - Buyer ↔ Seller two-way feedback (buyers review sellers; sellers rate buyers)
 - Direct messaging between all roles
-- In-app notifications
+- In-app notifications, with a bell pop-up in the top bar (open one to jump to it, or mark one or all as read)
 
 **Orders & Payments**
 - Unified Order Numbers (`ORD-####` presentation; `FG-XXXXXX` internal reference)
@@ -70,6 +70,7 @@ The system emphasizes correctness of money movement, strict role permissions, a 
 - Automated revenue distribution at LGU approval
 - Seller payout requests (`PAY-##`) and LGU payout requests (`LGU-##`), released by the Super Admin
 - Platform payout fee accounting
+- **₱100 minimum withdrawal** for sellers and LGUs: the form warns while typing, and the server refuses anything lower (`PayoutAccount::MIN_AMOUNT`)
 
 **Governance & Moderation**
 - LGU: seller verification, listing approval/rejection/archival, seller suspension, earnings verification (approve / hold / reject / **reopen** a rejected transaction back into the queue)
@@ -85,6 +86,7 @@ The system emphasizes correctness of money movement, strict role permissions, a 
 - **Site-wide announcement bar** — Super Admin announcements appear at the top of every page: the public storefront (guests included) and every tab of all four dashboards. Colour-coded by category (maintenance, update, policy, holiday, general), shown only between their start and expiry dates, dismissible per browser (an edited announcement shows again), and also delivered as an in-app notification. Scheduled announcements publish automatically.
 - **Password changes through Forgot password** — Buyers, Sellers and LGU Admins set a new password with the emailed reset link (`/reset-password`, with a live requirement checklist); only the Super Admin has an in-profile Change Password form.
 - **Profile pages for every role** — profile header with photo (and a cover photo for sellers), grouped, labelled sections, and a save bar that appears only when there are unsaved changes
+- **Top navigation bar for every role** — one design for the public site and all four dashboards: logo, a capsule of main links with dropdown groups, message and notification icons, and an account menu. On phones it becomes a slide-in menu, and buyers also get a bottom tab bar
 - Role-aware, database-driven Gemini AI assistant (English / Filipino / Cebuano) with auto-detection **and a manual language selector**
 
 ---
@@ -94,14 +96,14 @@ The system emphasizes correctness of money movement, strict role permissions, a 
 | Layer | Technologies |
 | --- | --- |
 | **Backend** | Laravel 12, PHP 8.2+, Laravel Sanctum (API auth), Laravel Socialite (Google OAuth), barryvdh/laravel-dompdf (PDF), PhpSpreadsheet (Excel) |
-| **Frontend** | React 19, Vite 8, React Router 7, TanStack React Query 5, Axios, React Hook Form 7, Recharts 3, lucide-react, Tailwind CSS 4 (build) + a custom design-token CSS system |
+| **Frontend** | React 19, Vite 8, React Router 7, TanStack React Query 5, Axios, React Hook Form 7, Recharts 3, lucide-react, Tailwind CSS 4 (navigation bars) + a custom design-token CSS system |
 | **Database** | MySQL (production) / SQLite (local default & test) via Eloquent migrations |
 | **Payments** | PayMongo Checkout API (demo fallback when unconfigured) |
 | **AI** | Google Gemini API (local knowledge-base fallback when unconfigured) |
 | **Email** | Resend HTTPS API in production (Railway blocks SMTP); Gmail SMTP locally; `log` driver fallback for local dev |
 | **Auth (social)** | Google OAuth 2.0 |
 
-> **Styling note:** Tailwind CSS 4 is installed, but the shipped UI is driven primarily by a hand-authored, token-based design system in `frontend/src/App.css`. See the Developer Guide for details.
+> **Styling note:** the top navigation bars (public header, dashboard top bar, phone menus, notification pop-up) are built with Tailwind CSS 4 utility classes, using the brand colours mapped in `frontend/src/index.css`. The rest of the UI uses the hand-authored, token-based design system in `frontend/src/App.css`. Elements styled with Tailwind carry a `data-tw` attribute so the global button/link styles in `App.css` leave them alone.
 
 ---
 
@@ -293,7 +295,7 @@ Fish farmers who purchase fingerlings.
 - Create and manage listings (with photos/videos), pending LGU approval
 - Manage a public seller profile and a "Farm Posts" social feed
 - Fulfil orders through the delivery lifecycle
-- Seller Wallet: view balances, request payouts
+- Seller Wallet: view balances, request payouts (minimum ₱100)
 - Rate buyers after completed orders (so other sellers can gauge legitimacy)
 - View the marketplace read-only (cannot purchase from other sellers)
 - Analytics, messaging, notifications
@@ -304,7 +306,7 @@ Scoped strictly to their own municipality.
 - Verify sellers; approve / reject / archive listings
 - Verify completed transactions: approve, hold, or reject seller earnings (this is what releases money)
 - Suspend/reinstate sellers in their municipality
-- LGU Wallet and payout requests
+- LGU Wallet and payout requests (minimum ₱100)
 - Municipality reports, analytics, activity log, reviews & ratings (with moderation)
 
 ### Super Admin
@@ -361,7 +363,7 @@ The split is **fixed in code** (not a runtime setting) and happens in two separa
 
 The seller share is rounded to the centavo first; the LGU absorbs any rounding remainder so the two always sum to exactly the gross amount.
 
-**2. At withdrawal** — the platform earns a **6% payout fee** on the amount a seller withdraws. This fee is frozen onto the withdrawal request when it is created and only becomes realized **Platform Revenue** once the Super Admin marks that withdrawal **Paid**. A settled-but-unwithdrawn order contributes nothing to platform revenue.
+**2. At withdrawal** — the platform earns a **6% payout fee** on the amount a seller withdraws. This fee is frozen onto the withdrawal request when it is created and only becomes realized **Platform Revenue** once the Super Admin marks that withdrawal **Paid**. A settled-but-unwithdrawn order contributes nothing to platform revenue. Each withdrawal (seller or LGU) must be at least **₱100**.
 
 > Source of truth: `App\Support\CommissionCalculator`, `App\Support\SellerWallet`, `App\Support\LguWallet`, and `App\Support\RevenueReport`.
 
@@ -423,6 +425,7 @@ abaimarket/
 │   ├── src/
 │   │   ├── App.jsx               # The application (routing + all screens/components)
 │   │   ├── App.css               # Design-token based styling system
+│   │   ├── index.css             # Tailwind import + brand colour tokens
 │   │   └── main.jsx              # Entry point
 │   └── dist/                     # Production build output
 ├── start-backend.cmd             # Windows helper
