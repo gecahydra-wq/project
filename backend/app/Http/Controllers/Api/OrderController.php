@@ -302,6 +302,12 @@ class OrderController extends Controller
         if ($statusChanged && $data['status'] === 'confirmed') {
             $order->loadMissing('buyer');
             SafeMailer::send($order->buyer?->email, new OrderConfirmedMail($order));
+            $this->notifyOnce(
+                $order->buyer_id,
+                "order_confirmed:{$order->id}",
+                'Order confirmed',
+                "The seller confirmed order #{$order->order_number} and is preparing it."
+            );
         }
 
         // Delivery progress reached the buyer by email only, so anyone who did

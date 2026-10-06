@@ -29,7 +29,7 @@ class WithdrawalRequest extends Model
         'paid_at' => 'datetime',
     ];
 
-    protected $appends = ['net_amount'];
+    protected $appends = ['net_amount', 'dispute_deadline', 'can_dispute', 'has_open_dispute'];
 
     /**
      * What the seller actually receives after the platform's payout fee --
@@ -44,5 +44,21 @@ class WithdrawalRequest extends Model
     public function sellerProfile()
     {
         return $this->belongsTo(SellerProfile::class);
+    }
+
+    /** See App\Support\WithdrawalRejection: a rejection holds the money until it is final. */
+    public function getDisputeDeadlineAttribute(): ?string
+    {
+        return \App\Support\WithdrawalRejection::disputeDeadline($this)?->toIso8601String();
+    }
+
+    public function getCanDisputeAttribute(): bool
+    {
+        return \App\Support\WithdrawalRejection::canDispute($this);
+    }
+
+    public function getHasOpenDisputeAttribute(): bool
+    {
+        return \App\Support\WithdrawalRejection::hasOpenDispute($this);
     }
 }

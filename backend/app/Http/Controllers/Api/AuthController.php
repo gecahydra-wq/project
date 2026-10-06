@@ -61,7 +61,7 @@ class AuthController extends Controller
         }
 
         if ($user->role === 'seller') {
-            SellerProfile::create([
+            $sellerProfile = SellerProfile::create([
                 'user_id' => $user->id,
                 'municipality_id' => $user->municipality_id,
                 'hatchery_name' => $user->name,
@@ -72,6 +72,7 @@ class AuthController extends Controller
                 // see App\Support\SellerApproval.
                 'approval_status' => SellerApproval::PENDING,
             ]);
+            SellerApproval::notifyReviewersOfNewRegistration($sellerProfile);
         }
 
         // No token yet -- a freshly registered account is unverified, and

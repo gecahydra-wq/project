@@ -721,6 +721,11 @@ main {
   padding: clamp(1rem, 4vw, 3rem);
 }
 
+/* A dashboard card can link to one section (?focus=<id>); land it below the sticky top bar. */
+.section[id] {
+  scroll-margin-top: 6rem;
+}
+
 /* Inside a dashboard the surrounding .app-main already supplies the page
    gutter, so sections were paying for it twice -- up to 3rem of padding on top
    of it. Dropping it here and letting the .dashboard grid gap carry the

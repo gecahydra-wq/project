@@ -11,3 +11,4 @@ Artisan::command('inspire', function () {
 Schedule::command('announcements:publish')->everyFiveMinutes();
 Schedule::command('orders:expire-unpaid')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('sanctum:prune-expired --hours=24')->daily();
+Schedule::command('withdrawals:finalize-rejections')->hourly()->withoutOverlapping();

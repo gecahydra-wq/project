@@ -19,6 +19,8 @@ use App\Support\ImageUploader;
 use App\Support\PayoutAccount;
 use App\Support\SellerSanctions;
 use App\Support\SellerWallet;
+use App\Support\WithdrawalNotifications;
+use App\Support\WithdrawalRejection;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Validation\Rule;
@@ -260,7 +262,22 @@ class SellerController extends Controller
             'status' => 'pending',
         ]);
 
+        WithdrawalNotifications::sellerRequested($withdrawal);
+
         return response()->json($withdrawal, 201);
+    }
+
+    /**
+     * The seller agrees with a rejection, so its held amount returns to their
+     * Available Balance now instead of after the dispute window. See
+     * App\Support\WithdrawalRejection.
+     */
+    public function acceptWithdrawalRejection(Request $request, WithdrawalRequest $withdrawal)
+    {
+        $seller = SellerProfile::where('user_id', $request->user()->id)->firstOrFail();
+        abort_if($withdrawal->seller_profile_id !== $seller->id, 403, 'You can only manage your own withdrawal requests.');
+
+        return response()->json(WithdrawalRejection::acceptByOwner($withdrawal, $request->user()));
     }
 
     /**

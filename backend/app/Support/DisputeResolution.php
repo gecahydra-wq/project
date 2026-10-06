@@ -68,6 +68,13 @@ class DisputeResolution
         abort_unless(self::isRejected($subject), 422, 'Only a rejected item can be disputed.');
         abort_if((bool) self::openDisputeFor($subject), 422, 'You already have an open dispute for this. Wait for it to be reviewed.');
 
+        // A rejected withdrawal holds its money only while it can still be
+        // disputed: once, within WithdrawalRejection::DISPUTE_DAYS.
+        if ($subject instanceof WithdrawalRequest || $subject instanceof LguWithdrawalRequest) {
+            $blocker = WithdrawalRejection::disputeBlocker($subject);
+            abort_if($blocker !== null, 422, (string) $blocker);
+        }
+
         $dispute = Dispute::create([
             'disputable_type' => $subject->getMorphClass(),
             'disputable_id' => $subject->getKey(),
@@ -148,10 +155,19 @@ class DisputeResolution
             'resolved_at' => now(),
         ]);
 
+        // A withdrawal's one dispute has been decided, so the rejection is
+        // final and the held amount goes back to the owner's Available Balance.
+        $released = '';
+        if (($subject instanceof WithdrawalRequest || $subject instanceof LguWithdrawalRequest) && $subject->status === WithdrawalRejection::ON_HOLD) {
+            WithdrawalRejection::finalize($subject, $actor, 'Rejected a dispute; the withdrawal rejection is final and the amount returned to Available Balance.');
+            $released = sprintf(' The ₱%s is back in your Available Balance.', number_format((float) $subject->amount, 2));
+        }
+
         self::notifyFiler($dispute, $subject, 'Dispute rejected', sprintf(
-            'Your explanation was reviewed and the original decision on your %s stands. Reason: %s',
+            'Your explanation was reviewed and the original decision on your %s stands. Reason: %s%s',
             self::label($subject),
-            $note
+            $note,
+            $released
         ));
 
         self::log($dispute, $subject, $actor, 'dispute_rejected', 'Rejected a dispute; the original decision on the %s stands.');

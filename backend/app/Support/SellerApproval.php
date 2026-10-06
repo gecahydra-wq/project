@@ -150,6 +150,40 @@ class SellerApproval
     }
 
     /**
+     * A new seller registration joins the review queue: tell the people who
+     * decide it. That is the LGU Admin(s) of the seller's municipality; the
+     * Super Admin only hears about it when no active LGU Admin is there to
+     * act, since it is the fallback reviewer, not the usual one.
+     */
+    public static function notifyReviewersOfNewRegistration(SellerProfile $seller): void
+    {
+        $seller->loadMissing(['user', 'municipality']);
+
+        $reviewers = User::where('role', 'lgu_admin')
+            ->where('municipality_id', $seller->municipality_id)
+            ->where('status', '!=', 'disabled')
+            ->pluck('id');
+
+        if ($reviewers->isEmpty()) {
+            $reviewers = User::where('role', 'super_admin')->pluck('id');
+        }
+
+        foreach ($reviewers as $reviewerId) {
+            AppNotification::firstOrCreate([
+                'user_id' => $reviewerId,
+                'type' => "seller_registration_submitted:{$seller->id}",
+            ], [
+                'title' => 'New Seller Registration',
+                'body' => sprintf(
+                    '%s registered as a seller in %s and is waiting for approval. Review their registration under Sellers.',
+                    $seller->hatchery_name ?: ($seller->user?->name ?? 'A new seller'),
+                    $seller->municipality?->name ?? 'your municipality'
+                ),
+            ]);
+        }
+    }
+
+    /**
      * Notifications are created fresh every time (not firstOrCreate) -- a
      * seller who goes through reject-then-approve must see each decision.
      */

@@ -37,6 +37,7 @@ use App\Support\RevenueReport;
 use App\Support\SafeMailer;
 use App\Support\SellerApproval;
 use App\Support\UserReports;
+use App\Support\WithdrawalRejection;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Validation\Rule;
@@ -241,7 +242,7 @@ class SuperAdminController extends Controller
 
     public function rejectLguWithdrawal(Request $request, LguWithdrawalRequest $withdrawal)
     {
-        abort_if(in_array($withdrawal->status, ['paid', 'rejected'], true), 422, 'This withdrawal request has already been finalized.');
+        abort_if(in_array($withdrawal->status, ['paid', WithdrawalRejection::ON_HOLD, WithdrawalRejection::FINAL], true), 422, 'This withdrawal request has already been finalized.');
 
         $data = $request->validate([
             'reason' => ['required', 'string'],
@@ -260,11 +261,12 @@ class SuperAdminController extends Controller
                 'type' => 'lgu_withdrawal_rejected',
                 'title' => 'LGU Withdrawal Rejected',
                 'body' => sprintf(
-                    'Your withdrawal request of ₱%s for %s via %s was rejected. Reason: %s',
+                    'Your withdrawal request of ₱%s for %s via %s was rejected. Reason: %s. The amount stays on hold for %d days: dispute the rejection if you disagree, or accept it to return the amount to your Available Balance now.',
                     number_format((float) $withdrawal->amount, 2),
                     $withdrawal->municipality?->name ?? 'your municipality',
                     $withdrawal->method,
-                    $data['reason']
+                    rtrim($data['reason'], '.'),
+                    WithdrawalRejection::DISPUTE_DAYS
                 ),
             ]);
         }
@@ -413,7 +415,7 @@ class SuperAdminController extends Controller
 
     public function rejectWithdrawal(Request $request, WithdrawalRequest $withdrawal)
     {
-        abort_if(in_array($withdrawal->status, ['paid', 'rejected'], true), 422, 'This withdrawal request has already been finalized.');
+        abort_if(in_array($withdrawal->status, ['paid', WithdrawalRejection::ON_HOLD, WithdrawalRejection::FINAL], true), 422, 'This withdrawal request has already been finalized.');
 
         $data = $request->validate([
             'reason' => ['required', 'string'],
@@ -431,10 +433,11 @@ class SuperAdminController extends Controller
             'type' => 'withdrawal_rejected',
             'title' => 'Withdrawal Rejected',
             'body' => sprintf(
-                'Your withdrawal request of ₱%s via %s was rejected. Reason: %s',
+                'Your withdrawal request of ₱%s via %s was rejected. Reason: %s. The amount stays on hold for %d days: dispute the rejection if you disagree, or accept it to return the amount to your Available Balance now.',
                 number_format((float) $withdrawal->amount, 2),
                 $withdrawal->method,
-                $data['reason']
+                rtrim($data['reason'], '.'),
+                WithdrawalRejection::DISPUTE_DAYS
             ),
         ]);
 
@@ -566,7 +569,7 @@ class SuperAdminController extends Controller
         abort_if($admin->id === $request->user()->id, 422, 'You cannot suspend your own account.');
 
         $data = $request->validate([
-            'reason' => ['nullable', 'string', 'max:255'],
+            'reason' => ['required', 'string', 'max:255'],
             'notes' => ['nullable', 'string', 'max:1000'],
         ]);
 
@@ -642,7 +645,10 @@ class SuperAdminController extends Controller
     {
         $data = $request->validate([
             'status' => ['required', Rule::in(UserReport::STATUSES)],
-            'resolution_notes' => ['nullable', 'string', 'max:2000'],
+            // Dismissing turns the reporter away, so they are told why.
+            'resolution_notes' => ['nullable', 'required_if:status,dismissed', 'string', 'max:2000'],
+        ], [
+            'resolution_notes.required_if' => 'Please give a reason for dismissing this report.',
         ]);
 
         return response()->json(UserReports::updateStatus($report, $request->user(), $data['status'], $data['resolution_notes'] ?? null));
@@ -694,7 +700,7 @@ class SuperAdminController extends Controller
     public function suspendSeller(Request $request, SellerProfile $seller)
     {
         $data = $request->validate([
-            'reason' => ['nullable', 'string', 'max:255'],
+            'reason' => ['required', 'string', 'max:255'],
             'notes' => ['nullable', 'string', 'max:1000'],
         ]);
 
@@ -889,11 +895,14 @@ class SuperAdminController extends Controller
 
     public function rejectListing(Request $request, FingerlingListing $listing)
     {
+        // The seller is told why, so a rejection always carries a reason.
         $data = $request->validate([
-            'reason' => ['nullable', 'string', 'max:1000'],
+            'reason' => ['required', 'string', 'max:1000'],
+        ], [
+            'reason.required' => 'Please give a reason for rejecting this listing.',
         ]);
 
-        $listing->update(['approval_status' => 'rejected', 'rejection_reason' => $data['reason'] ?? null]);
+        $listing->update(['approval_status' => 'rejected', 'rejection_reason' => $data['reason']]);
         $listing->load(['sellerProfile.user', 'municipality']);
         SafeMailer::send($listing->sellerProfile?->user?->email, new ListingRejectedMail($listing));
 
@@ -912,7 +921,7 @@ class SuperAdminController extends Controller
     public function archiveListing(Request $request, FingerlingListing $listing)
     {
         $data = $request->validate([
-            'reason' => ['nullable', 'string', 'max:1000'],
+            'reason' => ['required', 'string', 'max:1000'],
         ]);
 
         $listing->load('sellerProfile');

@@ -145,7 +145,7 @@ class GoogleAuthController extends Controller
             ]);
 
             if ($user->role === 'seller') {
-                SellerProfile::create([
+                $sellerProfile = SellerProfile::create([
                     'user_id' => $user->id,
                     'municipality_id' => $user->municipality_id,
                     'hatchery_name' => $user->name,
@@ -153,6 +153,7 @@ class GoogleAuthController extends Controller
                     'status' => 'pending',
                     'approval_status' => SellerApproval::PENDING,
                 ]);
+                SellerApproval::notifyReviewersOfNewRegistration($sellerProfile);
             } else {
                 BuyerProfile::create([
                     'user_id' => $user->id,

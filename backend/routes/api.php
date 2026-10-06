@@ -126,6 +126,7 @@ Route::middleware(['auth:sanctum', 'verified', 'role:seller'])->group(function (
     // again -- see App\Support\DisputeResolution.
     Route::post('orders/{order}/dispute-earnings', [DisputeController::class, 'disputeEarnings']);
     Route::post('withdrawals/{withdrawal}/dispute', [DisputeController::class, 'disputeWithdrawal']);
+    Route::post('withdrawals/{withdrawal}/accept-rejection', [SellerController::class, 'acceptWithdrawalRejection']);
     Route::get('seller/notifications', [SellerController::class, 'notifications']);
     Route::patch('seller/notifications/read-all', [SellerController::class, 'markAllNotificationsRead']);
     Route::patch('seller/notifications/{notification}/read', [SellerController::class, 'markNotificationRead']);
@@ -236,6 +237,7 @@ Route::prefix('lgu')->middleware(['auth:sanctum', 'verified', 'role:lgu_admin'])
     Route::patch('disputes/{dispute}/accept', [DisputeController::class, 'accept']);
     Route::patch('disputes/{dispute}/reject', [DisputeController::class, 'reject']);
     Route::post('lgu-withdrawals/{withdrawal}/dispute', [DisputeController::class, 'disputeLguWithdrawal']);
+    Route::post('lgu-withdrawals/{withdrawal}/accept-rejection', [LguController::class, 'acceptWithdrawalRejection']);
     // Backstop for a buyer who never confirms, which would otherwise leave
     // the seller's money frozen in escrow -- see markOrderDelivered.
     Route::patch('orders/{order}/mark-delivered', [LguController::class, 'markOrderDelivered']);

@@ -26,13 +26,23 @@ class SellerWallet
 {
     /**
      * Withdrawal requests that are not-yet-paid or already-paid both permanently
-     * remove money from the available pool; only 'rejected' returns it.
+     * remove money from the available pool. A rejected request still holds its
+     * amount while the rejection can be disputed; only a FINAL rejection returns
+     * it (see App\Support\WithdrawalRejection).
      */
     public static function reservedOrWithdrawn(SellerProfile $seller): float
     {
         return (float) WithdrawalRequest::where('seller_profile_id', $seller->id)
-            ->whereIn('status', ['pending', 'approved', 'paid'])
+            ->whereIn('status', ['pending', 'approved', 'paid', WithdrawalRejection::ON_HOLD])
             ->sum('amount');
+    }
+
+    /** Money held by rejected requests that can still be disputed. */
+    public static function onHoldAmount(SellerProfile $seller): float
+    {
+        return round((float) WithdrawalRequest::where('seller_profile_id', $seller->id)
+            ->where('status', WithdrawalRejection::ON_HOLD)
+            ->sum('amount'), 2);
     }
 
     /**
@@ -120,6 +130,7 @@ class SellerWallet
             'available_balance' => self::availableBalance($seller),
             'pending_balance' => $pendingBalance,
             'processing_amount' => self::processingAmount($seller),
+            'on_hold_amount' => self::onHoldAmount($seller),
             // Deliberately the gross Seller Share (settled + projected),
             // NEVER reduced by the platform's withdrawal fee -- Total
             // Earnings is what the seller earned from selling, not what

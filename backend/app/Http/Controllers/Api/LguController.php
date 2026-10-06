@@ -32,6 +32,8 @@ use App\Support\SafeMailer;
 use App\Support\SellerApproval;
 use App\Support\SellerSanctions;
 use App\Support\UserReports;
+use App\Support\WithdrawalNotifications;
+use App\Support\WithdrawalRejection;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -171,7 +173,7 @@ class LguController extends Controller
         }
 
         $data = $request->validate([
-            'reason' => ['nullable', 'string', 'max:1000'],
+            'reason' => ['required', 'string', 'max:1000'],
         ]);
 
         $listing->load('sellerProfile');
@@ -239,11 +241,14 @@ class LguController extends Controller
             return response()->json(['message' => 'LGU admins can only reject listings in their municipality.'], 403);
         }
 
+        // The seller is told why, so a rejection always carries a reason.
         $data = $request->validate([
-            'reason' => ['nullable', 'string', 'max:1000'],
+            'reason' => ['required', 'string', 'max:1000'],
+        ], [
+            'reason.required' => 'Please give a reason for rejecting this listing.',
         ]);
 
-        $listing->update(['approval_status' => 'rejected', 'rejection_reason' => $data['reason'] ?? null]);
+        $listing->update(['approval_status' => 'rejected', 'rejection_reason' => $data['reason']]);
         $listing->load(['sellerProfile.user', 'municipality']);
         SafeMailer::send($listing->sellerProfile?->user?->email, new ListingRejectedMail($listing));
 
@@ -277,7 +282,10 @@ class LguController extends Controller
 
         $data = $request->validate([
             'status' => ['required', Rule::in(UserReport::STATUSES)],
-            'resolution_notes' => ['nullable', 'string', 'max:2000'],
+            // Dismissing turns the reporter away, so they are told why.
+            'resolution_notes' => ['nullable', 'required_if:status,dismissed', 'string', 'max:2000'],
+        ], [
+            'resolution_notes.required_if' => 'Please give a reason for dismissing this report.',
         ]);
 
         return response()->json(UserReports::updateStatus($report, $request->user(), $data['status'], $data['resolution_notes'] ?? null));
@@ -309,7 +317,8 @@ class LguController extends Controller
             // Accept/reject have their own endpoints because they carry
             // consequences (offense counting, freezing, suspension).
             'status' => ['required', Rule::in(SellerNotice::MANUAL_STATUSES)],
-            'lgu_notes' => ['nullable', 'string', 'max:2000'],
+            // Dismissing a notice is a decision the seller should understand.
+            'lgu_notes' => ['nullable', 'required_if:status,dismissed', 'string', 'max:2000'],
         ]);
 
         $notice->update([
@@ -483,7 +492,7 @@ class LguController extends Controller
         }
 
         $data = $request->validate([
-            'reason' => ['nullable', 'string', 'max:255'],
+            'reason' => ['required', 'string', 'max:255'],
             'notes' => ['nullable', 'string', 'max:1000'],
         ]);
 
@@ -953,6 +962,16 @@ class LguController extends Controller
             'status' => 'pending',
         ]);
 
+        WithdrawalNotifications::lguRequested($withdrawal);
+
         return response()->json($withdrawal, 201);
+    }
+
+    /** The LGU agrees with a rejection, so its held amount returns to the LGU Wallet now. */
+    public function acceptWithdrawalRejection(Request $request, LguWithdrawalRequest $withdrawal)
+    {
+        abort_if($withdrawal->municipality_id !== $request->user()->municipality_id, 403, 'You can only manage your own municipality\'s withdrawal requests.');
+
+        return response()->json(WithdrawalRejection::acceptByOwner($withdrawal, $request->user()));
     }
 }

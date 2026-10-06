@@ -405,10 +405,25 @@ const BADGE_TONES = {
   // "nothing happened here", which is the opposite of what it means.
   refunded: 'success',
   rejected: 'danger',
+  rejected_final: 'danger',
   cancelled: 'danger',
   failed: 'danger',
   suspended: 'danger',
   disabled: 'danger',
+}
+
+/**
+ * A rejected withdrawal first holds its money while it can still be disputed
+ * ('rejected'), then becomes final and releases it ('rejected_final') -- see
+ * App\Support\WithdrawalRejection.
+ */
+const WITHDRAWAL_STATUS_LABELS = {
+  rejected: 'Rejected · On hold',
+  rejected_final: 'Rejected',
+}
+
+function withdrawalStatusLabel(status) {
+  return WITHDRAWAL_STATUS_LABELS[status] || status
 }
 
 function badgeTone(status) {
@@ -3030,7 +3045,7 @@ function BuyerDashboard() {
               showOrderDate
             />
           </Section>
-          <Section title="Notifications"><NotificationStack notifications={notifications.slice(0, 3)} onMarkRead={handleMarkRead} getLink={supportNotificationLink('/buyer/dashboard')} /></Section>
+          <Section title="Notifications"><NotificationStack notifications={notifications.slice(0, 3)} onMarkRead={handleMarkRead} getLink={notificationLinkFor('buyer')} /></Section>
         </>
       )}
       {tab === 'browse' && (
@@ -3062,7 +3077,7 @@ function BuyerDashboard() {
           title="Notifications"
           actions={<MarkAllReadButton unreadCount={notifications.length} loading={markAllRead.isPending} onClick={() => markAllRead.mutate()} />}
         >
-          <NotificationStack notifications={notifications} onMarkRead={handleMarkRead} getLink={supportNotificationLink('/buyer/dashboard')} />
+          <NotificationStack notifications={notifications} onMarkRead={handleMarkRead} getLink={notificationLinkFor('buyer')} />
         </Section>
       )}
       {tab === 'analytics' && (
@@ -3842,7 +3857,14 @@ function SellerDashboard() {
       {tab === 'messages' && <Section title="Messages"><MessagesPanel initialUserId={searchParams.get('with') ? Number(searchParams.get('with')) : null} /></Section>}
       {tab === 'wallet' && (
         <>
-          <StatsRow items={[['Available Balance', currency(wallet.data?.available_balance ?? 0), true], ['Pending Balance', currency(wallet.data?.pending_balance ?? 0)], ['Processing Withdrawal', currency(wallet.data?.processing_amount ?? 0)], ['Withdrawn Amount', currency(wallet.data?.withdrawn_amount ?? 0)], ['Total Earnings', currency(wallet.data?.total_earnings ?? 0)]]} />
+          <StatsRow items={[
+            ['Available Balance', currency(wallet.data?.available_balance ?? 0), true],
+            ['Pending Balance', currency(wallet.data?.pending_balance ?? 0)],
+            ['Processing Withdrawal', currency(wallet.data?.processing_amount ?? 0)],
+            ...(Number(wallet.data?.on_hold_amount) > 0 ? [['On Hold (Rejected)', currency(wallet.data.on_hold_amount)]] : []),
+            ['Withdrawn Amount', currency(wallet.data?.withdrawn_amount ?? 0)],
+            ['Total Earnings', currency(wallet.data?.total_earnings ?? 0)],
+          ]} />
           <Section title="Request Withdrawal">
             <div className="form grid-form">
               <select value={withdrawForm.method} onChange={(e) => setWithdrawForm({ ...withdrawForm, method: e.target.value })}>
@@ -3894,25 +3916,21 @@ function SellerDashboard() {
                     <span>{currency(request.net_amount)}</span>
                     <span>{withdrawalMethodLabel(request.method)}</span>
                     <span>{request.account_name} · {request.account_number}</span>
-                    <span><Badge status={request.status} /></span>
+                    <span><Badge status={request.status}>{withdrawalStatusLabel(request.status)}</Badge></span>
                     <span>{new Date(request.created_at).toLocaleDateString()}</span>
                     <span>
-                      {request.status === 'rejected' && request.rejection_reason && `Reason: ${request.rejection_reason}`}
+                      {['rejected', 'rejected_final'].includes(request.status) && request.rejection_reason && `Reason: ${request.rejection_reason}`}
                       {request.status === 'paid' && request.paid_at && `Paid on ${new Date(request.paid_at).toLocaleDateString()}`}
                       {(request.status === 'pending' || request.status === 'approved') && '—'}
                     </span>
                   </div>
                   {request.status === 'rejected' && (
-                    <div className="table-row-appeal">
-                      <div className="table-row-appeal-head">
-                        <p className="error">This withdrawal was rejected. If you think it should be reconsidered, explain your side.</p>
-                        <DisputeAction
-                          endpoint={`/withdrawals/${request.id}/dispute`}
-                          invalidateKeys={['seller-wallet']}
-                          label="Dispute This Rejection"
-                        />
-                      </div>
-                    </div>
+                    <RejectedWithdrawalActions
+                      request={request}
+                      disputeEndpoint={`/withdrawals/${request.id}/dispute`}
+                      acceptEndpoint={`/withdrawals/${request.id}/accept-rejection`}
+                      invalidateKeys={['seller-wallet']}
+                    />
                   )}
                   </Fragment>
                 ))}
@@ -3950,7 +3968,7 @@ function SellerDashboard() {
           title="Notifications"
           actions={<MarkAllReadButton unreadCount={notifications.length} loading={markAllRead.isPending} onClick={() => markAllRead.mutate()} />}
         >
-          <NotificationStack notifications={notifications} onMarkRead={handleMarkRead} getLink={supportNotificationLink('/seller/dashboard')} />
+          <NotificationStack notifications={notifications} onMarkRead={handleMarkRead} getLink={notificationLinkFor('seller')} />
         </Section>
       )}
       {tab === 'analytics' && (
@@ -5235,20 +5253,20 @@ function LguDashboard() {
         <>
           <UnreadMessagesNotice dashboardPath="/lgu/dashboard" />
           <StatsRow items={[
-            ['Registered Sellers', reports.data?.registered_sellers ?? 0],
-            ['Listings', reports.data?.listings ?? 0],
-            ['Open User Reports', lgu.data?.open_user_reports ?? 0],
-            ['Open Notices to Explain', lgu.data?.open_seller_notices ?? 0],
+            ['Registered Sellers', reports.data?.registered_sellers ?? 0, false, '/lgu/dashboard?tab=sellers'],
+            ['Listings', reports.data?.listings ?? 0, false, '/lgu/dashboard?tab=listings'],
+            ['Open User Reports', lgu.data?.open_user_reports ?? 0, false, '/lgu/dashboard?tab=user-reports'],
+            ['Open Notices to Explain', lgu.data?.open_seller_notices ?? 0, false, '/lgu/dashboard?tab=notices'],
           ]} />
           <Section title="Municipality Revenue" actions={<Link className="ghost" to="/lgu/dashboard?tab=wallet">Go to LGU Wallet</Link>}>
             <p className="helper-text">Your municipality&apos;s share of settled orders. Request a withdrawal of your Available Balance any time from the LGU Wallet page.</p>
             <StatsRow items={[
-              ["Today's Revenue", currency(lgu.data?.municipality_revenue?.today_revenue ?? 0)],
-              ['Monthly Revenue', currency(lgu.data?.municipality_revenue?.monthly_revenue ?? 0)],
-              ['Total Revenue', currency(lgu.data?.municipality_revenue?.total_revenue ?? 0)],
-              ['Available Balance', currency(lgu.data?.municipality_revenue?.available_balance ?? 0), true],
-              ['Completed Orders', lgu.data?.municipality_revenue?.total_completed_orders ?? 0],
-              ['Avg Revenue / Order', currency(lgu.data?.municipality_revenue?.average_revenue_per_order ?? 0)],
+              ["Today's Revenue", currency(lgu.data?.municipality_revenue?.today_revenue ?? 0), false, '/lgu/dashboard?tab=reports'],
+              ['Monthly Revenue', currency(lgu.data?.municipality_revenue?.monthly_revenue ?? 0), false, '/lgu/dashboard?tab=reports'],
+              ['Total Revenue', currency(lgu.data?.municipality_revenue?.total_revenue ?? 0), false, '/lgu/dashboard?tab=wallet'],
+              ['Available Balance', currency(lgu.data?.municipality_revenue?.available_balance ?? 0), true, '/lgu/dashboard?tab=wallet'],
+              ['Completed Orders', lgu.data?.municipality_revenue?.total_completed_orders ?? 0, false, '/lgu/dashboard?tab=orders'],
+              ['Avg Revenue / Order', currency(lgu.data?.municipality_revenue?.average_revenue_per_order ?? 0), false, '/lgu/dashboard?tab=reports'],
             ]} />
           </Section>
           <Section title="Seller Earnings Approval">
@@ -5351,7 +5369,14 @@ function LguDashboard() {
       {tab === 'earnings' && <SellerEarningsPanel />}
       {tab === 'wallet' && (
         <>
-          <StatsRow items={[['Available Balance', currency(wallet.data?.available_balance ?? 0), true], ['Pending Balance', currency(wallet.data?.pending_balance ?? 0)], ['Processing Withdrawal', currency(wallet.data?.processing_amount ?? 0)], ['Total Revenue', currency(wallet.data?.total_revenue ?? 0)], ['Withdrawn Amount', currency(wallet.data?.withdrawn_amount ?? 0)]]} />
+          <StatsRow items={[
+            ['Available Balance', currency(wallet.data?.available_balance ?? 0), true],
+            ['Pending Balance', currency(wallet.data?.pending_balance ?? 0)],
+            ['Processing Withdrawal', currency(wallet.data?.processing_amount ?? 0)],
+            ...(Number(wallet.data?.on_hold_amount) > 0 ? [['On Hold (Rejected)', currency(wallet.data.on_hold_amount)]] : []),
+            ['Total Revenue', currency(wallet.data?.total_revenue ?? 0)],
+            ['Withdrawn Amount', currency(wallet.data?.withdrawn_amount ?? 0)],
+          ]} />
           <Section title="Request Withdrawal">
             <p className="helper-text">Withdraws from your municipality&apos;s shared LGU revenue balance. Every LGU admin for your municipality sees the same wallet and withdrawal history.</p>
             <div className="form grid-form">
@@ -5392,26 +5417,23 @@ function LguDashboard() {
                     <span>{currency(request.amount)}</span>
                     <span>{withdrawalMethodLabel(request.method)}</span>
                     <span>{request.account_name} · {request.account_number}</span>
-                    <span><Badge status={request.status} /></span>
+                    <span><Badge status={request.status}>{withdrawalStatusLabel(request.status)}</Badge></span>
                     <span>{request.requestedBy?.name || 'Unknown'}</span>
                     <span>{new Date(request.created_at).toLocaleDateString()}</span>
                     <span>
-                      {request.status === 'rejected' && request.rejection_reason && `Reason: ${request.rejection_reason}`}
+                      {['rejected', 'rejected_final'].includes(request.status) && request.rejection_reason && `Reason: ${request.rejection_reason}`}
                       {request.status === 'paid' && request.paid_at && `Paid on ${new Date(request.paid_at).toLocaleDateString()}`}
                       {(request.status === 'pending' || request.status === 'approved') && '—'}
                     </span>
                   </div>
                   {request.status === 'rejected' && (
-                    <div className="table-row-appeal">
-                      <div className="table-row-appeal-head">
-                        <p className="error">This withdrawal was rejected by the Super Admin. If you think it should be reconsidered, explain your side.</p>
-                        <DisputeAction
-                          endpoint={`/lgu/lgu-withdrawals/${request.id}/dispute`}
-                          invalidateKeys={['lgu-wallet']}
-                          label="Dispute This Rejection"
-                        />
-                      </div>
-                    </div>
+                    <RejectedWithdrawalActions
+                      request={request}
+                      disputeEndpoint={`/lgu/lgu-withdrawals/${request.id}/dispute`}
+                      acceptEndpoint={`/lgu/lgu-withdrawals/${request.id}/accept-rejection`}
+                      invalidateKeys={['lgu-wallet', 'lgu-dashboard']}
+                      rejectedBy="the Super Admin"
+                    />
                   )}
                   </Fragment>
                 ))}
@@ -5461,14 +5483,14 @@ function LguDashboard() {
             <CategoryBarChart title="Sellers by Verification Status" data={(reports.data?.sellers_by_status || []).map((row) => ({ ...row, label: statusChartLabel(row.status) }))} dataKey="total" nameKey="label" colorFor={(entry) => statusChartColor(entry.status)} />
             <TimeSeriesChart title={`Orders Over Time (${periodLabel(reportsPeriod)})`} data={reports.data?.orders_over_time} dataKey="count" color="var(--color-primary)" />
           </div>
-          <StatsRow items={[['Registered Sellers', reports.data?.registered_sellers ?? 0], ['Listings', reports.data?.listings ?? 0]]} />
+          <StatsRow items={[['Registered Sellers', reports.data?.registered_sellers ?? 0, false, '/lgu/dashboard?tab=sellers'], ['Listings', reports.data?.listings ?? 0, false, '/lgu/dashboard?tab=listings']]} />
 
           <h3>Municipality Revenue (LGU Share)</h3>
           <p className="helper-text">Revenue values represent your municipality&apos;s LGU Share only, for the selected period.</p>
           <StatsRow items={[
-            ['Total Revenue', currency(reports.data?.revenue_cards?.total_revenue ?? 0)],
-            ['Available Balance', currency(reports.data?.revenue_cards?.available_balance ?? 0), true],
-            ['Total Withdrawn', currency(reports.data?.revenue_cards?.total_withdrawn ?? 0)],
+            ['Total Revenue', currency(reports.data?.revenue_cards?.total_revenue ?? 0), false, '/lgu/dashboard?tab=wallet'],
+            ['Available Balance', currency(reports.data?.revenue_cards?.available_balance ?? 0), true, '/lgu/dashboard?tab=wallet'],
+            ['Total Withdrawn', currency(reports.data?.revenue_cards?.total_withdrawn ?? 0), false, '/lgu/dashboard?tab=wallet'],
           ]} />
           <div className="charts-grid">
             <TimeSeriesChart title={`LGU Revenue Over Time (${periodLabel(reportsPeriod)})`} data={reports.data?.lgu_revenue_over_time} dataKey="amount" color="var(--color-teal)" valueFormatter={currency} />
@@ -5543,7 +5565,7 @@ function LguListingReviewPage() {
     onSuccess: goToApprovals,
   })
   const reject = useMutation({
-    mutationFn: async () => (await api.patch(`/lgu/listings/${id}/reject`, reason.trim() ? { reason: reason.trim() } : {})).data,
+    mutationFn: async () => (await api.patch(`/lgu/listings/${id}/reject`, { reason: reason.trim() })).data,
     onSuccess: goToApprovals,
   })
   const destroyListing = useMutation({
@@ -5615,8 +5637,8 @@ function LguListingReviewPage() {
                 </div>
                 {showReject && (
                   <div className="form grid-form withdrawal-reject-form">
-                    <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason for rejection (optional)" />
-                    <button type="button" className="danger" onClick={() => reject.mutate()} disabled={busy}>Confirm Reject</button>
+                    <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason for rejection (required, shown to the seller)" />
+                    <button type="button" className="danger" onClick={() => reject.mutate()} disabled={busy || !reason.trim()}>Confirm Reject</button>
                   </div>
                 )}
                 {(approve.error || reject.error) && (
@@ -5686,7 +5708,7 @@ function SuperAdminListingReviewPage() {
     onSuccess: goToListingManagement,
   })
   const reject = useMutation({
-    mutationFn: async () => (await api.patch(`/super-admin/listings/${id}/reject`, reason.trim() ? { reason: reason.trim() } : {})).data,
+    mutationFn: async () => (await api.patch(`/super-admin/listings/${id}/reject`, { reason: reason.trim() })).data,
     onSuccess: goToListingManagement,
   })
   const destroyListing = useMutation({
@@ -5755,8 +5777,8 @@ function SuperAdminListingReviewPage() {
             </div>
             {showReject && (
               <div className="form grid-form withdrawal-reject-form">
-                <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason for rejection (optional)" />
-                <button type="button" className="danger" onClick={() => reject.mutate()} disabled={busy}>Confirm Reject</button>
+                <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason for rejection (required, shown to the seller)" />
+                <button type="button" className="danger" onClick={() => reject.mutate()} disabled={busy || !reason.trim()}>Confirm Reject</button>
               </div>
             )}
             {(approve.error || reject.error) && (
@@ -6312,30 +6334,35 @@ function SuperAdminDashboard() {
               Marketplace Revenue section below. Labels say "Gross" so the top
               figures are never mistaken for the platform's cut. */}
           <StatsRow items={[
-            ["Today's Orders", dashboard.data?.executive?.todays_orders ?? 0, true],
-            ["Today's Gross Revenue", currency(dashboard.data?.executive?.todays_gross_revenue ?? 0), true],
-            ['Monthly Gross Revenue', currency(dashboard.data?.executive?.monthly_gross_revenue ?? 0), true],
-            ['Gross Marketplace Revenue (All-Time)', currency(dashboard.data?.platform_revenue?.gross_marketplace_revenue ?? 0)],
+            ["Today's Orders", dashboard.data?.executive?.todays_orders ?? 0, true, '/admin/dashboard?tab=transactions'],
+            ["Today's Gross Revenue", currency(dashboard.data?.executive?.todays_gross_revenue ?? 0), true, '/admin/dashboard?tab=reports'],
+            ['Monthly Gross Revenue', currency(dashboard.data?.executive?.monthly_gross_revenue ?? 0), true, '/admin/dashboard?tab=reports'],
+            ['Gross Marketplace Revenue (All-Time)', currency(dashboard.data?.platform_revenue?.gross_marketplace_revenue ?? 0), false, '/admin/dashboard?tab=reports'],
           ]} />
-          <StatsRow items={[['Total LGUs', reports.data?.total_lgus ?? 0], ['Total Sellers', reports.data?.total_sellers ?? 0], ['Total Buyers', reports.data?.total_buyers ?? 0], ['Total Settled Orders', dashboard.data?.platform_revenue?.total_settled_orders ?? 0]]} />
+          <StatsRow items={[
+            ['Total LGUs', reports.data?.total_lgus ?? 0, false, '/admin/dashboard?tab=lgu-admins&focus=registered-lgu-admins'],
+            ['Total Sellers', reports.data?.total_sellers ?? 0, false, '/admin/dashboard?tab=sellers&focus=all-sellers'],
+            ['Total Buyers', reports.data?.total_buyers ?? 0, false, '/admin/dashboard?tab=users'],
+            ['Total Settled Orders', dashboard.data?.platform_revenue?.total_settled_orders ?? 0, false, '/admin/dashboard?tab=earnings'],
+          ]} />
           <Section title="Action Required" actions={<Link className="ghost" to="/admin/dashboard?tab=payouts">Manage Payouts</Link>}>
             <p className="helper-text">Approval and payout queues awaiting Super Admin or LGU action across the platform.</p>
             <StatsRow items={[
-              ['Pending Seller Approvals', dashboard.data?.pending_seller_approvals ?? 0],
-              ['Pending LGU Approvals', dashboard.data?.pending_lgu_approvals ?? 0],
-              ['Pending Listing Approvals', dashboard.data?.pending_listing_approvals ?? 0],
-              ['Open User Reports', dashboard.data?.open_user_reports ?? 0],
-              ['Pending Seller Withdrawals', dashboard.data?.pending_seller_withdrawals ?? 0],
-              ['Pending LGU Withdrawals', dashboard.data?.pending_lgu_withdrawals ?? 0],
+              ['Pending Seller Approvals', dashboard.data?.pending_seller_approvals ?? 0, false, '/admin/dashboard?tab=sellers'],
+              ['Pending LGU Approvals', dashboard.data?.pending_lgu_approvals ?? 0, false, '/admin/dashboard?tab=earnings'],
+              ['Pending Listing Approvals', dashboard.data?.pending_listing_approvals ?? 0, false, '/admin/dashboard?tab=listings'],
+              ['Open User Reports', dashboard.data?.open_user_reports ?? 0, false, '/admin/dashboard?tab=user-reports'],
+              ['Pending Seller Withdrawals', dashboard.data?.pending_seller_withdrawals ?? 0, false, '/admin/dashboard?tab=payouts&focus=seller-payouts'],
+              ['Pending LGU Withdrawals', dashboard.data?.pending_lgu_withdrawals ?? 0, false, '/admin/dashboard?tab=payouts&focus=lgu-payouts'],
             ]} />
           </Section>
           <Section title="Marketplace Revenue" actions={<Link className="ghost" to="/admin/dashboard?tab=reports">View Analytics</Link>}>
             <p className="helper-text">Platform Revenue is a 6% payout fee charged when a seller withdraws -- it is realized only once the Super Admin marks that withdrawal Paid, never taken from the order at settlement time. Gross Marketplace Revenue is the full value paid by buyers before revenue sharing, recognized at settlement.</p>
             <StatsRow items={[
-              ["Today's Platform Revenue", currency(dashboard.data?.platform_revenue?.today_platform_revenue ?? 0)],
-              ['Monthly Platform Revenue', currency(dashboard.data?.platform_revenue?.monthly_platform_revenue ?? 0)],
-              ['Total Platform Revenue', currency(dashboard.data?.platform_revenue?.total_platform_revenue ?? 0)],
-              ['Avg Realized Revenue / Settled Order', currency(dashboard.data?.platform_revenue?.average_platform_revenue_per_order ?? 0)],
+              ["Today's Platform Revenue", currency(dashboard.data?.platform_revenue?.today_platform_revenue ?? 0), false, '/admin/dashboard?tab=reports'],
+              ['Monthly Platform Revenue', currency(dashboard.data?.platform_revenue?.monthly_platform_revenue ?? 0), false, '/admin/dashboard?tab=reports'],
+              ['Total Platform Revenue', currency(dashboard.data?.platform_revenue?.total_platform_revenue ?? 0), false, '/admin/dashboard?tab=reports'],
+              ['Avg Realized Revenue / Settled Order', currency(dashboard.data?.platform_revenue?.average_platform_revenue_per_order ?? 0), false, '/admin/dashboard?tab=reports'],
             ]} />
           </Section>
           <Section title="Top Performers">
@@ -6348,12 +6375,12 @@ function SuperAdminDashboard() {
           </Section>
           <Section title="Account Moderation" actions={<Link className="ghost" to="/admin/dashboard?tab=moderation">View Moderation Log</Link>}>
             <StatsRow items={[
-              ['Active Buyers', dashboard.data?.active_buyers ?? 0],
-              ['Suspended Buyers', dashboard.data?.suspended_buyers ?? 0],
-              ['Active Sellers', dashboard.data?.active_sellers ?? 0],
-              ['Suspended Sellers', dashboard.data?.suspended_sellers ?? 0],
-              ['Active LGU Admins', dashboard.data?.active_lgu_admins ?? 0],
-              ['Suspended LGU Admins', dashboard.data?.suspended_lgu_admins ?? 0],
+              ['Active Buyers', dashboard.data?.active_buyers ?? 0, false, '/admin/dashboard?tab=users'],
+              ['Suspended Buyers', dashboard.data?.suspended_buyers ?? 0, false, '/admin/dashboard?tab=users'],
+              ['Active Sellers', dashboard.data?.active_sellers ?? 0, false, '/admin/dashboard?tab=sellers&focus=all-sellers'],
+              ['Suspended Sellers', dashboard.data?.suspended_sellers ?? 0, false, '/admin/dashboard?tab=sellers&focus=all-sellers'],
+              ['Active LGU Admins', dashboard.data?.active_lgu_admins ?? 0, false, '/admin/dashboard?tab=lgu-admins&focus=registered-lgu-admins'],
+              ['Suspended LGU Admins', dashboard.data?.suspended_lgu_admins ?? 0, false, '/admin/dashboard?tab=lgu-admins&focus=registered-lgu-admins'],
             ]} />
             {(dashboard.data?.recent_moderation_actions || []).length ? (
               <div className="item-list">
@@ -6452,7 +6479,7 @@ function SuperAdminDashboard() {
           title="Notifications"
           actions={<MarkAllReadButton unreadCount={notifications.length} loading={markAllNotificationsRead.isPending} onClick={() => markAllNotificationsRead.mutate()} />}
         >
-          <NotificationStack notifications={notifications} onMarkRead={handleMarkRead} getLink={supportNotificationLink('/admin/dashboard')} />
+          <NotificationStack notifications={notifications} onMarkRead={handleMarkRead} getLink={notificationLinkFor('super_admin')} />
         </Section>
       )}
       {tab === 'moderation' && (
@@ -6510,7 +6537,7 @@ function SuperAdminDashboard() {
             {lguFormError && <p className="error">{lguFormError}</p>}
             {createLguAdmin.error && <p className="error">{apiErrorMessage(createLguAdmin.error, 'Could not create LGU admin.')}</p>}
           </Section>
-          <Section title="Registered LGU Admins">
+          <Section title="Registered LGU Admins" id="registered-lgu-admins">
             {lguAdmins.data?.length ? (
               <div className="item-list">
                 {lguAdmins.data.map((admin) => (
@@ -6538,7 +6565,7 @@ function SuperAdminDashboard() {
             emptyMessage="No seller registrations awaiting review."
             extraInvalidateKeys={['super-admin-sellers', 'super-admin-dashboard']}
           />
-          <Section title="All Sellers (Platform-Wide)">
+          <Section title="All Sellers (Platform-Wide)" id="all-sellers">
           <p className="helper-text">Super Admin may suspend any seller regardless of municipality. Suspended sellers cannot create, edit, or publish listings, receive new orders, update orders, request withdrawals, or message buyers -- they can still log in to see why, send a support ticket, or file a dispute. Existing completed orders are unaffected. Reinstating needs a reason. Removing deletes the account and its listings permanently and is only possible for sellers with no order history; suspend anyone who has already traded.</p>
           {(sellersQuery.data || []).length ? (
             <div className="item-list">
@@ -6596,7 +6623,7 @@ function SuperAdminDashboard() {
       )}
       {tab === 'payouts' && (
         <>
-        <Section title="Seller Payouts">
+        <Section title="Seller Payouts" id="seller-payouts">
           {(withdrawals.data || []).length ? (
             <div className="item-list">
               {withdrawals.data.map((request) => (
@@ -6611,7 +6638,7 @@ function SuperAdminDashboard() {
             </div>
           ) : <EmptyState message="No withdrawal requests yet." />}
         </Section>
-        <Section title="LGU Payouts">
+        <Section title="LGU Payouts" id="lgu-payouts">
           {(lguWithdrawals.data || []).length ? (
             <div className="item-list">
               {lguWithdrawals.data.map((request) => (
@@ -6651,7 +6678,12 @@ function SuperAdminDashboard() {
             <CategoryBarChart title="Sellers by Municipality" data={reports.data?.sellers_by_municipality} dataKey="total" nameKey="municipality" colorFor={() => 'var(--color-teal)'} />
             <CategoryBarChart title="Orders by Municipality" data={reports.data?.orders_by_municipality} dataKey="total" nameKey="municipality" colorFor={() => 'var(--chart-violet)'} />
           </div>
-          <StatsRow items={[['LGU Admins', reports.data?.total_lgus ?? 0], ['Transactions', reports.data?.total_transactions ?? 0], ['Pending Payouts', reports.data?.pending_payouts ?? 0], ['Listings', reports.data?.total_listings ?? 0]]} />
+          <StatsRow items={[
+            ['LGU Admins', reports.data?.total_lgus ?? 0, false, '/admin/dashboard?tab=lgu-admins&focus=registered-lgu-admins'],
+            ['Transactions', reports.data?.total_transactions ?? 0, false, '/admin/dashboard?tab=transactions'],
+            ['Pending Payouts', reports.data?.pending_payouts ?? 0, false, '/admin/dashboard?tab=payouts'],
+            ['Listings', reports.data?.total_listings ?? 0, false, '/admin/dashboard?tab=listings'],
+          ]} />
 
           <h3>Marketplace Revenue</h3>
           <p className="helper-text">Platform Revenue is a 6% payout fee charged when a seller withdraws, realized once the Super Admin marks it Paid (plotted by payout date), for the selected period. Gross Marketplace Revenue is the full value paid by buyers before revenue sharing, recognized at settlement.</p>
@@ -6682,12 +6714,12 @@ function SuperAdminDashboard() {
           </div>
           {reports.data?.moderation_summary && (
             <StatsRow items={[
-              ['Active Buyers', reports.data.moderation_summary.active_buyers],
-              ['Suspended Buyers', reports.data.moderation_summary.suspended_buyers],
-              ['Active Sellers', reports.data.moderation_summary.active_sellers],
-              ['Suspended Sellers', reports.data.moderation_summary.suspended_sellers],
-              ['Active LGU Admins', reports.data.moderation_summary.active_lgu_admins],
-              ['Suspended LGU Admins', reports.data.moderation_summary.suspended_lgu_admins],
+              ['Active Buyers', reports.data.moderation_summary.active_buyers, false, '/admin/dashboard?tab=users'],
+              ['Suspended Buyers', reports.data.moderation_summary.suspended_buyers, false, '/admin/dashboard?tab=users'],
+              ['Active Sellers', reports.data.moderation_summary.active_sellers, false, '/admin/dashboard?tab=sellers&focus=all-sellers'],
+              ['Suspended Sellers', reports.data.moderation_summary.suspended_sellers, false, '/admin/dashboard?tab=sellers&focus=all-sellers'],
+              ['Active LGU Admins', reports.data.moderation_summary.active_lgu_admins, false, '/admin/dashboard?tab=lgu-admins&focus=registered-lgu-admins'],
+              ['Suspended LGU Admins', reports.data.moderation_summary.suspended_lgu_admins, false, '/admin/dashboard?tab=lgu-admins&focus=registered-lgu-admins'],
             ]} />
           )}
           <div className="charts-grid">
@@ -6929,11 +6961,13 @@ function UserReportsPanel({ endpointBase, queryKey, scopeLabel }) {
                   <textarea
                     value={decision.notes}
                     onChange={(e) => setDecision({ ...decision, notes: e.target.value })}
-                    placeholder="Notes on your decision (optional, shared with the reporter)"
+                    placeholder={decision.status === 'dismissed'
+                      ? 'Reason for dismissing (required, shared with the reporter)'
+                      : 'Notes on your decision (optional, shared with the reporter)'}
                     rows={2}
                   />
                   <div className="row-actions">
-                    <button type="button" disabled={updateReport.isPending} onClick={() => updateReport.mutate({ id: report.id, status: decision.status, notes: decision.notes.trim() })}>
+                    <button type="button" disabled={updateReport.isPending || (decision.status === 'dismissed' && !decision.notes.trim())} onClick={() => updateReport.mutate({ id: report.id, status: decision.status, notes: decision.notes.trim() })}>
                       Save Decision
                     </button>
                     <button type="button" className="ghost" disabled={updateReport.isPending} onClick={() => setActingId(null)}>Cancel</button>
@@ -7021,7 +7055,7 @@ const HELP_TOPICS = [
     items: [
       ['When do I get paid?', 'After the buyer confirms they received the order, your LGU reviews the earnings. Once approved, 96% of the order total goes to your Available Balance. The other 4% is the LGU\'s share.'],
       ['How do I withdraw my money?', 'Open your Wallet and click Request Withdrawal. Choose GCash, Maya or a bank account. A 6% payout fee is taken from the amount you request. The Super Admin approves the request and marks it paid once the money is sent.'],
-      ['My earnings review or withdrawal was rejected.', 'Open the rejected item and click Dispute This Rejection to explain your side. The person who rejected it reviews your dispute. If they accept it, the item is reopened for another review.'],
+      ['My earnings review or withdrawal was rejected.', 'Open the rejected item and click Dispute This Rejection to explain your side. The person who rejected it reviews your dispute. If they accept it, the item is reopened for another review. A rejected withdrawal keeps its amount on hold while you decide: dispute it once within 7 days, or click Accept Rejection to return the amount to your Available Balance right away. If you do nothing for 7 days, or your dispute is rejected, the amount returns to your Available Balance on its own.'],
       ['What is a Notice to Explain?', 'If your average rating falls to 3 stars or below, AbaiMarket sends you a Notice to Explain. Answer it from the Notices tab. Your first notice is only a warning. From the second notice on, your listings are paused until your LGU accepts your explanation.'],
     ],
   },
@@ -7125,14 +7159,50 @@ function supportNotificationLink(dashboardPath) {
   }
 }
 
+/**
+ * Which tab a notification opens, per role, by the start of its type (types
+ * are often suffixed with an id, e.g. "withdrawal_requested:12"). The first
+ * matching prefix wins, so more specific prefixes come first.
+ */
+const NOTIFICATION_TABS = {
+  buyer: [
+    ['order_', 'orders'], ['payment_', 'orders'], ['refund_', 'orders'],
+  ],
+  seller: [
+    ['withdrawal_', 'wallet'], ['earnings_', 'wallet'], ['dispute_resolved', 'wallet'],
+    ['order_', 'orders'],
+    ['seller_notice', 'notices'], ['low_rating', 'notices'], ['seller_low_rating', 'notices'],
+    ['listing_', 'listings'],
+  ],
+  lgu_admin: [
+    ['earnings_pending_approval', 'earnings'],
+    ['seller_registration_submitted', 'sellers'],
+    ['user_report', 'user-reports'],
+    ['seller_notice', 'notices'],
+    ['dispute_filed', 'disputes'],
+    ['lgu_withdrawal_', 'wallet'], ['dispute_resolved', 'wallet'],
+  ],
+  super_admin: [
+    ['lgu_withdrawal_requested', 'payouts&focus=lgu-payouts'],
+    ['withdrawal_requested', 'payouts&focus=seller-payouts'],
+    ['refund_pending', 'payouts'],
+    ['seller_registration_submitted', 'sellers'],
+    ['user_report', 'user-reports'],
+    ['dispute_filed', 'disputes'],
+  ],
+}
+
 /** Where clicking a notification goes, per role -- the same rules each dashboard's Notifications page uses. */
 function notificationLinkFor(role) {
   const base = roleRoutes[role] || '/'
   const support = supportNotificationLink(base)
-  if (role === 'lgu_admin') {
-    return (notification) => (notification.type?.startsWith('earnings_pending_approval') ? '/lgu/dashboard?tab=earnings' : support(notification))
+  const tabs = NOTIFICATION_TABS[role] || []
+  return (notification) => {
+    const supportLink = support(notification)
+    if (supportLink) return supportLink
+    const match = tabs.find(([prefix]) => notification.type?.startsWith(prefix))
+    return match ? `${base}?tab=${match[1]}` : null
   }
-  return support
 }
 
 /**
@@ -8304,13 +8374,13 @@ function ModerationAction({ suspended, reasons, onSuspend, onReinstate }) {
       : <button type="button" className="ghost danger" onClick={() => openForm('suspend')}>Suspend</button>
   }
 
-  const reasonRequired = mode === 'reinstate' || Boolean(reasons)
-  const canSubmit = !reasonRequired || Boolean(reason.trim())
+  // Every suspend, disable and reinstate carries a reason the account owner is told.
+  const canSubmit = Boolean(reason.trim())
 
   const submit = () => {
     if (!canSubmit) return
     if (mode === 'suspend') {
-      onSuspend(reason.trim() || undefined, notes.trim() || undefined)
+      onSuspend(reason.trim(), notes.trim() || undefined)
     } else {
       onReinstate(reason.trim(), notes.trim() || undefined)
     }
@@ -8327,7 +8397,7 @@ function ModerationAction({ suspended, reasons, onSuspend, onReinstate }) {
         <input
           value={reason}
           onChange={(e) => setReason(e.target.value)}
-          placeholder={mode === 'reinstate' ? 'Reason for reinstating (required)' : 'Reason (optional)'}
+          placeholder={mode === 'reinstate' ? 'Reason for reinstating (required)' : 'Reason (required, shown to the account owner)'}
         />
       )}
       <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Additional notes (optional)" rows={2} />
@@ -8481,7 +8551,7 @@ function WithdrawalRow({ request, onApprove, onReject, onMarkPaid, type = 'selle
               <strong>{seller?.hatchery_name || seller?.user?.name || 'Unknown seller'}</strong>
             </>
           )}
-          <Badge status={request.status} />
+          <Badge status={request.status}>{withdrawalStatusLabel(request.status)}</Badge>
         </div>
         <p>
           Request #{request.id} · {currency(request.amount)} requested via {withdrawalMethodLabel(request.method)}<br />
@@ -8493,8 +8563,13 @@ function WithdrawalRow({ request, onApprove, onReject, onMarkPaid, type = 'selle
           <p className="muted">Platform payout fee (6%): {currency(request.platform_fee)} · Seller receives: {currency(request.net_amount)}</p>
         )}
         <p className="muted">Requested {new Date(request.created_at).toLocaleDateString()}</p>
-        {request.status === 'rejected' && request.rejection_reason && (
+        {['rejected', 'rejected_final'].includes(request.status) && request.rejection_reason && (
           <p className="error">Reason: {request.rejection_reason}</p>
+        )}
+        {request.status === 'rejected' && (
+          <p className="helper-text">
+            The amount stays on hold until the rejection is final{request.dispute_deadline ? ` (no later than ${new Date(request.dispute_deadline).toLocaleDateString()}, unless a dispute is filed)` : ''}.
+          </p>
         )}
         {request.status === 'paid' && request.paid_at && (
           <p className="helper-text">Paid on {new Date(request.paid_at).toLocaleDateString()}</p>
@@ -8562,7 +8637,33 @@ function SuspendedAccountNotice({ role }) {
 }
 
 function Dashboard({ title, subtitle, actions, children }) {
+  useFocusSection()
   return <div className="dashboard"><div className="dashboard-head"><div><p className="eyebrow">{subtitle}</p><h1>{title}</h1></div>{actions}</div>{children}</div>
+}
+
+/**
+ * A dashboard link can add &focus=<section id> to land on one section of a
+ * tab (e.g. LGU Payouts below Seller Payouts). The section may render only
+ * after its data loads, so this looks for it briefly instead of just once.
+ */
+function useFocusSection() {
+  const [searchParams] = useSearchParams()
+  const focus = searchParams.get('focus')
+  const tab = searchParams.get('tab')
+
+  useEffect(() => {
+    if (!focus) return undefined
+    let tries = 0
+    const timer = setInterval(() => {
+      const target = document.getElementById(focus)
+      tries += 1
+      if (target || tries > 30) {
+        clearInterval(timer)
+        target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+    }, 100)
+    return () => clearInterval(timer)
+  }, [focus, tab])
 }
 
 /**
@@ -9052,6 +9153,51 @@ function PaymentCell({ row, view, onPay, pending }) {
  * `endpoint` differs per subject (order, seller withdrawal, LGU withdrawal);
  * the backend decides who may file, so this only collects the explanation.
  */
+/**
+ * A rejected withdrawal keeps its amount on hold while it can be disputed, so
+ * one amount can never be requested twice (see App\Support\WithdrawalRejection).
+ * The owner either disputes it once within the window, or accepts the
+ * rejection to release the amount now; otherwise it releases itself when the
+ * window closes.
+ */
+function RejectedWithdrawalActions({ request, disputeEndpoint, acceptEndpoint, invalidateKeys, rejectedBy = 'the Super Admin' }) {
+  const accept = useMutation({
+    mutationFn: async () => (await api.post(acceptEndpoint)).data,
+    onSuccess: () => invalidateKeys.forEach((key) => queryClient.invalidateQueries({ queryKey: [key] })),
+  })
+  const deadline = request.dispute_deadline ? new Date(request.dispute_deadline).toLocaleDateString() : null
+
+  return (
+    <div className="table-row-appeal">
+      <div className="table-row-appeal-head">
+        {request.has_open_dispute ? (
+          <p className="helper-text">Your dispute is waiting for a decision. The {currency(request.amount)} stays on hold until then.</p>
+        ) : request.can_dispute ? (
+          <>
+            <p className="error">
+              This withdrawal was rejected by {rejectedBy}. The {currency(request.amount)} is on hold{deadline ? ` until ${deadline}` : ''}: dispute it once if you think it should be reconsidered, or accept the rejection to return the amount to your Available Balance now.
+            </p>
+            <div className="row-actions">
+              <DisputeAction endpoint={disputeEndpoint} invalidateKeys={invalidateKeys} label="Dispute This Rejection" />
+              <button
+                type="button"
+                className="ghost"
+                disabled={accept.isPending}
+                onClick={() => { if (window.confirm('Accept this rejection? The amount returns to your Available Balance and this rejection can no longer be disputed.')) accept.mutate() }}
+              >
+                {accept.isPending ? 'Releasing...' : 'Accept Rejection'}
+              </button>
+            </div>
+          </>
+        ) : (
+          <p className="helper-text">The dispute window has closed. The {currency(request.amount)} will return to your Available Balance shortly.</p>
+        )}
+        {accept.error && <p className="error">{accept.error.response?.data?.message || 'Could not accept this rejection.'}</p>}
+      </div>
+    </div>
+  )
+}
+
 function DisputeAction({ endpoint, invalidateKeys = [], label = 'Dispute This' }) {
   const [open, setOpen] = useState(false)
   const [reason, setReason] = useState('')
@@ -10658,9 +10804,9 @@ function AboutPage({ compact = false }) {
   return compact ? about : <main className="about-page">{about}</main>
 }
 
-function Section({ title, actions, children }) {
+function Section({ title, actions, children, id }) {
   return (
-    <section className="section">
+    <section className="section" id={id}>
       <div className="section-head"><h2>{title}</h2>{actions}</div>
       {children}
     </section>

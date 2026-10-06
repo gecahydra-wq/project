@@ -22,14 +22,23 @@ class LguWallet
 {
     /**
      * Withdrawal requests that are not-yet-paid or already-paid both
-     * permanently remove money from the available pool; only 'rejected'
-     * returns it.
+     * permanently remove money from the available pool. A rejected request
+     * still holds its amount while the rejection can be disputed; only a
+     * FINAL rejection returns it (see App\Support\WithdrawalRejection).
      */
     public static function reservedOrWithdrawn(int $municipalityId): float
     {
         return (float) LguWithdrawalRequest::where('municipality_id', $municipalityId)
-            ->whereIn('status', ['pending', 'approved', 'paid'])
+            ->whereIn('status', ['pending', 'approved', 'paid', WithdrawalRejection::ON_HOLD])
             ->sum('amount');
+    }
+
+    /** Money held by rejected requests that can still be disputed. */
+    public static function onHoldAmount(int $municipalityId): float
+    {
+        return round((float) LguWithdrawalRequest::where('municipality_id', $municipalityId)
+            ->where('status', WithdrawalRejection::ON_HOLD)
+            ->sum('amount'), 2);
     }
 
     /**
@@ -95,6 +104,7 @@ class LguWallet
             'available_balance' => self::availableBalance($municipalityId),
             'pending_balance' => self::pendingBalance($municipalityId),
             'processing_amount' => self::processingAmount($municipalityId),
+            'on_hold_amount' => self::onHoldAmount($municipalityId),
             'total_revenue' => round(self::totalRevenue($municipalityId), 2),
             'withdrawn_amount' => self::withdrawnAmount($municipalityId),
         ];

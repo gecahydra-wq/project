@@ -69,6 +69,8 @@ class ActivityLog
                 'seller_earnings_approved', 'seller_payout_requested', 'seller_payout_approved',
                 'seller_payout_completed', 'lgu_payout_requested', 'lgu_payout_approved', 'lgu_payout_completed',
                 'order_refunded', 'order_cancelled',
+                // A rejected withdrawal's held amount released -- see App\Support\WithdrawalRejection.
+                'withdrawal_rejection_final',
             ],
         ],
         'reviews' => [
@@ -311,7 +313,7 @@ class ActivityLog
             if (self::withinRange($row->created_at, $from, $to)) {
                 $entries->push(self::sellerPayoutEntry($row, 'seller_payout_requested', $row->created_at, $sellerName, $municipalityName, $ref, "Payout of ₱{$row->amount} requested via {$row->method}."));
             }
-            if ($row->reviewed_at && $row->status !== 'rejected' && self::withinRange($row->reviewed_at, $from, $to)) {
+            if ($row->reviewed_at && ! in_array($row->status, [WithdrawalRejection::ON_HOLD, WithdrawalRejection::FINAL], true) && self::withinRange($row->reviewed_at, $from, $to)) {
                 $entries->push(self::sellerPayoutEntry($row, 'seller_payout_approved', $row->reviewed_at, $sellerName, $municipalityName, $ref, "Payout of ₱{$row->amount} approved."));
             }
             if ($row->paid_at && self::withinRange($row->paid_at, $from, $to)) {
@@ -352,7 +354,7 @@ class ActivityLog
             if (self::withinRange($row->created_at, $from, $to)) {
                 $entries->push(self::lguPayoutEntry($row, 'lgu_payout_requested', $row->created_at, $ref, "Municipality payout of ₱{$row->amount} requested via {$row->method}."));
             }
-            if ($row->reviewed_at && $row->status !== 'rejected' && self::withinRange($row->reviewed_at, $from, $to)) {
+            if ($row->reviewed_at && ! in_array($row->status, [WithdrawalRejection::ON_HOLD, WithdrawalRejection::FINAL], true) && self::withinRange($row->reviewed_at, $from, $to)) {
                 $entries->push(self::lguPayoutEntry($row, 'lgu_payout_approved', $row->reviewed_at, $ref, "Municipality payout of ₱{$row->amount} approved."));
             }
             if ($row->paid_at && self::withinRange($row->paid_at, $from, $to)) {

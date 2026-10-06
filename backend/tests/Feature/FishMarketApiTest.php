@@ -485,7 +485,7 @@ class FishMarketApiTest extends TestCase
         ]);
     }
 
-    public function test_lgu_admin_can_reject_a_listing_without_a_reason(): void
+    public function test_rejecting_a_listing_requires_a_reason(): void
     {
         $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
         $seller = $this->makeSeller(
@@ -495,11 +495,20 @@ class FishMarketApiTest extends TestCase
         $listing = $this->makeListing($seller, ['approval_status' => 'pending']);
         Sanctum::actingAs($lguAdmin);
 
-        $response = $this->patchJson("/api/lgu/listings/{$listing->id}/reject");
+        $this->patchJson("/api/lgu/listings/{$listing->id}/reject")
+            ->assertStatus(422)
+            ->assertJsonPath('errors.reason.0', 'Please give a reason for rejecting this listing.');
+        $this->assertSame('pending', $listing->fresh()->approval_status);
 
-        $response->assertOk()
+        $this->patchJson("/api/lgu/listings/{$listing->id}/reject", ['reason' => 'Photos do not show the fingerlings.'])
+            ->assertOk()
             ->assertJsonPath('approval_status', 'rejected')
-            ->assertJsonPath('rejection_reason', null);
+            ->assertJsonPath('rejection_reason', 'Photos do not show the fingerlings.');
+
+        // The Super Admin is held to the same rule.
+        $other = $this->makeListing($seller, ['approval_status' => 'pending']);
+        Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
+        $this->patchJson("/api/super-admin/listings/{$other->id}/reject")->assertStatus(422);
     }
 
     public function test_approving_a_listing_clears_any_previous_rejection_reason(): void
@@ -2239,6 +2248,220 @@ class FishMarketApiTest extends TestCase
         $withdrawal = WithdrawalRequest::findOrFail($withdrawalId);
         $this->assertSame('pending', $withdrawal->status);
         $this->assertNull($withdrawal->rejection_reason);
+    }
+
+    /** A seller with ₱192 settled (96% of ₱200) and one rejected ₱150 request. */
+    private function sellerWithRejectedWithdrawal(): array
+    {
+        $superAdmin = User::where('role', 'super_admin')->firstOrFail();
+        $seller = $this->makeSeller();
+        $order = $this->makeOrder($this->makeBuyer(), $this->makeListing($seller), ['status' => 'completed']);
+        $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 200]);
+        $this->makeSettlement($order, $payment);
+
+        Sanctum::actingAs($seller->user);
+        $withdrawalId = $this->postJson('/api/seller/withdrawals', [
+            'method' => 'gcash', 'account_name' => 'Test Seller', 'account_number' => '09170000000', 'amount' => 150,
+        ])->assertCreated()->json('id');
+
+        Sanctum::actingAs($superAdmin);
+        $this->patchJson("/api/super-admin/withdrawals/{$withdrawalId}/reject", ['reason' => 'Account name does not match.'])->assertOk();
+
+        return [$seller, $superAdmin, $withdrawalId];
+    }
+
+    public function test_a_rejected_withdrawal_holds_its_amount_so_it_cannot_be_requested_twice(): void
+    {
+        [$seller, $superAdmin, $withdrawalId] = $this->sellerWithRejectedWithdrawal();
+
+        // On hold, not back in Available: asking for it again is refused.
+        Sanctum::actingAs($seller->user);
+        $wallet = $this->getJson('/api/seller/wallet')->assertOk();
+        $this->assertEquals(42, $wallet['available_balance']);
+        $this->assertEquals(150, $wallet['on_hold_amount']);
+        $this->assertSame('rejected', WithdrawalRequest::findOrFail($withdrawalId)->status);
+        $this->postJson('/api/seller/withdrawals', [
+            'method' => 'gcash', 'account_name' => 'Test Seller', 'account_number' => '09170000000', 'amount' => 150,
+        ])->assertStatus(422);
+
+        // Disputed and accepted: the same request is pending again, and the
+        // amount is reserved exactly once.
+        $disputeId = $this->postJson("/api/withdrawals/{$withdrawalId}/dispute", ['reason' => 'It is my married name.'])
+            ->assertCreated()->json('id');
+        Sanctum::actingAs($superAdmin);
+        $this->patchJson("/api/super-admin/disputes/{$disputeId}/accept")->assertOk();
+
+        Sanctum::actingAs($seller->user);
+        $wallet = $this->getJson('/api/seller/wallet')->assertOk();
+        $this->assertSame('pending', WithdrawalRequest::findOrFail($withdrawalId)->status);
+        $this->assertEquals(42, $wallet['available_balance']);
+        $this->assertEquals(150, $wallet['processing_amount']);
+        $this->assertEquals(0, $wallet['on_hold_amount']);
+        $this->assertSame(1, WithdrawalRequest::where('seller_profile_id', $seller->id)->count());
+    }
+
+    public function test_accepting_a_rejection_releases_the_amount_and_ends_the_dispute_window(): void
+    {
+        [$seller, , $withdrawalId] = $this->sellerWithRejectedWithdrawal();
+
+        // Another seller cannot release it.
+        Sanctum::actingAs($this->makeSeller()->user);
+        $this->postJson("/api/withdrawals/{$withdrawalId}/accept-rejection")->assertStatus(403);
+
+        Sanctum::actingAs($seller->user);
+        $this->postJson("/api/withdrawals/{$withdrawalId}/accept-rejection")
+            ->assertOk()->assertJsonPath('status', 'rejected_final');
+        $this->assertEquals(192, $this->getJson('/api/seller/wallet')->json('available_balance'));
+
+        // Final means final: no dispute afterwards, and it cannot be accepted twice.
+        $this->postJson("/api/withdrawals/{$withdrawalId}/dispute", ['reason' => 'Changed my mind.'])->assertStatus(422);
+        $this->postJson("/api/withdrawals/{$withdrawalId}/accept-rejection")->assertStatus(422);
+    }
+
+    public function test_a_rejection_can_be_disputed_once_and_a_rejected_dispute_makes_it_final(): void
+    {
+        [$seller, $superAdmin, $withdrawalId] = $this->sellerWithRejectedWithdrawal();
+
+        Sanctum::actingAs($seller->user);
+        $disputeId = $this->postJson("/api/withdrawals/{$withdrawalId}/dispute", ['reason' => 'Please check again.'])
+            ->assertCreated()->json('id');
+
+        // While the dispute is open the amount stays on hold.
+        $this->postJson("/api/withdrawals/{$withdrawalId}/accept-rejection")->assertStatus(422);
+
+        Sanctum::actingAs($superAdmin);
+        $this->patchJson("/api/super-admin/disputes/{$disputeId}/reject", ['note' => 'The name still does not match.'])->assertOk();
+
+        $this->assertSame('rejected_final', WithdrawalRequest::findOrFail($withdrawalId)->status);
+        Sanctum::actingAs($seller->user);
+        $this->assertEquals(192, $this->getJson('/api/seller/wallet')->json('available_balance'));
+        $this->postJson("/api/withdrawals/{$withdrawalId}/dispute", ['reason' => 'Once more.'])->assertStatus(422);
+    }
+
+    public function test_an_undisputed_rejection_is_released_after_the_dispute_window(): void
+    {
+        [$seller, , $withdrawalId] = $this->sellerWithRejectedWithdrawal();
+
+        // Still inside the window: nothing happens.
+        $this->travel(6)->days();
+        $this->artisan('withdrawals:finalize-rejections')->assertSuccessful();
+        $this->assertSame('rejected', WithdrawalRequest::findOrFail($withdrawalId)->status);
+
+        // Past it: released, and the seller is told.
+        $this->travel(2)->days();
+        $this->artisan('withdrawals:finalize-rejections')->assertSuccessful();
+        $this->assertSame('rejected_final', WithdrawalRequest::findOrFail($withdrawalId)->status);
+        $this->assertDatabaseHas('notifications', ['user_id' => $seller->user_id, 'type' => "withdrawal_released:{$withdrawalId}"]);
+
+        // And it can no longer be disputed.
+        Sanctum::actingAs($seller->user);
+        $this->postJson("/api/withdrawals/{$withdrawalId}/dispute", ['reason' => 'Too late?'])->assertStatus(422);
+    }
+
+    public function test_a_rejected_lgu_withdrawal_is_held_the_same_way(): void
+    {
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $seller = $this->makeSeller([], ['municipality_id' => $lguAdmin->municipality_id]);
+        $order = $this->makeOrder($this->makeBuyer(), $this->makeListing($seller), ['status' => 'completed', 'total_amount' => 10000]);
+        $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 10000]);
+        $this->makeSettlement($order, $payment); // LGU Share: 400.
+
+        Sanctum::actingAs($lguAdmin);
+        $withdrawalId = $this->postJson('/api/lgu/withdrawals', [
+            'method' => 'gcash', 'account_name' => 'Municipal Treasury', 'account_number' => '09171234567', 'amount' => 300,
+        ])->assertCreated()->json('id');
+
+        Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
+        $this->patchJson("/api/super-admin/lgu-withdrawals/{$withdrawalId}/reject", ['reason' => 'Wrong treasury account.'])->assertOk();
+
+        Sanctum::actingAs($lguAdmin);
+        $wallet = $this->getJson('/api/lgu/wallet')->assertOk();
+        $this->assertEquals(100, $wallet['available_balance']);
+        $this->assertEquals(300, $wallet['on_hold_amount']);
+
+        $this->postJson("/api/lgu/lgu-withdrawals/{$withdrawalId}/accept-rejection")
+            ->assertOk()->assertJsonPath('status', 'rejected_final');
+        $this->assertEquals(400, $this->getJson('/api/lgu/wallet')->json('available_balance'));
+    }
+
+    public function test_new_withdrawal_requests_notify_the_super_admin_and_the_requester(): void
+    {
+        $superAdmin = User::where('role', 'super_admin')->firstOrFail();
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $seller = $this->makeSeller([], ['municipality_id' => $lguAdmin->municipality_id]);
+        $order = $this->makeOrder($this->makeBuyer(), $this->makeListing($seller), ['status' => 'completed', 'total_amount' => 10000]);
+        $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 10000]);
+        $this->makeSettlement($order, $payment);
+
+        Sanctum::actingAs($seller->user);
+        $sellerRequestId = $this->postJson('/api/seller/withdrawals', [
+            'method' => 'gcash', 'account_name' => 'Test Seller', 'account_number' => '09170000000', 'amount' => 500,
+        ])->assertCreated()->json('id');
+        $this->assertDatabaseHas('notifications', ['user_id' => $superAdmin->id, 'type' => "withdrawal_requested:{$sellerRequestId}"]);
+        $this->assertDatabaseHas('notifications', ['user_id' => $seller->user_id, 'type' => "withdrawal_submitted:{$sellerRequestId}"]);
+
+        Sanctum::actingAs($lguAdmin);
+        $lguRequestId = $this->postJson('/api/lgu/withdrawals', [
+            'method' => 'gcash', 'account_name' => 'Municipal Treasury', 'account_number' => '09171234567', 'amount' => 200,
+        ])->assertCreated()->json('id');
+        $this->assertDatabaseHas('notifications', ['user_id' => $superAdmin->id, 'type' => "lgu_withdrawal_requested:{$lguRequestId}"]);
+        $this->assertDatabaseHas('notifications', ['user_id' => $lguAdmin->id, 'type' => "lgu_withdrawal_submitted:{$lguRequestId}"]);
+    }
+
+    public function test_a_new_seller_registration_notifies_the_municipality_lgu(): void
+    {
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+
+        $this->postJson('/api/auth/register', [
+            'name' => 'New Hatchery', 'email' => 'hatchery-'.Str::random(6).'@example.test',
+            'password' => 'P@ssw0rd!#', 'role' => 'seller', 'municipality_id' => $lguAdmin->municipality_id,
+        ])->assertCreated();
+
+        $sellerId = SellerProfile::latest('id')->value('id');
+        $this->assertDatabaseHas('notifications', ['user_id' => $lguAdmin->id, 'type' => "seller_registration_submitted:{$sellerId}"]);
+    }
+
+    public function test_suspending_disabling_and_archiving_all_require_a_reason(): void
+    {
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $seller = $this->makeSeller(
+            ['municipality_id' => $lguAdmin->municipality_id],
+            ['municipality_id' => $lguAdmin->municipality_id]
+        );
+        $listing = $this->makeListing($seller);
+
+        Sanctum::actingAs($lguAdmin);
+        $this->patchJson("/api/lgu/sellers/{$seller->id}/suspend")->assertStatus(422)->assertJsonValidationErrors('reason');
+        $this->patchJson("/api/lgu/listings/{$listing->id}/archive")->assertStatus(422)->assertJsonValidationErrors('reason');
+        $this->assertNotSame('suspended', $seller->fresh()->status);
+
+        Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
+        $this->patchJson("/api/super-admin/sellers/{$seller->id}/suspend")->assertStatus(422)->assertJsonValidationErrors('reason');
+        $this->patchJson("/api/super-admin/listings/{$listing->id}/archive")->assertStatus(422)->assertJsonValidationErrors('reason');
+        $this->patchJson("/api/super-admin/lgu-admins/{$lguAdmin->id}/disable")->assertStatus(422)->assertJsonValidationErrors('reason');
+        $this->assertSame('active', $lguAdmin->fresh()->status ?? 'active');
+    }
+
+    public function test_dismissing_a_user_report_requires_a_reason(): void
+    {
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $seller = $this->makeSeller(
+            ['municipality_id' => $lguAdmin->municipality_id],
+            ['municipality_id' => $lguAdmin->municipality_id]
+        );
+        Sanctum::actingAs($this->makeBuyer());
+        $reportId = $this->postJson('/api/reports', [
+            'reported_user_id' => $seller->user_id,
+            'reason' => 'Seller unresponsive',
+            'description' => 'No response to any of my messages about this order.',
+        ])->assertCreated()->json('id');
+
+        Sanctum::actingAs($lguAdmin);
+        $this->patchJson("/api/lgu/user-reports/{$reportId}", ['status' => 'dismissed'])
+            ->assertStatus(422)
+            ->assertJsonPath('errors.resolution_notes.0', 'Please give a reason for dismissing this report.');
+        $this->patchJson("/api/lgu/user-reports/{$reportId}", ['status' => 'dismissed', 'resolution_notes' => 'The seller replied within a day.'])
+            ->assertOk()->assertJsonPath('status', 'dismissed');
     }
 
     public function test_only_a_rejected_item_can_be_disputed_and_only_by_its_owner(): void
@@ -4910,7 +5133,7 @@ class FishMarketApiTest extends TestCase
         );
         Sanctum::actingAs($lguAdmin);
 
-        $suspend = $this->patchJson("/api/lgu/sellers/{$seller->id}/suspend");
+        $suspend = $this->patchJson("/api/lgu/sellers/{$seller->id}/suspend", ['reason' => 'Repeated policy violations.']);
         $suspend->assertOk()->assertJsonPath('status', 'suspended');
 
         $reinstate = $this->patchJson("/api/lgu/sellers/{$seller->id}/reinstate", ['reason' => 'Issue resolved']);
@@ -5157,7 +5380,7 @@ class FishMarketApiTest extends TestCase
         $update = $this->patchJson("/api/super-admin/lgu-admins/{$adminId}", ['name' => 'Renamed Officer']);
         $update->assertOk()->assertJsonPath('name', 'Renamed Officer');
 
-        $disable = $this->patchJson("/api/super-admin/lgu-admins/{$adminId}/disable");
+        $disable = $this->patchJson("/api/super-admin/lgu-admins/{$adminId}/disable", ['reason' => 'Repeated policy violations.']);
         $disable->assertOk()->assertJsonPath('status', 'disabled');
 
         $this->postJson('/api/auth/login', [
@@ -5743,7 +5966,7 @@ class FishMarketApiTest extends TestCase
         Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
 
         $this->patchJson("/api/super-admin/listings/{$approvedListing->id}/approve")->assertOk();
-        $this->patchJson("/api/super-admin/listings/{$rejectedListing->id}/reject")->assertOk();
+        $this->patchJson("/api/super-admin/listings/{$rejectedListing->id}/reject", ['reason' => 'Stock count looks wrong.'])->assertOk();
 
         Mail::assertSent(ListingApprovedMail::class);
         Mail::assertSent(ListingRejectedMail::class);
@@ -6643,8 +6866,8 @@ class FishMarketApiTest extends TestCase
         Sanctum::actingAs($superAdmin);
 
         $this->patchJson("/api/super-admin/buyers/{$buyer->id}/suspend", ['reason' => 'Spam'])->assertOk();
-        $this->patchJson("/api/super-admin/sellers/{$seller->id}/suspend")->assertOk();
-        $this->patchJson("/api/super-admin/lgu-admins/{$lguAdmin->id}/disable")->assertOk();
+        $this->patchJson("/api/super-admin/sellers/{$seller->id}/suspend", ['reason' => 'Repeated policy violations.'])->assertOk();
+        $this->patchJson("/api/super-admin/lgu-admins/{$lguAdmin->id}/disable", ['reason' => 'Repeated policy violations.'])->assertOk();
 
         $this->patchJson("/api/super-admin/buyers/{$buyer->id}/reinstate")->assertStatus(422);
         $this->patchJson("/api/super-admin/sellers/{$seller->id}/reinstate")->assertStatus(422);
@@ -6793,7 +7016,7 @@ class FishMarketApiTest extends TestCase
         Sanctum::actingAs($superAdmin);
 
         $this->patchJson("/api/super-admin/buyers/{$buyer->id}/suspend", ['reason' => 'Harassment'])->assertOk();
-        $this->patchJson("/api/super-admin/sellers/{$seller->id}/suspend")->assertOk();
+        $this->patchJson("/api/super-admin/sellers/{$seller->id}/suspend", ['reason' => 'Repeated policy violations.'])->assertOk();
 
         $all = $this->getJson('/api/super-admin/moderation-log')->assertOk();
         $this->assertCount(2, $all->json());
@@ -6850,7 +7073,7 @@ class FishMarketApiTest extends TestCase
 
         Sanctum::actingAs($superAdmin);
         $this->patchJson("/api/super-admin/buyers/{$buyer->id}/suspend", ['reason' => 'Spam'])->assertOk();
-        $this->patchJson("/api/super-admin/sellers/{$seller->id}/suspend")->assertOk();
+        $this->patchJson("/api/super-admin/sellers/{$seller->id}/suspend", ['reason' => 'Repeated policy violations.'])->assertOk();
 
         $howMany = $this->postJson('/api/ai-assistant/ask', ['question' => 'How many suspended users are there?']);
         $howMany->assertCreated();
@@ -6890,7 +7113,7 @@ class FishMarketApiTest extends TestCase
         );
         Sanctum::actingAs($lguAdmin);
 
-        $suspend = $this->patchJson("/api/lgu/sellers/{$seller->id}/suspend");
+        $suspend = $this->patchJson("/api/lgu/sellers/{$seller->id}/suspend", ['reason' => 'Repeated policy violations.']);
         $suspend->assertOk()->assertJsonPath('status', 'suspended');
         Mail::assertSent(AccountSuspendedMail::class);
         $this->assertDatabaseHas('moderation_logs', [
@@ -7108,7 +7331,7 @@ class FishMarketApiTest extends TestCase
         $payment = $this->makePayment($order, ['status' => 'paid_held']);
 
         Sanctum::actingAs($lguAdmin);
-        $this->patchJson("/api/lgu/sellers/{$sellerProfile->id}/suspend")->assertOk();
+        $this->patchJson("/api/lgu/sellers/{$sellerProfile->id}/suspend", ['reason' => 'Repeated policy violations.'])->assertOk();
         $this->patchJson("/api/lgu/payments/{$payment->id}/approve")->assertOk();
 
         $log = $this->getJson('/api/lgu/activity-log')->assertOk()->json('data');
@@ -7132,7 +7355,7 @@ class FishMarketApiTest extends TestCase
 
         Sanctum::actingAs($lguAdmin);
         $this->patchJson("/api/lgu/listings/{$listing->id}/reject", ['reason' => 'Needs more photos'])->assertOk();
-        $this->patchJson("/api/lgu/sellers/{$sellerProfile->id}/suspend")->assertOk();
+        $this->patchJson("/api/lgu/sellers/{$sellerProfile->id}/suspend", ['reason' => 'Repeated policy violations.'])->assertOk();
         $this->patchJson("/api/lgu/payments/{$payment->id}/approve")->assertOk();
 
         $paymentsOnly = $this->getJson('/api/lgu/activity-log?category=payments')->assertOk()->json('data');
