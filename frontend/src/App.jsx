@@ -728,9 +728,13 @@ function useDismiss(open, setOpen) {
 function BrandMark({ to, dark = false }) {
   return (
     <Link data-tw to={to} className={`group flex shrink-0 items-center gap-2.5 text-lg font-bold tracking-tight ${dark ? 'text-white' : 'text-abai-navy'}`}>
-      <span className="grid size-10 place-items-center rounded-xl bg-linear-to-br from-abai-teal to-abai-navy text-white shadow-lg shadow-abai-teal/30 ring-1 ring-white/20 transition duration-300 group-hover:-rotate-6 group-hover:scale-105">
-        <Fish size={22} />
-      </span>
+      <img
+        src="/logo-mark.png"
+        alt=""
+        width="40"
+        height="40"
+        className={`size-10 rounded-xl shadow-lg transition duration-300 group-hover:-rotate-6 group-hover:scale-105 ${dark ? 'shadow-black/30 ring-1 ring-white/25' : 'shadow-abai-navy/20'}`}
+      />
       AbaiMarket
     </Link>
   )
@@ -957,7 +961,7 @@ function TopBar({ user, homeRoute, nav, isActive, unreadMessages, onLogout }) {
         </nav>
         <div className="ml-auto flex items-center gap-1">
           <IconLink link={nav.messages} isActive={isActive} count={unreadMessages} />
-          <IconLink link={nav.notifications} isActive={isActive} />
+          <NotificationBell role={user.role} link={nav.notifications} />
           <div className={desktop}>
             <ProfileMenu user={user} profile={nav.profile} onLogout={onLogout} />
           </div>
@@ -2636,7 +2640,7 @@ function AuthCard({ title, subtitle, children }) {
     <main className="auth-page">
       <div className="auth-layout">
         <section className="auth-brand-panel">
-          <Link className="brand" to="/"><span><Fish size={22} /></span>AbaiMarket</Link>
+          <Link className="brand" to="/"><img className="brand-mark" src="/logo-mark.png" alt="" width="38" height="38" />AbaiMarket</Link>
           <h2>Fresh fingerlings, verified hatcheries, one marketplace.</h2>
           <ul className="auth-benefits">
             {AUTH_BENEFITS.map(([Icon, text]) => (
@@ -5071,7 +5075,7 @@ function LguDashboard() {
       queryClient.invalidateQueries({ queryKey: ['lgu-dashboard'] })
     },
   })
-  const notificationLink = (notification) => (notification.type?.startsWith('earnings_pending_approval') ? '/lgu/dashboard?tab=earnings' : supportNotificationLink('/lgu/dashboard')(notification))
+  const notificationLink = notificationLinkFor('lgu_admin')
   const reviews = useQuery({
     queryKey: ['lgu-reviews'],
     queryFn: async () => (await api.get('/lgu/reviews')).data,
@@ -7042,6 +7046,188 @@ function supportNotificationLink(dashboardPath) {
     if (notification.type === 'new_message') return `${dashboardPath}?tab=messages`
     return notification.type?.startsWith('support_ticket') ? `${dashboardPath}?tab=support&view=tickets` : null
   }
+}
+
+/** Where clicking a notification goes, per role -- the same rules each dashboard's Notifications page uses. */
+function notificationLinkFor(role) {
+  const base = roleRoutes[role] || '/'
+  const support = supportNotificationLink(base)
+  if (role === 'lgu_admin') {
+    return (notification) => (notification.type?.startsWith('earnings_pending_approval') ? '/lgu/dashboard?tab=earnings' : support(notification))
+  }
+  return support
+}
+
+/**
+ * Each role's existing unread-notification source and read endpoints. The
+ * query keys match the dashboards' own, so the bell and the Notifications page
+ * share one cache: marking something read in either updates both. The LGU has
+ * no standalone list endpoint -- its notifications come with /lgu/dashboard.
+ */
+const NOTIFICATION_SOURCES = {
+  buyer: { key: ['buyer-notifications'], url: '/buyer/notifications', prefix: '/buyer', alsoRefresh: ['buyer-dashboard'] },
+  seller: { key: ['seller-notifications'], url: '/seller/notifications', prefix: '/seller', alsoRefresh: ['seller-dashboard'] },
+  lgu_admin: { key: ['lgu-dashboard'], url: '/lgu/dashboard', select: (data) => data?.notifications || [], prefix: '/lgu', alsoRefresh: [] },
+  super_admin: { key: ['super-admin-notifications'], url: '/super-admin/notifications', prefix: '/super-admin', alsoRefresh: [] },
+}
+
+const asList = (data) => (Array.isArray(data) ? data : [])
+
+function timeAgo(value) {
+  const then = value ? new Date(value).getTime() : NaN
+  if (Number.isNaN(then)) return ''
+  const seconds = Math.max(0, Math.round((Date.now() - then) / 1000))
+  if (seconds < 60) return 'just now'
+  const minutes = Math.round(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.round(hours / 24)
+  if (days < 7) return `${days}d ago`
+  return new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+/** The top bar's bell: a pop-up of unread notifications instead of a page change. */
+function NotificationBell({ role, link }) {
+  const source = NOTIFICATION_SOURCES[role]
+  const navigate = useNavigate()
+  const [open, setOpen] = useState(false)
+  const ref = useDismiss(open, setOpen)
+  const query = useQuery({
+    queryKey: source?.key || ['no-notifications'],
+    queryFn: async () => (await api.get(source.url)).data,
+    select: source?.select || asList,
+    enabled: Boolean(source),
+    retry: false,
+    refetchInterval: 60000,
+  })
+  const items = query.data || []
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: source.key })
+    source.alsoRefresh.forEach((key) => queryClient.invalidateQueries({ queryKey: [key] }))
+  }
+  const markRead = useMutation({
+    mutationFn: async (id) => (await api.patch(`${source.prefix}/notifications/${id}/read`)).data,
+    onSuccess: refresh,
+  })
+  const markAllRead = useMutation({
+    mutationFn: async () => (await api.patch(`${source.prefix}/notifications/read-all`)).data,
+    onSuccess: refresh,
+  })
+  if (!source || !link) return null
+
+  const getLink = notificationLinkFor(role)
+  // Opening a notification counts as reading it; one with somewhere to go
+  // (a ticket, messages, the earnings queue) also takes you there.
+  const openItem = (item) => {
+    const target = getLink(item)
+    markRead.mutate(item.id)
+    if (target) {
+      setOpen(false)
+      navigate(target)
+    }
+  }
+  const count = items.length
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        data-tw
+        type="button"
+        aria-haspopup="true"
+        aria-expanded={open}
+        aria-label={count ? `Notifications (${count} unread)` : 'Notifications'}
+        title="Notifications"
+        onClick={() => {
+          if (!open) query.refetch()
+          setOpen((value) => !value)
+        }}
+        className={`relative grid size-10 cursor-pointer place-items-center rounded-full transition duration-200 hover:scale-105 ${open ? 'bg-white/20 text-white' : 'text-white/80 hover:bg-white/10 hover:text-white'}`}
+      >
+        <Bell size={20} className={count ? 'bell-ring' : ''} />
+        {count > 0 && (
+          <span className="absolute -right-0.5 -top-0.5 grid min-w-5 place-items-center rounded-full bg-red-500 px-1 text-[0.68rem] font-bold leading-5 text-white ring-2 ring-abai-navy">
+            {count > 99 ? '99+' : count}
+          </span>
+        )}
+      </button>
+
+      <div
+        role="dialog"
+        aria-label="Notifications"
+        className={`fixed inset-x-2 top-[4.25rem] z-50 flex max-h-[min(34rem,calc(100vh-6rem))] flex-col overflow-hidden rounded-2xl bg-white text-slate-800 shadow-2xl shadow-abai-navy/25 ring-1 ring-black/5 transition duration-200 sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-3 sm:w-96 sm:origin-top-right ${open ? 'translate-y-0 scale-100 opacity-100' : 'pointer-events-none -translate-y-1 scale-95 opacity-0'}`}
+      >
+        <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <p className="m-0 font-semibold text-abai-navy">Notifications</p>
+            {count > 0 && <span className="rounded-full bg-abai-teal-soft px-2 py-0.5 text-xs font-semibold text-abai-teal-text">{count} new</span>}
+          </div>
+          <button
+            data-tw
+            type="button"
+            tabIndex={open ? 0 : -1}
+            disabled={!count || markAllRead.isPending}
+            onClick={() => markAllRead.mutate()}
+            className="cursor-pointer rounded-full px-2.5 py-1 text-xs font-semibold text-abai-teal-text transition hover:bg-abai-teal-soft disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
+          >
+            {markAllRead.isPending ? 'Marking...' : 'Mark all as read'}
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {query.isLoading ? (
+            <p className="m-0 px-4 py-10 text-center text-sm text-slate-500">Loading...</p>
+          ) : count === 0 ? (
+            <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
+              <span className="grid size-12 place-items-center rounded-full bg-abai-teal-soft text-abai-teal-text"><Bell size={22} /></span>
+              <p className="m-0 font-medium text-abai-navy">You&apos;re all caught up</p>
+              <p className="m-0 text-sm text-slate-500">New notifications will show up here.</p>
+            </div>
+          ) : (
+            <ul className="m-0 list-none divide-y divide-slate-100 p-0">
+              {items.map((item) => (
+                <li key={item.id} className="group/n relative flex items-start gap-3 px-4 py-3 transition hover:bg-slate-50">
+                  <span className="mt-1.5 size-2 shrink-0 rounded-full bg-abai-teal" aria-hidden="true" />
+                  <button
+                    data-tw
+                    type="button"
+                    tabIndex={open ? 0 : -1}
+                    onClick={() => openItem(item)}
+                    className="min-w-0 flex-1 cursor-pointer text-left"
+                  >
+                    <span className="block text-sm font-semibold text-abai-navy">{item.title}</span>
+                    <span className="mt-0.5 line-clamp-2 block text-sm text-slate-600">{item.body}</span>
+                    <span className="mt-1 block text-xs text-slate-400">{timeAgo(item.created_at)}</span>
+                  </button>
+                  <button
+                    data-tw
+                    type="button"
+                    tabIndex={open ? 0 : -1}
+                    onClick={() => markRead.mutate(item.id)}
+                    title="Mark as read"
+                    aria-label={`Mark "${item.title}" as read`}
+                    className="grid size-8 shrink-0 cursor-pointer place-items-center rounded-full text-slate-400 transition hover:bg-abai-teal-soft hover:text-abai-teal-text sm:opacity-0 sm:group-hover/n:opacity-100 sm:focus-visible:opacity-100"
+                  >
+                    <Check size={16} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <Link
+          data-tw
+          to={link.path}
+          tabIndex={open ? 0 : -1}
+          onClick={() => setOpen(false)}
+          className="block border-t border-slate-100 px-4 py-3 text-center text-sm font-semibold text-abai-teal-text transition hover:bg-abai-teal-soft"
+        >
+          View all notifications
+        </Link>
+      </div>
+    </div>
+  )
 }
 
 /** Unread messages for the signed-in user (any role), polled for the sidebar badge and dashboard notice. */

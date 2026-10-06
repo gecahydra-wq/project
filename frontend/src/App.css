@@ -112,35 +112,6 @@
   --color-neutral-text: var(--neutral-slate-soft);
   --color-neutral-bg: var(--neutral-sand-deep);
 
-  /* Sidebar (dark surface) tints -- left on the original values along with the
-     rest of the sidebar, which is deliberately excluded from the repalette. */
-  --color-sidebar-text: #d7ecef;
-  --color-sidebar-active: rgba(15, 155, 142, 0.28);
-
-  /* Sidebar artwork -- the identity of the app, kept on every role's dashboard.
-     ---------------------------------------------------------------
-     Three layers, painted back to front (see .sidebar):
-
-       --sidebar-base   flat navy floor; what shows if the photo never loads
-       --sidebar-image  the underwater photograph itself
-       --sidebar-scrim  a FLAT navy veil at --sidebar-scrim-alpha
-
-     The scrim is deliberately a single flat colour, not the old three-stop
-     gradient. A gradient meant the veil was thinnest in the middle of the
-     column -- exactly where the photo is brightest -- so a nav label could
-     drift over a light patch and lose contrast. One flat value means every
-     label sits on the same colour and the worst case is measurable: even over
-     pure white, 85% navy resolves to #2F4D69, which carries white text at
-     8.8:1. The fish still read clearly as texture underneath.
-
-     To swap the photo, drop a file in frontend/public/ and change the one
-     url() below -- it applies to every role at once. */
-  --sidebar-scrim-alpha: 0.85;
-  --sidebar-base: #0b2e4f;
-  --sidebar-image: url('/sidebar-bg.jpg');
-  --sidebar-scrim: linear-gradient(rgba(11, 46, 79, var(--sidebar-scrim-alpha)),
-                                   rgba(11, 46, 79, var(--sidebar-scrim-alpha)));
-
   /* PAGE BACKDROP -----------------------------------------------------------
      The photograph behind every page-level surface, scrimmed back to a tint.
 
@@ -175,7 +146,7 @@
      the numbers against the 1st percentile rather than eyeballing it.
 
      To swap the photo: drop a file in frontend/public/ and change this one
-     url(), exactly like --sidebar-image above. */
+     url(). */
   --page-scrim-alpha: 0.72;
   --page-image: url('/page-bg.jpg');
   --page-scrim: linear-gradient(rgba(238, 243, 245, var(--page-scrim-alpha)),
@@ -625,21 +596,6 @@ h4 {
   margin-bottom: 0.4rem;
 }
 
-.site-header {
-  align-items: center;
-  -webkit-backdrop-filter: saturate(180%) blur(10px);
-  backdrop-filter: saturate(180%) blur(10px);
-  background: rgba(255, 255, 255, 0.85);
-  border-bottom: 1px solid var(--color-border);
-  display: grid;
-  gap: 1rem;
-  grid-template-columns: auto 1fr auto;
-  padding: 0.9rem clamp(1rem, 4vw, 3rem);
-  position: sticky;
-  top: 0;
-  z-index: 20;
-}
-
 .brand {
   align-items: center;
   color: var(--color-primary-dark);
@@ -649,37 +605,16 @@ h4 {
   gap: 0.6rem;
 }
 
-.brand span {
-  align-items: center;
-  background: var(--brand-teal);
+/* The logo icon (public/logo-mark.png). On the navy auth panel a faint white
+   ring keeps the navy tile from melting into the background. */
+.brand-mark {
   border-radius: var(--radius-sm);
-  color: var(--color-white);
-  display: inline-flex;
   height: 38px;
-  justify-content: center;
   width: 38px;
 }
 
-.site-header nav,
-.nav-actions {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  justify-content: center;
-}
-
-.site-header nav a {
-  border-radius: var(--radius-sm);
-  color: var(--color-gray-700);
-  font-weight: var(--fw-medium);
-  padding: 0.4rem 0.6rem;
-  transition: background-color var(--transition-fast), color var(--transition-fast);
-}
-
-.site-header nav a:hover {
-  background: var(--color-gray-100);
-  color: var(--color-primary-dark);
+.auth-brand-panel .brand-mark {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25);
 }
 
 main {
@@ -1321,211 +1256,6 @@ footer {
   align-content: start;
 }
 
-.shell {
-  display: grid;
-  grid-template-columns: 280px 1fr;
-  min-height: 100vh;
-}
-
-/* Background layers, front to back: scrim (keeps text legible) over the
-   artwork over the base colour. Swap --sidebar-image to change the look for
-   every role at once -- see the variable definitions in :root.
-
-   The single position/repeat/size values apply to every layer (CSS cycles a
-   shorter list), which is what we want and avoids having to keep a per-layer
-   list in sync with --sidebar-decor's two gradients. 'scroll' pins the artwork
-   to the sidebar itself, so it stays put while a long nav list scrolls over
-   it -- 'local' would drag the photo along with the links, and 'fixed' would
-   anchor it to the viewport instead of this column. */
-.sidebar {
-  background-color: var(--sidebar-base);
-  background-image: var(--sidebar-scrim), var(--sidebar-image);
-  background-position: center;
-  background-repeat: no-repeat;
-  background-size: cover;
-  background-attachment: scroll;
-  /* Reads as a deliberate panel rather than a photo that ran out of room. */
-  border-right: 1px solid var(--brand-teal);
-  color: var(--neutral-white);
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-  height: 100vh;
-  overflow-y: auto;
-  padding: 1.25rem 1rem;
-  position: sticky;
-  scrollbar-width: thin;
-  top: 0;
-}
-
-/* The flat scrim now guarantees contrast on its own, so the text-shadow and
-   icon drop-shadow that used to prop up legibility over the bright part of the
-   photo are gone -- they were softening every glyph in the nav to compensate
-   for a veil that varied. */
-.sidebar svg {
-  color: var(--brand-seafoam);
-  opacity: 0.7;
-}
-
-.sidebar .brand,
-.sidebar .brand svg {
-  color: var(--neutral-white);
-  opacity: 1;
-}
-
-.sidebar .brand {
-  color: white;
-}
-
-.profile-chip {
-  align-items: center;
-  background: rgba(255, 255, 255, 0.09);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: var(--radius-md);
-  display: flex;
-  gap: 0.85rem;
-  padding: 0.85rem 1rem;
-}
-
-.profile-chip-info {
-  display: grid;
-  gap: 0.35rem;
-  min-width: 0;
-}
-
-.profile-chip-avatar {
-  flex-shrink: 0;
-  height: 48px;
-  width: 48px;
-}
-
-.profile-chip-name {
-  color: var(--color-white);
-  font-size: var(--fs-base);
-  font-weight: var(--fw-semibold);
-  line-height: 1.3;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.profile-chip-meta {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  min-width: 0;
-}
-
-.profile-chip-municipality {
-  color: var(--color-sidebar-text);
-  font-size: var(--fs-xs);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.side-nav {
-  display: grid;
-  gap: 0.35rem;
-}
-
-/* Nav labels are plain white on the navy scrim -- 8.8:1 in the worst case. */
-.side-nav a {
-  align-items: center;
-  border-radius: var(--radius-sm);
-  color: var(--neutral-white);
-  display: flex;
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-medium);
-  gap: 0.7rem;
-  padding: 0.65rem 0.75rem;
-  position: relative;
-  transition: background-color var(--transition-fast), color var(--transition-fast),
-              transform var(--transition-fast);
-}
-
-/* A short teal rule that grows from the top of the item on hover. It is the
-   same cue the active pill gives, arriving early -- so the sidebar answers
-   "is this clickable, and is this where I am?" before the click. */
-.side-nav a::before {
-  background: var(--color-teal);
-  border-radius: 2px;
-  content: "";
-  inset-block: 0.55rem;
-  left: 0;
-  position: absolute;
-  transform: scaleY(0);
-  transition: transform var(--transition-fast);
-  width: 3px;
-}
-
-.side-nav a:hover::before,
-.side-nav a:focus-visible::before {
-  transform: scaleY(1);
-}
-
-/* The active item is already a solid pill; a rule inside it would just be
-   noise. */
-.side-nav a.active::before {
-  content: none;
-}
-
-.side-nav a svg {
-  transition: transform var(--transition-fast);
-}
-
-.side-nav a:hover svg {
-  transform: translateX(1px) scale(1.06);
-}
-
-.side-nav a:focus-visible {
-  outline: 2px solid var(--neutral-white);
-  outline-offset: -2px;
-}
-
-.side-nav a:active {
-  transform: translateX(1px) scale(0.99);
-}
-
-.side-nav a:hover {
-  background: rgba(255, 255, 255, 0.12);
-  transform: translateX(2px);
-}
-
-/* Active item is a solid Ocean teal pill -- no gradient, no left rule. */
-.side-nav a.active {
-  background: var(--brand-teal);
-  color: var(--neutral-white);
-  font-weight: var(--fw-semibold);
-}
-
-/* The active item's icon drops the seafoam tint and the 70% veil: on a solid
-   teal pill it should read as part of the label, not as a separate accent. */
-.side-nav a.active svg {
-  color: var(--neutral-white);
-  opacity: 1;
-}
-
-/* Logout is outlined white on the navy, not a solid white block competing
-   with the active pill for attention. */
-.sidebar > button.ghost {
-  background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.55);
-  color: var(--neutral-white);
-}
-
-.sidebar > button.ghost:hover {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: var(--neutral-white);
-  color: var(--neutral-white);
-}
-
-.sidebar > button.ghost svg {
-  color: var(--neutral-white);
-  opacity: 1;
-}
-
 /* Every page -- customer, seller, LGU -- sits on Sea mist; the White is
    carried by the cards on top of it. This is what makes the expanded order
    detail (now White) separate from the page instead of sinking into it. */
@@ -1571,7 +1301,7 @@ body,
    on its rows (min-width: 760px, plus minmax(130px, 1fr) per column) so the
    columns stay readable and the TABLE scrolls sideways inside its own
    overflow-x:auto box. Without this that floor propagated up through .section
-   and .dashboard into the .shell's 1fr track, so the whole page grew wider
+   and .dashboard into the page column, so the whole page grew wider
    than the viewport and the entire dashboard scrolled instead of just the
    table. It also explains why the same page measured differently in Firefox
    and Chrome: min-content depends on font metrics, which differ slightly. */
@@ -3581,36 +3311,10 @@ a.activity-log-item:hover {
 }
 
 @media (max-width: 1020px) {
-  .site-header,
   .hero,
   .page-grid,
-  .detail-page,
-  .shell {
+  .detail-page {
     grid-template-columns: 1fr;
-  }
-
-  .sidebar {
-    height: auto;
-    position: static;
-  }
-
-  /* Horizontal nav once the sidebar is a banner -- a vertical list at full
-     width would push the dashboard below the fold on every load. */
-  .side-nav {
-    grid-auto-flow: column;
-    grid-auto-columns: max-content;
-    overflow-x: auto;
-    padding-bottom: var(--space-1);
-  }
-
-  .side-nav a {
-    border-left: 0;
-    border-bottom: 3px solid transparent;
-    white-space: nowrap;
-  }
-
-  .side-nav a.active {
-    border-bottom-color: var(--color-teal);
   }
 
   .listing-grid,
@@ -3639,8 +3343,6 @@ a.activity-log-item:hover {
 }
 
 @media (max-width: 640px) {
-  .site-header nav,
-  .nav-actions,
   .hero-actions,
   .dashboard-head,
   .checkout-bar {
@@ -5861,20 +5563,6 @@ button.ticket-inbox-row {
   padding-left: 1.25rem;
 }
 
-/* Unread-message count on the sidebar's Messages link. */
-.side-nav-count {
-  background: var(--color-danger);
-  border-radius: var(--radius-full);
-  color: white;
-  font-size: 0.7rem;
-  font-weight: var(--fw-semibold);
-  line-height: 1;
-  margin-left: auto;
-  min-width: 1.4rem;
-  padding: 0.25rem 0.4rem;
-  text-align: center;
-}
-
 /* "You have N unread messages" on a dashboard overview. */
 .unread-messages-notice {
   align-items: center;
@@ -5906,4 +5594,19 @@ button.ticket-inbox-row {
   .has-bottom-nav .ai-widget {
     bottom: calc(5rem + env(safe-area-inset-bottom));
   }
+}
+
+/* A single short swing when the bell has unread notifications (NotificationBell). */
+@keyframes bell-ring {
+  0%, 100% { transform: rotate(0); }
+  15% { transform: rotate(14deg); }
+  30% { transform: rotate(-12deg); }
+  45% { transform: rotate(8deg); }
+  60% { transform: rotate(-5deg); }
+  75% { transform: rotate(2deg); }
+}
+
+.bell-ring {
+  animation: bell-ring 1.2s ease-in-out 1;
+  transform-origin: top center;
 }
