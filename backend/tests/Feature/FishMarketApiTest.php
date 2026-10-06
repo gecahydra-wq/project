@@ -399,6 +399,42 @@ class FishMarketApiTest extends TestCase
         $this->assertDatabaseCount('orders', 0);
     }
 
+    public function test_second_buyer_of_the_last_stock_is_refused_and_stock_never_goes_negative(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 100, 'minimum_order' => 1]);
+
+        Sanctum::actingAs($this->makeBuyer());
+        $this->postJson('/api/orders', ['fingerling_listing_id' => $listing->id, 'quantity' => 100])->assertCreated();
+
+        Sanctum::actingAs($this->makeBuyer());
+        $this->postJson('/api/orders', ['fingerling_listing_id' => $listing->id, 'quantity' => 100])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Requested quantity exceeds available stock.');
+
+        $this->assertDatabaseCount('orders', 1);
+        $this->assertDatabaseHas('listings', ['id' => $listing->id, 'quantity' => 0]);
+    }
+
+    public function test_an_order_that_fails_part_way_leaves_no_order_behind_and_keeps_the_stock(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 100, 'minimum_order' => 1]);
+        Sanctum::actingAs($this->makeBuyer());
+
+        // Make the step after the order row is written fail.
+        MockPayment::creating(fn () => throw new \RuntimeException('payment row failed'));
+
+        try {
+            $this->postJson('/api/orders', ['fingerling_listing_id' => $listing->id, 'quantity' => 40])->assertStatus(500);
+        } finally {
+            MockPayment::flushEventListeners();
+        }
+
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertDatabaseHas('listings', ['id' => $listing->id, 'quantity' => 100]);
+    }
+
     public function test_lgu_admin_can_approve_pending_listing(): void
     {
         $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();

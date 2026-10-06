@@ -21,6 +21,7 @@ use App\Support\OrderTransactionPresenter;
 use App\Support\PaymentReturnToken;
 use App\Support\SafeMailer;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -140,37 +141,52 @@ class OrderController extends Controller
             return response()->json(['message' => 'This seller is not accepting orders at the moment.'], 422);
         }
 
-        // Enforces both the seller's Minimum Order and the stock ceiling, in
-        // the listing's own unit (pieces/kilograms/bulk) -- the same check the
-        // cart uses, so the two can never disagree.
-        if ($issue = $listing->quantityIssue((int) $data['quantity'])) {
-            return response()->json(['message' => $issue], 422);
+        // The stock check and the stock deduction run in one transaction with
+        // the listing row locked, so two buyers ordering the last stock at the
+        // same moment are handled one after the other -- the second one is
+        // checked against what the first left. If any step fails, nothing is
+        // kept: no order without its stock taken, no stock taken without an order.
+        $result = DB::transaction(function () use ($request, $data) {
+            $listing = FingerlingListing::lockForUpdate()->findOrFail($data['fingerling_listing_id']);
+
+            // Enforces both the seller's Minimum Order and the stock ceiling, in
+            // the listing's own unit (pieces/kilograms/bulk) -- the same check the
+            // cart uses, so the two can never disagree.
+            if ($issue = $listing->quantityIssue((int) $data['quantity'])) {
+                return response()->json(['message' => $issue], 422);
+            }
+
+            $order = Order::create([
+                'order_number' => 'FG-'.Str::upper(Str::random(6)),
+                'buyer_id' => $request->user()->id,
+                'seller_profile_id' => $listing->seller_profile_id,
+                'listing_id' => $listing->id,
+                'quantity' => $data['quantity'],
+                'unit_price' => $listing->price_per_piece,
+                'total_amount' => $data['quantity'] * $listing->price_per_piece,
+                'status' => 'placed',
+                'pickup_notes' => $data['pickup_notes'] ?? null,
+            ]);
+
+            MockPayment::create([
+                'order_id' => $order->id,
+                'amount' => $order->total_amount,
+                'status' => 'pending',
+                'provider' => 'paymongo',
+            ]);
+
+            // Orders are counted in the same fish as the stock -- a buyer who chose
+            // "by bulk" had it converted before it reached here.
+            $listing->decrement('quantity', (int) $data['quantity']);
+
+            return $order;
+        });
+
+        if (! $result instanceof Order) {
+            return $result;
         }
 
-        $order = Order::create([
-            'order_number' => 'FG-'.Str::upper(Str::random(6)),
-            'buyer_id' => $request->user()->id,
-            'seller_profile_id' => $listing->seller_profile_id,
-            'listing_id' => $listing->id,
-            'quantity' => $data['quantity'],
-            'unit_price' => $listing->price_per_piece,
-            'total_amount' => $data['quantity'] * $listing->price_per_piece,
-            'status' => 'placed',
-            'pickup_notes' => $data['pickup_notes'] ?? null,
-        ]);
-
-        MockPayment::create([
-            'order_id' => $order->id,
-            'amount' => $order->total_amount,
-            'status' => 'pending',
-            'provider' => 'paymongo',
-        ]);
-
-        // Orders are counted in the same fish as the stock -- a buyer who chose
-        // "by bulk" had it converted before it reached here.
-        $listing->decrement('quantity', (int) $data['quantity']);
-
-        return response()->json($order->load('payment'), 201);
+        return response()->json($result->load('payment'), 201);
     }
 
     /**
