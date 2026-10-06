@@ -20,6 +20,7 @@ import {
   Bell,
   Bot,
   CheckCircle,
+  Ellipsis,
   Clock,
   ChevronDown,
   ChevronLeft,
@@ -52,6 +53,7 @@ import {
   Mail,
   Sprout,
   UserRound,
+  Settings,
   ShieldAlert,
   ShieldCheck,
   ShoppingBag,
@@ -62,6 +64,7 @@ import {
   UserPlus,
   Users as UsersIcon,
   Timer,
+  TriangleAlert,
   Video as VideoIcon,
   Wallet,
   X,
@@ -349,6 +352,22 @@ function normalizeAccountNumber(value) {
  * transfer needs a 10-16 digit account number, and the amount must be a
  * positive number.
  */
+// Mirrors PayoutAccount::MIN_AMOUNT on the backend (sellers and LGUs alike).
+const MIN_WITHDRAWAL = 100
+
+/** Shown live under the amount while it is above zero but below the minimum. */
+function BelowMinimumWarning({ amount }) {
+  if (!(amount > 0 && amount < MIN_WITHDRAWAL)) return null
+  return (
+    <p role="alert" className="mt-2 mb-0 flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+      <TriangleAlert size={17} className="mt-0.5 shrink-0 text-amber-600" />
+      <span>
+        You&apos;re withdrawing below the minimum. Withdrawals must be at least <strong>{currency(MIN_WITHDRAWAL)}</strong>; you entered {currency(amount)}.
+      </span>
+    </p>
+  )
+}
+
 function withdrawalFormIssue(form) {
   const accountNumber = normalizeAccountNumber(form.account_number)
   if (form.method === 'bank_transfer') {
@@ -358,6 +377,7 @@ function withdrawalFormIssue(form) {
   }
   const amount = Number(form.amount)
   if (!Number.isFinite(amount) || amount <= 0) return 'Please enter a valid amount.'
+  if (amount < MIN_WITHDRAWAL) return 'The minimum withdrawal is ₱100.00.'
   return null
 }
 
@@ -680,6 +700,9 @@ const ROLE_NAV_LAYOUT = {
   },
 }
 
+/** An icon for each top-bar dropdown, so groups read like the links beside them. */
+const NAV_GROUP_ICONS = { More: Ellipsis, Sellers: Store, Money: Wallet, Insights: BarChart3, People: UsersIcon, Moderation: ShieldAlert, System: Settings }
+
 /** Resolves ROLE_NAV_LAYOUT labels against the role's menu entries ([label, path, Icon]). */
 function buildRoleNav(role, menu) {
   const layout = ROLE_NAV_LAYOUT[role] || { breakpoint: 'lg', main: menu.map(([label]) => label) }
@@ -693,7 +716,7 @@ function buildRoleNav(role, menu) {
   }
   const main = layout.main
     .map((ref) => (ref && !Array.isArray(ref) && typeof ref === 'object'
-      ? { label: ref.label, items: ref.items.map(toLink).filter(Boolean) }
+      ? { label: ref.label, Icon: NAV_GROUP_ICONS[ref.label] || Ellipsis, items: ref.items.map(toLink).filter(Boolean) }
       : toLink(ref)))
     .filter(Boolean)
   return {
@@ -742,11 +765,20 @@ function BrandMark({ to, dark = false }) {
   )
 }
 
-const topLinkBase = 'relative inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-sm font-medium transition-all duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-abai-seafoam'
-const topLinkIdle = 'text-white/75 hover:bg-white/10 hover:text-white'
-const topLinkActive = 'bg-white/15 text-white shadow-inner ring-1 ring-white/15'
+// One look for every navigation bar (dashboards and the public header): links
+// sit in a translucent capsule, and the current page is a white pill.
+const navCapsule = 'flex items-center gap-1 rounded-full bg-white/[0.06] p-1 ring-1 ring-white/10'
+const navPill = 'group/link flex items-center gap-2 rounded-full px-3.5 py-2 text-sm font-medium whitespace-nowrap transition duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-abai-seafoam'
+const navPillIdle = 'text-white/75 hover:bg-white/10 hover:text-white'
+const navPillActive = 'bg-white text-abai-navy shadow-md'
+const navPillIcon = (active) => `shrink-0 transition duration-200 ${active ? 'text-abai-teal' : 'text-abai-seafoam/70 group-hover/link:-translate-y-px group-hover/link:text-abai-seafoam'}`
+// Phone menu rows, shared by both drawers.
+const drawerRow = (active) => `group/item flex items-center gap-3 rounded-2xl px-3 py-2.5 text-base font-medium transition duration-300 ${active ? 'bg-white text-abai-navy shadow-md' : 'text-white/85 hover:bg-white/10 hover:text-white'}`
+const drawerTile = (active) => `grid size-10 shrink-0 place-items-center rounded-xl transition ${active ? 'bg-abai-teal text-white' : 'bg-white/10 text-abai-seafoam group-hover/item:bg-white/15'}`
+const drawerChevron = (active) => `ml-auto shrink-0 transition ${active ? 'text-abai-teal' : 'text-white/40 group-hover/item:translate-x-0.5 group-hover/item:text-white/70'}`
+const outlineCta = 'inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold text-white ring-1 ring-white/40 transition duration-200 hover:bg-white/10 hover:ring-white'
 
-function NavDropdown({ group, isActive }) {
+function NavDropdown({ group, isActive, iconClass = '' }) {
   const [open, setOpen] = useState(false)
   const ref = useDismiss(open, setOpen)
   const active = group.items.some((item) => isActive(item.path))
@@ -758,10 +790,11 @@ function NavDropdown({ group, isActive }) {
         aria-haspopup="true"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className={`${topLinkBase} cursor-pointer ${active || open ? topLinkActive : topLinkIdle}`}
+        className={`${navPill} cursor-pointer ${active ? navPillActive : open ? 'bg-white/10 text-white' : navPillIdle}`}
       >
+        <group.Icon size={16} className={`${navPillIcon(active)} ${iconClass}`} />
         {group.label}
-        <ChevronDown size={15} className={`transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown size={15} className={`transition-transform duration-200 ${open ? 'rotate-180' : ''} ${active ? 'text-abai-teal' : ''}`} />
       </button>
       <div
         className={`absolute left-0 top-full z-50 mt-3 w-72 origin-top-left rounded-2xl bg-white p-2 shadow-2xl shadow-abai-navy/25 ring-1 ring-black/5 transition duration-200 ${open ? 'translate-y-0 scale-100 opacity-100' : 'pointer-events-none -translate-y-1 scale-95 opacity-0'}`}
@@ -912,19 +945,16 @@ function MobileDrawer({ open, onClose, children, header, dark = true }) {
   )
 }
 
-function DrawerLink({ link, isActive, onNavigate, count }) {
+function DrawerLink({ link, isActive, onNavigate, count, style, motion = '' }) {
   const { label, path, Icon } = link
   const current = isActive(path)
   return (
-    <Link
-      data-tw
-      to={path}
-      onClick={onNavigate}
-      className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition ${current ? 'bg-abai-teal font-semibold text-white' : 'text-white/80 hover:bg-white/10 hover:text-white'}`}
-    >
-      <Icon size={18} className={current ? '' : 'text-abai-seafoam/80'} />
+    <Link data-tw to={path} onClick={onNavigate} style={style} className={`${drawerRow(current)} ${motion}`}>
+      <span className={drawerTile(current)}><Icon size={19} /></span>
       {label}
-      {count > 0 && <span className="ml-auto rounded-full bg-red-500 px-2 py-0.5 text-xs font-bold text-white">{count}</span>}
+      {count > 0
+        ? <span className="ml-auto rounded-full bg-red-500 px-2 py-0.5 text-xs font-bold text-white">{count}</span>
+        : <ChevronRight size={18} className={drawerChevron(current)} />}
     </Link>
   )
 }
@@ -932,32 +962,52 @@ function DrawerLink({ link, isActive, onNavigate, count }) {
 function TopBar({ user, homeRoute, nav, isActive, unreadMessages, onLogout }) {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const closeDrawer = useCallback(() => setDrawerOpen(false), [])
+  const [scrolled, setScrolled] = useState(false)
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 8)
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+  // Phone-menu rows slide in one after another, like the public menu.
+  let row = 0
+  const stagger = () => ({ transitionDelay: drawerOpen ? `${120 + (row++) * 35}ms` : '0ms' })
+  const slideIn = drawerOpen ? 'translate-x-0 opacity-100' : 'translate-x-6 opacity-0'
   // Tailwind only ships classes it can see written out in full, so the
   // breakpoint picks between complete class strings.
   const desktop = nav.breakpoint === 'xl' ? 'hidden xl:flex' : 'hidden lg:flex'
   const mobileOnly = nav.breakpoint === 'xl' ? 'xl:hidden' : 'lg:hidden'
+  // Icons inside the capsule only once there is room for them; the LGU and
+  // Super Admin bars carry more links, so theirs appear later.
+  const pillIcon = nav.breakpoint === 'xl' ? 'hidden 2xl:block' : 'hidden xl:block'
 
   // The drawer renders beside the header, not inside it: backdrop-blur makes
   // the header the containing block for position:fixed children, which would
   // trap the drawer inside the 64px bar.
   return (
     <>
-    <header className="nav-photo sticky top-0 z-40 text-white shadow-lg shadow-abai-navy/20">
-      <div className="mx-auto flex h-16 max-w-[1500px] items-center gap-4 px-4 sm:px-6">
+    <header className={`nav-photo sticky top-0 z-40 text-white transition-shadow duration-300 ${scrolled ? 'shadow-lg shadow-abai-navy/25' : ''}`}>
+      <div className={`mx-auto flex max-w-[1500px] items-center gap-4 px-4 transition-all duration-300 sm:px-6 ${scrolled ? 'h-16' : 'h-20'}`}>
         <BrandMark to={homeRoute} dark />
-        <nav className={`${desktop} min-w-0 flex-1 items-center gap-1`} aria-label="Main">
-          {nav.main.map((item) => (item.items
-            ? <NavDropdown key={item.label} group={item} isActive={isActive} />
-            : (
-              <Link
-                data-tw
-                key={item.label}
-                to={item.path}
-                className={`${topLinkBase} ${isActive(item.path) ? topLinkActive : topLinkIdle}`}
-              >
-                {item.short}
-              </Link>
-            )))}
+        <nav className={`${desktop} min-w-0 flex-1 justify-center`} aria-label="Main">
+          <div className={navCapsule}>
+            {nav.main.map((item) => {
+              if (item.items) return <NavDropdown key={item.label} group={item} isActive={isActive} iconClass={pillIcon} />
+              const active = isActive(item.path)
+              return (
+                <Link
+                  data-tw
+                  key={item.label}
+                  to={item.path}
+                  aria-current={active ? 'page' : undefined}
+                  className={`${navPill} ${active ? navPillActive : navPillIdle}`}
+                >
+                  <item.Icon size={16} className={`${navPillIcon(active)} ${pillIcon}`} />
+                  {item.short}
+                </Link>
+              )
+            })}
+          </div>
         </nav>
         <div className="ml-auto flex items-center gap-1">
           <IconLink link={nav.messages} isActive={isActive} count={unreadMessages} />
@@ -970,7 +1020,7 @@ function TopBar({ user, homeRoute, nav, isActive, unreadMessages, onLogout }) {
             type="button"
             onClick={() => setDrawerOpen(true)}
             aria-label="Open menu"
-            className={`${mobileOnly} grid size-10 cursor-pointer place-items-center rounded-full text-white transition hover:bg-white/10`}
+            className={`${mobileOnly} grid size-10 cursor-pointer place-items-center rounded-full text-white ring-1 ring-white/20 transition hover:bg-white/10`}
           >
             <Menu size={22} />
           </button>
@@ -994,23 +1044,26 @@ function TopBar({ user, homeRoute, nav, isActive, unreadMessages, onLogout }) {
           </div>
         )}
       >
-        <div className="grid gap-1">
+        <div className="grid gap-1.5">
           {nav.main.map((item) => (item.items ? (
-            <div key={item.label} className="mt-3 grid gap-1">
-              <p className="m-0 px-3 pb-1 text-[0.7rem] font-semibold uppercase tracking-wider text-abai-seafoam/70">{item.label}</p>
-              {item.items.map((link) => <DrawerLink key={link.label} link={link} isActive={isActive} onNavigate={closeDrawer} />)}
+            <div key={item.label} className="mt-3 grid gap-1.5">
+              <p className={`m-0 flex items-center gap-2 px-3 pb-0.5 text-[0.7rem] font-semibold uppercase tracking-wider text-abai-seafoam/70 transition duration-300 ${slideIn}`} style={stagger()}>
+                <item.Icon size={13} />{item.label}
+              </p>
+              {item.items.map((link) => <DrawerLink key={link.label} link={link} isActive={isActive} onNavigate={closeDrawer} style={stagger()} motion={slideIn} />)}
             </div>
-          ) : <DrawerLink key={item.label} link={item} isActive={isActive} onNavigate={closeDrawer} />))}
-          <div className="mt-3 grid gap-1 border-t border-white/10 pt-3">
-            {nav.messages && <DrawerLink link={nav.messages} isActive={isActive} onNavigate={closeDrawer} count={unreadMessages} />}
-            {nav.notifications && <DrawerLink link={nav.notifications} isActive={isActive} onNavigate={closeDrawer} />}
-            {nav.profile && <DrawerLink link={nav.profile} isActive={isActive} onNavigate={closeDrawer} />}
+          ) : <DrawerLink key={item.label} link={item} isActive={isActive} onNavigate={closeDrawer} style={stagger()} motion={slideIn} />))}
+          <div className="mt-3 grid gap-1.5 border-t border-white/10 pt-3">
+            {nav.messages && <DrawerLink link={nav.messages} isActive={isActive} onNavigate={closeDrawer} count={unreadMessages} style={stagger()} motion={slideIn} />}
+            {nav.notifications && <DrawerLink link={nav.notifications} isActive={isActive} onNavigate={closeDrawer} style={stagger()} motion={slideIn} />}
+            {nav.profile && <DrawerLink link={nav.profile} isActive={isActive} onNavigate={closeDrawer} style={stagger()} motion={slideIn} />}
           </div>
           <button
             data-tw
             type="button"
             onClick={onLogout}
-            className="mt-4 flex cursor-pointer items-center justify-center gap-2 rounded-full border border-white/40 px-4 py-2.5 text-sm font-semibold text-white transition hover:border-white hover:bg-white/10"
+            style={stagger()}
+            className={`${outlineCta} mt-4 w-full cursor-pointer py-3 text-base ${slideIn}`}
           >
             <LogOut size={18} />Logout
           </button>
@@ -1072,7 +1125,7 @@ function PublicHeader({ homeRoute, signedIn }) {
 
   const current = (path) => (path === '/' ? location.pathname === '/' : location.pathname.startsWith(path))
   const primaryCta = 'group/cta inline-flex items-center justify-center gap-2 rounded-full bg-abai-teal px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-black/20 ring-1 ring-white/15 transition duration-200 hover:-translate-y-0.5 hover:bg-abai-teal-hover hover:shadow-xl'
-  const secondaryCta = 'inline-flex items-center justify-center rounded-full px-5 py-2.5 text-sm font-semibold text-white ring-1 ring-white/40 transition duration-200 hover:bg-white/10 hover:ring-white'
+  const secondaryCta = outlineCta
   const arrow = <ArrowRight size={16} className="transition-transform duration-200 group-hover/cta:translate-x-1" />
   // Menu links slide in one after another while the drawer opens.
   const stagger = (index) => ({ transitionDelay: drawerOpen ? `${120 + index * 45}ms` : '0ms' })
@@ -1086,7 +1139,7 @@ function PublicHeader({ homeRoute, signedIn }) {
       <div className={`mx-auto flex max-w-[1500px] items-center gap-6 px-4 transition-all duration-300 sm:px-6 ${scrolled ? 'h-16' : 'h-20'}`}>
         <BrandMark to={homeRoute} dark />
         <nav className="hidden flex-1 justify-center lg:flex" aria-label="Main">
-          <div className="flex items-center gap-1 rounded-full bg-white/[0.06] p-1 ring-1 ring-white/10">
+          <div className={navCapsule}>
             {PUBLIC_NAV.map(([label, path, Icon]) => {
               const active = current(path)
               return (
@@ -1095,9 +1148,9 @@ function PublicHeader({ homeRoute, signedIn }) {
                   key={path}
                   to={path}
                   aria-current={active ? 'page' : undefined}
-                  className={`group/link flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition duration-200 ${active ? 'bg-white text-abai-navy shadow-md' : 'text-white/75 hover:bg-white/10 hover:text-white'}`}
+                  className={`${navPill} px-4 ${active ? navPillActive : navPillIdle}`}
                 >
-                  <Icon size={16} className={`transition duration-200 ${active ? 'text-abai-teal' : 'text-abai-seafoam/70 group-hover/link:-translate-y-px group-hover/link:text-abai-seafoam'}`} />
+                  <Icon size={16} className={navPillIcon(active)} />
                   {label}
                 </Link>
               )
@@ -1144,13 +1197,11 @@ function PublicHeader({ homeRoute, signedIn }) {
                   to={path}
                   onClick={closeDrawer}
                   style={stagger(index + 1)}
-                  className={`group/item flex items-center gap-3 rounded-2xl px-3 py-2.5 text-base font-medium transition duration-300 ${slideIn} ${active ? 'bg-white text-abai-navy shadow-md' : 'text-white/85 hover:bg-white/10 hover:text-white'}`}
+                  className={`${drawerRow(active)} ${slideIn}`}
                 >
-                  <span className={`grid size-10 place-items-center rounded-xl transition ${active ? 'bg-abai-teal text-white' : 'bg-white/10 text-abai-seafoam group-hover/item:bg-white/15'}`}>
-                    <Icon size={19} />
-                  </span>
+                  <span className={drawerTile(active)}><Icon size={19} /></span>
                   {label}
-                  <ChevronRight size={18} className={`ml-auto transition ${active ? 'text-abai-teal' : 'text-white/40 group-hover/item:translate-x-0.5 group-hover/item:text-white/70'}`} />
+                  <ChevronRight size={18} className={drawerChevron(active)} />
                 </Link>
               )
             })}
@@ -3801,15 +3852,16 @@ function SellerDashboard() {
               </select>
               <input value={withdrawForm.account_name} onChange={(e) => setWithdrawForm({ ...withdrawForm, account_name: e.target.value })} placeholder="Account name" />
               <input value={withdrawForm.account_number} onChange={(e) => setWithdrawForm({ ...withdrawForm, account_number: e.target.value })} placeholder={accountNumberPlaceholder(withdrawForm.method)} inputMode="numeric" />
-              <input value={withdrawForm.amount} onChange={(e) => setWithdrawForm({ ...withdrawForm, amount: e.target.value })} placeholder="Amount to withdraw" type="number" min="0" step="0.01" />
+              <input value={withdrawForm.amount} onChange={(e) => setWithdrawForm({ ...withdrawForm, amount: e.target.value })} placeholder="Amount to withdraw" type="number" min={MIN_WITHDRAWAL} step="0.01" />
             </div>
-            <p className="helper-text">Available to withdraw: {currency(wallet.data?.available_balance ?? 0)}</p>
-            {withdrawRequestAmount > 0 && (
+            <p className="helper-text">Available to withdraw: {currency(wallet.data?.available_balance ?? 0)} · Minimum withdrawal: {currency(MIN_WITHDRAWAL)}</p>
+            <BelowMinimumWarning amount={withdrawRequestAmount} />
+            {withdrawRequestAmount >= MIN_WITHDRAWAL && (
               <p className="helper-text">
                 A 6% platform payout fee applies to every withdrawal: you&apos;re requesting {currency(withdrawRequestAmount)}, a {currency(withdrawFeePreview)} fee will be deducted, and you&apos;ll receive approximately {currency(withdrawNetPreview)}.
               </p>
             )}
-            <button type="button" onClick={submitWithdrawal} disabled={requestWithdrawal.isPending}>{requestWithdrawal.isPending ? 'Submitting...' : 'Submit Withdrawal Request'}</button>
+            <button type="button" onClick={submitWithdrawal} disabled={requestWithdrawal.isPending || (withdrawRequestAmount > 0 && withdrawRequestAmount < MIN_WITHDRAWAL)}>{requestWithdrawal.isPending ? 'Submitting...' : 'Submit Withdrawal Request'}</button>
             {withdrawFormError && <p className="error">{withdrawFormError}</p>}
             {confirmingWithdrawal && (
               <WithdrawalConfirmModal form={withdrawForm} fee={withdrawFeePreview} onConfirm={confirmWithdrawal} onClose={() => setConfirmingWithdrawal(false)} />
@@ -5310,10 +5362,11 @@ function LguDashboard() {
               </select>
               <input value={lguWithdrawForm.account_name} onChange={(e) => setLguWithdrawForm({ ...lguWithdrawForm, account_name: e.target.value })} placeholder="Account name" />
               <input value={lguWithdrawForm.account_number} onChange={(e) => setLguWithdrawForm({ ...lguWithdrawForm, account_number: e.target.value })} placeholder={accountNumberPlaceholder(lguWithdrawForm.method)} inputMode="numeric" />
-              <input value={lguWithdrawForm.amount} onChange={(e) => setLguWithdrawForm({ ...lguWithdrawForm, amount: e.target.value })} placeholder="Amount to withdraw" type="number" min="0" step="0.01" />
+              <input value={lguWithdrawForm.amount} onChange={(e) => setLguWithdrawForm({ ...lguWithdrawForm, amount: e.target.value })} placeholder="Amount to withdraw" type="number" min={MIN_WITHDRAWAL} step="0.01" />
             </div>
-            <p className="helper-text">Available to withdraw: {currency(wallet.data?.available_balance ?? 0)}</p>
-            <button type="button" onClick={submitLguWithdrawal} disabled={requestLguWithdrawal.isPending}>{requestLguWithdrawal.isPending ? 'Submitting...' : 'Submit Withdrawal Request'}</button>
+            <p className="helper-text">Available to withdraw: {currency(wallet.data?.available_balance ?? 0)} · Minimum withdrawal: {currency(MIN_WITHDRAWAL)}</p>
+            <BelowMinimumWarning amount={Number(lguWithdrawForm.amount) || 0} />
+            <button type="button" onClick={submitLguWithdrawal} disabled={requestLguWithdrawal.isPending || ((Number(lguWithdrawForm.amount) || 0) > 0 && (Number(lguWithdrawForm.amount) || 0) < MIN_WITHDRAWAL)}>{requestLguWithdrawal.isPending ? 'Submitting...' : 'Submit Withdrawal Request'}</button>
             {lguWithdrawFormError && <p className="error">{lguWithdrawFormError}</p>}
             {confirmingLguWithdrawal && (
               <WithdrawalConfirmModal form={lguWithdrawForm} onConfirm={confirmLguWithdrawal} onClose={() => setConfirmingLguWithdrawal(false)} />

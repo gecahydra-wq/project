@@ -13,8 +13,10 @@ use Illuminate\Validation\Rule;
  * with 09 (e.g. 09954757102). A bank transfer needs a Philippine bank account
  * number: digits only, 10 to 16 long, which covers the major local banks.
  *
- * The frontend mirrors these patterns and messages (payoutAccountIssue in
- * frontend/src/App.jsx); keep the two in sync.
+ * Every withdrawal, seller or LGU, must be at least MIN_AMOUNT pesos.
+ *
+ * The frontend mirrors these patterns, the minimum and the messages
+ * (withdrawalFormIssue in frontend/src/App.jsx); keep the two in sync.
  */
 class PayoutAccount
 {
@@ -30,6 +32,11 @@ class PayoutAccount
 
     public const AMOUNT_MESSAGE = 'Please enter a valid amount.';
 
+    /** Smallest withdrawal a seller or an LGU may request, in pesos. */
+    public const MIN_AMOUNT = 100;
+
+    public const MIN_AMOUNT_MESSAGE = 'The minimum withdrawal is ₱100.00.';
+
     /**
      * @return array<string, array<int, mixed>>
      */
@@ -41,7 +48,7 @@ class PayoutAccount
             'method' => ['required', Rule::in(self::METHODS)],
             'account_name' => ['required', 'string'],
             'account_number' => ['required', 'string', 'regex:'.$pattern],
-            'amount' => ['required', 'numeric', 'min:0.01'],
+            'amount' => ['required', 'numeric', 'min:'.self::MIN_AMOUNT],
         ];
     }
 
@@ -53,7 +60,7 @@ class PayoutAccount
         return [
             'account_number.regex' => $method === 'bank_transfer' ? self::BANK_MESSAGE : self::MOBILE_MESSAGE,
             'amount.numeric' => self::AMOUNT_MESSAGE,
-            'amount.min' => self::AMOUNT_MESSAGE,
+            'amount.min' => self::MIN_AMOUNT_MESSAGE,
         ];
     }
 }
