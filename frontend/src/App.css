@@ -1643,11 +1643,15 @@ body,
   color: currentColor;
 }
 
+/* display:block on purpose: Tailwind also ships a `.table` utility
+   (display: table), and a table box ignores overflow-x -- so on a phone the
+   wide rows pushed the whole page sideways instead of scrolling in here. */
 .table {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
+  display: block;
   overflow-x: auto;
 }
 
@@ -3316,9 +3320,14 @@ a.activity-log-item:hover {
   .seller-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
 
+/* Tablet only: this block comes after the 720px rule that stacks Messages
+   into one column, so without the min-width it won on phones too and
+   squeezed the conversation into a sliver beside the thread list. */
+@media (min-width: 721px) and (max-width: 1180px) {
   .messages-layout {
-    grid-template-columns: 250px 1fr;
+    grid-template-columns: 250px minmax(0, 1fr);
   }
 }
 
@@ -3327,6 +3336,12 @@ a.activity-log-item:hover {
   .page-grid,
   .detail-page {
     grid-template-columns: 1fr;
+  }
+
+  /* Once the filters sit above the listings instead of beside them, a sticky
+     panel would ride down over the cards while scrolling. */
+  .filter-card {
+    position: static;
   }
 
   .listing-grid,
