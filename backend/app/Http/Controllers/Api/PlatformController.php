@@ -150,7 +150,7 @@ class PlatformController extends Controller
             'commission_distribution' => [
                 ['label' => 'Seller Share', 'amount' => round((float) (clone $settlementsInRange())->sum('seller_share'), 2)],
                 ['label' => 'LGU Share', 'amount' => round((float) (clone $settlementsInRange())->sum('lgu_share'), 2)],
-                ['label' => 'Platform Payout Fee', 'amount' => RevenueReport::realizedPlatformRevenueTotal($start, $end)],
+                ['label' => 'Platform Share', 'amount' => RevenueReport::realizedPlatformRevenueTotal($start, $end)],
             ],
 
             // Global account moderation reporting -- filterable by role and

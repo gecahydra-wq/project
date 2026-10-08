@@ -40,7 +40,8 @@ class SellerWithdrawalApprovedMail extends Mailable
         $rows = [
             ['Reference Number', 'WD-'.str_pad((string) $withdrawal->id, 6, '0', STR_PAD_LEFT)],
             ['Requested Amount', '₱'.number_format((float) $withdrawal->amount, 2)],
-            ['Platform Payout Fee', '₱'.number_format((float) $withdrawal->platform_fee, 2)],
+            // Only requests made before 2026-10-09 carry a payout fee.
+            ...((float) $withdrawal->platform_fee > 0 ? [['Platform Payout Fee', '₱'.number_format((float) $withdrawal->platform_fee, 2)]] : []),
             ['Amount You Will Receive', '₱'.number_format($withdrawal->net_amount, 2)],
             ['Method', \App\Support\PayoutAccount::methodLabel($withdrawal->method, $withdrawal->bank_name)],
             ['Approval Date', ($withdrawal->reviewed_at ?? now())->format('M d, Y g:i A')],

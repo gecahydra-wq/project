@@ -329,18 +329,15 @@ class AiIntentClassifier
         [
             'category' => 'Withdrawals',
             'keywords' => ['withdraw', 'withdrawal', 'payout', 'payouts', 'cash out', 'how do i get paid'],
-            // The payout fee is stated here because it was previously absent:
-            // asked what withdrawing costs, the assistant answered -- correctly,
-            // from this very text -- that there were no fees, which is the
-            // opposite of what CommissionCalculator actually deducts. The
-            // percentage is interpolated from the constant rather than typed,
-            // so changing the fee can never leave this answer stale.
-            'English' => 'Withdrawals let a Seller cash out their Available Balance via GCash, Maya, or bank transfer. A '.CommissionCalculator::WITHDRAWAL_FEE_PERCENT.'% payout fee is deducted from the amount requested, so a seller receives the rest. The Seller requests a withdrawal, and the Super Admin reviews, approves, and marks it paid before the amount moves from Available Balance to Withdrawn Amount.',
-            'Tagalog' => 'Sa Withdrawals, maaaring i-cash out ng Seller ang kanilang Available Balance via GCash, Maya, o bank transfer. May '.CommissionCalculator::WITHDRAWAL_FEE_PERCENT.'% na payout fee na ibinabawas sa hinihinging halaga, kaya ang natitira ang natatanggap ng seller. Nag-rerequest ang Seller ng withdrawal, at ang Super Admin ang sumusuri, umaaprub, at nagmamarka nito bilang bayad bago ito lumipat mula Available Balance patungong Withdrawn Amount.',
-            'Bisaya' => 'Ang Withdrawals nagtugot sa Seller nga i-cash out ang ilang Available Balance pinaagi sa GCash, Maya, o bank transfer. Naay '.CommissionCalculator::WITHDRAWAL_FEE_PERCENT.'% nga payout fee nga gikuha gikan sa gihangyo nga kantidad, mao nga ang nahibilin ang madawat sa seller. Mo-request ang Seller og withdrawal, ug ang Super Admin ang mo-review, mo-aprubar, ug mag-marka niini nga bayad ayha kini mobalhin gikan sa Available Balance ngadto sa Withdrawn Amount.',
+            // States outright that withdrawing is free, because sellers ask
+            // what it costs. The shares are interpolated from the constants
+            // rather than typed, so a rate change can never leave this stale.
+            'English' => 'Withdrawals let a Seller cash out their Available Balance via GCash, Maya, or bank transfer. There is no payout fee -- the Platform\'s '.CommissionCalculator::PLATFORM_PERCENT.'% and the LGU\'s '.CommissionCalculator::LGU_PERCENT.'% are taken when each order is settled, so a seller receives the full amount requested. The Seller requests a withdrawal, and the Super Admin reviews, approves, and marks it paid before the amount moves from Available Balance to Withdrawn Amount.',
+            'Tagalog' => 'Sa Withdrawals, maaaring i-cash out ng Seller ang kanilang Available Balance via GCash, Maya, o bank transfer. Walang payout fee -- ang '.CommissionCalculator::PLATFORM_PERCENT.'% ng Platform at '.CommissionCalculator::LGU_PERCENT.'% ng LGU ay kinukuha na kapag na-settle ang order, kaya buo ang natatanggap ng seller. Nag-rerequest ang Seller ng withdrawal, at ang Super Admin ang sumusuri, umaaprub, at nagmamarka nito bilang bayad bago ito lumipat mula Available Balance patungong Withdrawn Amount.',
+            'Bisaya' => 'Ang Withdrawals nagtugot sa Seller nga i-cash out ang ilang Available Balance pinaagi sa GCash, Maya, o bank transfer. Walay payout fee -- ang '.CommissionCalculator::PLATFORM_PERCENT.'% sa Platform ug '.CommissionCalculator::LGU_PERCENT.'% sa LGU gikuha na inig settle sa order, mao nga tibuok ang madawat sa seller. Mo-request ang Seller og withdrawal, ug ang Super Admin ang mo-review, mo-aprubar, ug mag-marka niini nga bayad ayha kini mobalhin gikan sa Available Balance ngadto sa Withdrawn Amount.',
             'roles' => [
                 'seller' => [
-                    'English' => 'To withdraw: open your Wallet and request a withdrawal for up to your Available Balance via GCash, Maya, or bank transfer. A '.CommissionCalculator::WITHDRAWAL_FEE_PERCENT.'% payout fee is deducted from the amount you request, so you receive the rest. The Super Admin reviews and approves it, then marks it paid -- at that point it moves from Available Balance to Withdrawn Amount.',
+                    'English' => 'To withdraw: open your Wallet and request a withdrawal for up to your Available Balance via GCash, Maya, or bank transfer. There is no payout fee, so you receive the full amount you request. The Super Admin reviews and approves it, then marks it paid -- at that point it moves from Available Balance to Withdrawn Amount.',
                 ],
                 'lgu_admin' => [
                     'English' => 'Withdrawals are handled platform-wide by the Super Admin, after a seller\'s earnings have been released through your Seller Earnings approval. LGU admins don\'t process withdrawal requests directly.',

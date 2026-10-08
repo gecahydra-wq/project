@@ -583,6 +583,18 @@ function sellerProfilePath(id) {
   return `/sellers/${id}`
 }
 
+/**
+ * A seller's name that opens their profile. Every role, everywhere a seller is
+ * named, lands on the same page (sellerProfilePath picks the route for the
+ * signed-in role). Without a profile id it falls back to plain text. Clicks
+ * don't bubble, so it is safe inside clickable cards and table rows.
+ */
+function SellerLink({ seller = null, id = seller?.id, name = seller?.hatchery_name || seller?.user?.name, fallback = 'Unknown seller' }) {
+  const label = name || fallback
+  if (!id) return label
+  return <Link className="seller-name-link" to={sellerProfilePath(id)} onClick={(e) => e.stopPropagation()}>{label}</Link>
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -1852,9 +1864,10 @@ function Modal({ title, subtitle, onClose, children, footer }) {
  * "Are these details correct?" step before a withdrawal request is sent, for
  * both the seller and the LGU wallet. Money sent to a mistyped account cannot
  * be pulled back, so the requester sees exactly what will be submitted first.
- * `fee` is the seller's platform payout fee; LGU payouts have none (null).
+ * Neither seller nor LGU payouts carry a fee (since 2026-10-09 the Platform
+ * takes its 4% at settlement), so the requester receives the amount shown.
  */
-function WithdrawalConfirmModal({ form, fee = null, pending = false, onConfirm, onClose }) {
+function WithdrawalConfirmModal({ form, pending = false, onConfirm, onClose }) {
   const amount = Number(form.amount) || 0
   const rows = [
     ['Payout method', withdrawalMethodLabel(form.method)],
@@ -1862,11 +1875,8 @@ function WithdrawalConfirmModal({ form, fee = null, pending = false, onConfirm, 
     ['Account name', form.account_name.trim()],
     [form.method === 'bank_transfer' ? 'Bank account number' : 'Mobile number', normalizeAccountNumber(form.account_number)],
     ['Amount requested', currency(amount)],
+    ['You will receive', currency(amount)],
   ]
-  if (fee !== null) {
-    rows.push(['Platform payout fee (6%)', currency(fee)])
-    rows.push(['You will receive', currency(Math.round((amount - fee) * 100) / 100)])
-  }
   return (
     <Modal
       title="Are these details correct?"
@@ -2837,7 +2847,7 @@ function CartItemRow({ item, onUpdateQuantity, onRemove, onBuy, busy }) {
             {!item.available && <Badge tone="danger">Unavailable</Badge>}
           </div>
           <p className="muted">
-            {listing?.sellerProfile?.hatchery_name || 'Unknown seller'}
+            <SellerLink id={listing?.seller_profile_id || listing?.sellerProfile?.id} name={listing?.sellerProfile?.hatchery_name} />
             {listing?.municipality?.name ? ` · ${listing.municipality.name}` : ''} · {currency(item.unit_price)}/{unitLabel(listing)}
             {minimum > 1 ? ` · min ${formatQuantity(minimum, listing)}` : ''}
           </p>
@@ -3727,12 +3737,7 @@ function SellerDashboard() {
     setConfirmingWithdrawal(false)
     requestWithdrawal.mutate()
   }
-  // Platform payout fee is fixed (see CommissionCalculator::WITHDRAWAL_FEE_PERCENT
-  // on the backend) -- this is a display-only preview so the seller can see it
-  // before submitting; the backend computes and freezes the authoritative fee.
   const withdrawRequestAmount = Number(withdrawForm.amount) || 0
-  const withdrawFeePreview = Math.round(withdrawRequestAmount * 0.06 * 100) / 100
-  const withdrawNetPreview = Math.round((withdrawRequestAmount - withdrawFeePreview) * 100) / 100
   const addStagedImages = (files) => {
     setStagedImages((current) => [...current, ...files.map((file) => ({ file, previewUrl: URL.createObjectURL(file) }))])
   }
@@ -3834,8 +3839,11 @@ function SellerDashboard() {
                 <Badge tone="danger">Action needed</Badge>
               </div>
               <p className="helper-text">
-                Your average buyer rating has fallen to 3 stars or below and your LGU has asked you to explain. Your account has not been
-                suspended. <Link to="/seller/dashboard?tab=notices">Open Notices</Link> to respond.
+                {dashboard.data.open_notices[0].type === 'user_report'
+                  ? "Your LGU found a buyer's report against you valid and has asked you to explain."
+                  : 'Your average buyer rating has fallen to 3 stars or below and your LGU has asked you to explain.'}
+                {' '}Your account has not been suspended, but it will be if your explanation is rejected.{' '}
+                <Link to="/seller/dashboard?tab=notices">Open Notices</Link> to respond.
               </p>
             </div>
           )}
@@ -3924,7 +3932,7 @@ function SellerDashboard() {
           </Section>
         </>
       )}
-      {tab === 'notices' && <SellerNoticesSection />}
+      {tab === 'notices' && <SellerNoticesSection lguContact={dashboard.data?.lgu_contact} />}
       {tab === 'support' && <SupportPanel role="seller" />}
       {tab === 'messages' && <Section title="Messages"><MessagesPanel initialUserId={searchParams.get('with') ? Number(searchParams.get('with')) : null} /></Section>}
       {tab === 'wallet' && (
@@ -3953,18 +3961,18 @@ function SellerDashboard() {
             <BelowMinimumWarning amount={withdrawRequestAmount} />
             {withdrawRequestAmount >= MIN_WITHDRAWAL && (
               <p className="helper-text">
-                A 6% platform payout fee applies to every withdrawal: you&apos;re requesting {currency(withdrawRequestAmount)}, a {currency(withdrawFeePreview)} fee will be deducted, and you&apos;ll receive approximately {currency(withdrawNetPreview)}.
+                There is no payout fee: you&apos;ll receive the full {currency(withdrawRequestAmount)}. The LGU&apos;s 2% and the platform&apos;s 4% were already taken when each order was settled.
               </p>
             )}
             <button type="button" onClick={submitWithdrawal} disabled={requestWithdrawal.isPending || (withdrawRequestAmount > 0 && withdrawRequestAmount < MIN_WITHDRAWAL)}>{requestWithdrawal.isPending ? 'Submitting...' : 'Submit Withdrawal Request'}</button>
             {withdrawFormError && <p className="error">{withdrawFormError}</p>}
             {confirmingWithdrawal && (
-              <WithdrawalConfirmModal form={withdrawForm} fee={withdrawFeePreview} onConfirm={confirmWithdrawal} onClose={() => setConfirmingWithdrawal(false)} />
+              <WithdrawalConfirmModal form={withdrawForm} onConfirm={confirmWithdrawal} onClose={() => setConfirmingWithdrawal(false)} />
             )}
             {requestWithdrawal.error && <p className="error">{apiErrorMessage(requestWithdrawal.error, 'Could not submit withdrawal request.')}</p>}
             {requestWithdrawal.isSuccess && (
               <p className="helper-text">
-                Withdrawal request submitted for {currency(requestWithdrawal.data?.amount)}. Platform payout fee: {currency(requestWithdrawal.data?.platform_fee)}. You'll receive {currency(requestWithdrawal.data?.net_amount)} once the Super Admin pays it out.
+                Withdrawal request submitted for {currency(requestWithdrawal.data?.amount)}. You&apos;ll receive {currency(requestWithdrawal.data?.net_amount)} once the Super Admin pays it out.
               </p>
             )}
           </Section>
@@ -3974,7 +3982,7 @@ function SellerDashboard() {
               <div className="table">
                 <div className="table-row first">
                   <span>Amount Requested</span>
-                  <span>Platform Fee (6%)</span>
+                  <span>Payout Fee</span>
                   <span>You Receive</span>
                   <span>Method</span>
                   <span>Account</span>
@@ -3986,7 +3994,8 @@ function SellerDashboard() {
                   <Fragment key={request.id}>
                   <div className="table-row">
                     <span>{currency(request.amount)}</span>
-                    <span>{currency(request.platform_fee)}</span>
+                    {/* Only requests made before 2026-10-09 carry the old 6% fee. */}
+                    <span>{Number(request.platform_fee) > 0 ? currency(request.platform_fee) : 'None'}</span>
                     <span>{currency(request.net_amount)}</span>
                     <span>{withdrawalMethodLabel(request.method, request.bank_name)}</span>
                     <span>{request.account_name} · {request.account_number}</span>
@@ -4004,6 +4013,14 @@ function SellerDashboard() {
                       disputeEndpoint={`/withdrawals/${request.id}/dispute`}
                       acceptEndpoint={`/withdrawals/${request.id}/accept-rejection`}
                       invalidateKeys={['seller-wallet']}
+                    />
+                  )}
+                  {request.status === 'rejected_final' && (
+                    <FinalRejectionHelp
+                      base="/seller/dashboard"
+                      contact={dashboard.data?.support_contact}
+                      contactLabel="the Super Admin"
+                      topic="Wallet or withdrawal"
                     />
                   )}
                   </Fragment>
@@ -4346,7 +4363,7 @@ function RefundRow({ refund, onMarkRefunded }) {
     <div className="card action">
       <div>
         <strong>{refund.order_number}</strong>
-        <p>{refund.buyer?.name || 'Buyer'} · {refund.hatchery_name || 'Seller'} · {currency(refund.amount)}</p>
+        <p>{refund.buyer?.name || 'Buyer'} · <SellerLink id={refund.seller_profile_id} name={refund.hatchery_name} fallback="Seller" /> · {currency(refund.amount)}</p>
         {refund.reason && <p className="muted">{refund.reason}</p>}
         {refund.provider_reference && <p className="muted">PayMongo checkout: {refund.provider_reference}</p>}
         {refund.refund_reference && <p className="muted">Refund reference: {refund.refund_reference}</p>}
@@ -4545,7 +4562,7 @@ function LguEarningsRow({ payment, onApprove, approvingId, onClearHold, onReject
       <div>
         <div className="card-row earnings-seller-row">
           <Avatar src={payment.order?.sellerProfile?.profile_picture} alt={payment.order?.sellerProfile?.hatchery_name} className="listing-seller-avatar" />
-          <strong>{payment.order?.sellerProfile?.hatchery_name || payment.order?.sellerProfile?.user?.name || 'Unknown seller'}</strong>
+          <strong><SellerLink id={payment.order?.seller_profile_id || payment.order?.sellerProfile?.id} seller={payment.order?.sellerProfile} /></strong>
           {base !== '/lgu' && payment.order?.sellerProfile?.municipality?.name && <span className="muted">{payment.order.sellerProfile.municipality.name}</span>}
           {isOnHold && <Badge status="on_hold">On Hold</Badge>}
         </div>
@@ -4614,7 +4631,7 @@ function LguRejectedEarningsRow({ payment, base = '/lgu', dashboardPath = '/lgu/
       <div>
         <div className="card-row earnings-seller-row">
           <Avatar src={order?.sellerProfile?.profile_picture} alt={order?.sellerProfile?.hatchery_name} className="listing-seller-avatar" />
-          <strong>{order?.sellerProfile?.hatchery_name || order?.sellerProfile?.user?.name || 'Unknown seller'}</strong>
+          <strong><SellerLink id={order?.seller_profile_id || order?.sellerProfile?.id} seller={order?.sellerProfile} /></strong>
           {base !== '/lgu' && order?.sellerProfile?.municipality?.name && <span className="muted">{order.sellerProfile.municipality.name}</span>}
           <Badge status="rejected">Rejected</Badge>
         </div>
@@ -4796,7 +4813,7 @@ function LguReviewCard({ review, onRemove, scope }) {
           <span className="lgu-review-party-label">Seller</span>
           <Avatar src={seller?.profile_picture} alt={seller?.hatchery_name} className="review-avatar" />
           <span>
-            {seller?.hatchery_name || 'Unknown seller'}
+            <SellerLink seller={seller} name={seller?.hatchery_name} />
             {seller?.user?.name && seller.user.name !== seller?.hatchery_name ? ` (${seller.user.name})` : ''}
           </span>
         </div>
@@ -5382,7 +5399,7 @@ function LguDashboard() {
                 <div className="card action" key={item.id}>
                   <div>
                     <div className="card-row"><Link className="seller-name-link" to={`/lgu/listings/${item.id}`}><strong>{item.title}</strong></Link>{item.approval_status !== 'approved' && <Badge status={item.approval_status} />}</div>
-                    <p>{item.sellerProfile?.hatchery_name} · {item.species}</p>
+                    <p><SellerLink id={item.seller_profile_id} name={item.sellerProfile?.hatchery_name} /> · {item.species}</p>
                   </div>
                   <div className="row-actions">
                     <Link className="ghost" to={`/lgu/listings/${item.id}`}>Manage</Link>
@@ -5411,7 +5428,7 @@ function LguDashboard() {
                 <div className="card action" key={seller.id}>
                   <div>
                     <div className="card-row">
-                      <strong>{seller.hatchery_name}</strong>
+                      <strong><SellerLink seller={seller} name={seller.hatchery_name} /></strong>
                       <Badge status={seller.status} />
                       <Badge status={seller.approval_status}>{seller.approval_status_label}</Badge>
                     </div>
@@ -5520,6 +5537,9 @@ function LguDashboard() {
                       rejectedBy="the Super Admin"
                     />
                   )}
+                  {request.status === 'rejected_final' && (
+                    <FinalRejectionHelp base="/lgu/dashboard" contactLabel="the Super Admin" />
+                  )}
                   </Fragment>
                 ))}
               </div>
@@ -5540,7 +5560,7 @@ function LguDashboard() {
                 {shown.map((settlement) => (
                   <div className="table-row" key={settlement.id}>
                     <span>{settlement.order?.order_number ? `#${settlement.order.order_number}` : 'N/A'}</span>
-                    <span>{settlement.sellerProfile?.hatchery_name || 'Unknown seller'}</span>
+                    <span><SellerLink id={settlement.seller_profile_id} name={settlement.sellerProfile?.hatchery_name} /></span>
                     <span>{currency(settlement.gross_amount)}</span>
                     <span>{currency(settlement.lgu_share)}</span>
                     <span>{settlement.settled_at ? new Date(settlement.settled_at).toLocaleDateString() : 'N/A'}</span>
@@ -5699,7 +5719,7 @@ function LguListingReviewPage() {
             <img className="seller-avatar" src={seller?.profile_picture || DEFAULT_AVATAR_IMAGE} alt={`${seller?.hatchery_name || 'Seller'} profile`} />
             <div>
               <div className="card-row">
-                <h3>{seller?.hatchery_name || listing.seller}</h3>
+                <h3><SellerLink id={seller?.id || listing.seller_profile_id} name={seller?.hatchery_name || listing.seller} /></h3>
                 {seller?.verified && <Badge tone="success">Verified Seller</Badge>}
               </div>
               <div className="detail-meta">
@@ -5841,7 +5861,7 @@ function SuperAdminListingReviewPage() {
             <img className="seller-avatar" src={seller?.profile_picture || DEFAULT_AVATAR_IMAGE} alt={`${seller?.hatchery_name || 'Seller'} profile`} />
             <div>
               <div className="card-row">
-                <h3>{seller?.hatchery_name || listing.seller}</h3>
+                <h3><SellerLink id={seller?.id || listing.seller_profile_id} name={seller?.hatchery_name || listing.seller} /></h3>
                 {seller?.verified && <Badge tone="success">Verified Seller</Badge>}
               </div>
               <div className="detail-meta">
@@ -6420,7 +6440,7 @@ function SuperAdminDashboard() {
           {/* Executive at-a-glance -- today's pulse and GROSS marketplace
               revenue (today / month / all-time). These are the full buyer-paid
               value, NOT the platform's own income; the Super Admin's actual
-              revenue (the 6% payout fee) is the "Platform Revenue" cards in the
+              revenue (its 4% share of each settled order) is the "Platform Revenue" cards in the
               Marketplace Revenue section below. Labels say "Gross" so the top
               figures are never mistaken for the platform's cut. */}
           <StatsRow items={[
@@ -6447,7 +6467,7 @@ function SuperAdminDashboard() {
             ]} />
           </Section>
           <Section title="Marketplace Revenue" actions={<Link className="ghost" to="/admin/dashboard?tab=reports">View Analytics</Link>}>
-            <p className="helper-text">Platform Revenue is a 6% payout fee charged when a seller withdraws -- it is realized only once the Super Admin marks that withdrawal Paid, never taken from the order at settlement time. Gross Marketplace Revenue is the full value paid by buyers before revenue sharing, recognized at settlement.</p>
+            <p className="helper-text">Platform Revenue is the platform&apos;s 4% share of every order, recognized when the LGU approves the seller&apos;s earnings (the seller keeps 94%, the LGU 2%). It also includes the 6% payout fees on withdrawals requested before October 9, 2026. Gross Marketplace Revenue is the full value paid by buyers before revenue sharing, recognized at settlement.</p>
             <StatsRow items={[
               ["Today's Platform Revenue", currency(dashboard.data?.platform_revenue?.today_platform_revenue ?? 0), false, '/admin/dashboard?tab=reports'],
               ['Monthly Platform Revenue', currency(dashboard.data?.platform_revenue?.monthly_platform_revenue ?? 0), false, '/admin/dashboard?tab=reports'],
@@ -6510,7 +6530,7 @@ function SuperAdminDashboard() {
                 <div className="card action" key={item.id}>
                   <div>
                     <div className="card-row"><Link className="seller-name-link" to={`/admin/listings/${item.id}`}><strong>{item.title}</strong></Link>{item.approval_status !== 'approved' && <Badge status={item.approval_status} />}</div>
-                    <p>{item.sellerProfile?.hatchery_name} · {item.species} · {item.municipality?.name}</p>
+                    <p><SellerLink id={item.seller_profile_id} name={item.sellerProfile?.hatchery_name} /> · {item.species} · {item.municipality?.name}</p>
                   </div>
                   <div className="row-actions">
                     <Link className="ghost" to={`/admin/listings/${item.id}`}>Manage</Link>
@@ -6665,7 +6685,7 @@ function SuperAdminDashboard() {
                 <div className="card action" key={seller.id}>
                   <div>
                     <div className="card-row">
-                      <strong>{seller.hatchery_name}</strong>
+                      <strong><SellerLink seller={seller} name={seller.hatchery_name} /></strong>
                       <Badge status={seller.status} />
                       <Badge status={seller.approval_status}>{seller.approval_status_label}</Badge>
                     </div>
@@ -6784,7 +6804,7 @@ function SuperAdminDashboard() {
           ]} />
 
           <h3>Marketplace Revenue</h3>
-          <p className="helper-text">Platform Revenue is a 6% payout fee charged when a seller withdraws, realized once the Super Admin marks it Paid (plotted by payout date), for the selected period. Gross Marketplace Revenue is the full value paid by buyers before revenue sharing, recognized at settlement.</p>
+          <p className="helper-text">Platform Revenue is the platform&apos;s 4% share of every settled order (plotted by settlement date), plus the 6% payout fees on withdrawals requested before October 9, 2026 (plotted by payout date), for the selected period. Gross Marketplace Revenue is the full value paid by buyers before revenue sharing, recognized at settlement.</p>
           <div className="charts-grid">
             <TimeSeriesChart title={`Platform Revenue Over Time (${periodLabel(reportsPeriod)})`} data={reports.data?.platform_revenue_over_time} dataKey="amount" color="var(--color-primary)" valueFormatter={currency} />
             <TimeSeriesChart title={`Gross Marketplace Revenue Over Time (${periodLabel(reportsPeriod)})`} data={reports.data?.gross_revenue_over_time} dataKey="amount" color="var(--color-teal)" valueFormatter={currency} />
@@ -6985,6 +7005,9 @@ function UserReportsPanel({ endpointBase, queryKey, scopeLabel }) {
   const [statusFilter, setStatusFilter] = useState('open')
   const [actingId, setActingId] = useState(null)
   const [decision, setDecision] = useState({ status: 'under_review', notes: '' })
+  // 'notice' is not a report status: it saves the report as resolved and asks
+  // the reported seller to explain (SellerReputation::raiseReportNotice).
+  const sendsNotice = decision.status === 'notice'
 
   const reports = useQuery({
     queryKey: [queryKey],
@@ -6995,7 +7018,8 @@ function UserReportsPanel({ endpointBase, queryKey, scopeLabel }) {
 
   const updateReport = useMutation({
     mutationFn: async ({ id, status, notes }) => (await api.patch(`${endpointBase}/user-reports/${id}`, {
-      status,
+      status: status === 'notice' ? 'resolved' : status,
+      issue_notice: status === 'notice' || undefined,
       resolution_notes: notes || undefined,
     })).data,
     onSuccess: () => {
@@ -7035,9 +7059,9 @@ function UserReportsPanel({ endpointBase, queryKey, scopeLabel }) {
             <div className="card report-card" key={report.id}>
               <div className="card-row">
                 <strong>
-                  {report.reporter?.name || 'Unknown'} <span className="muted">({report.reporter_role})</span>
+                  <SellerLink id={report.reporter?.sellerProfile?.id} name={report.reporter?.name} fallback="Unknown" /> <span className="muted">({report.reporter_role})</span>
                   {' → '}
-                  {report.reportedUser?.name || 'Unknown'} <span className="muted">({report.reported_role})</span>
+                  <SellerLink id={report.reportedUser?.sellerProfile?.id} name={report.reportedUser?.name} fallback="Unknown" /> <span className="muted">({report.reported_role})</span>
                 </strong>
                 <ReportStatusBadge status={report.status} />
               </div>
@@ -7056,6 +7080,7 @@ function UserReportsPanel({ endpointBase, queryKey, scopeLabel }) {
                   <select value={decision.status} onChange={(e) => setDecision({ ...decision, status: e.target.value })}>
                     <option value="under_review">Mark Under Review</option>
                     <option value="resolved">Resolve</option>
+                    {report.reported_role === 'seller' && <option value="notice">Valid: send Notice to Explain</option>}
                     <option value="dismissed">Dismiss</option>
                   </select>
                   <textarea
@@ -7063,11 +7088,18 @@ function UserReportsPanel({ endpointBase, queryKey, scopeLabel }) {
                     onChange={(e) => setDecision({ ...decision, notes: e.target.value })}
                     placeholder={decision.status === 'dismissed'
                       ? 'Reason for dismissing (required, shared with the reporter)'
-                      : 'Notes on your decision (optional, shared with the reporter)'}
+                      : sendsNotice
+                        ? 'What you found (required -- the seller and the reporter both see this)'
+                        : 'Notes on your decision (optional, shared with the reporter)'}
                     rows={2}
                   />
+                  {sendsNotice && (
+                    <p className="helper-text">
+                      The seller must explain under Notices to Explain. If you later reject the explanation, the seller is suspended and can dispute it once.
+                    </p>
+                  )}
                   <div className="row-actions">
-                    <button type="button" disabled={updateReport.isPending || (decision.status === 'dismissed' && !decision.notes.trim())} onClick={() => updateReport.mutate({ id: report.id, status: decision.status, notes: decision.notes.trim() })}>
+                    <button type="button" disabled={updateReport.isPending || ((decision.status === 'dismissed' || sendsNotice) && !decision.notes.trim())} onClick={() => updateReport.mutate({ id: report.id, status: decision.status, notes: decision.notes.trim() })}>
                       Save Decision
                     </button>
                     <button type="button" className="ghost" disabled={updateReport.isPending} onClick={() => setActingId(null)}>Cancel</button>
@@ -7153,10 +7185,10 @@ const HELP_TOPICS = [
     title: 'Earnings & Withdrawals',
     audience: 'seller',
     items: [
-      ['When do I get paid?', 'After the buyer confirms they received the order, your LGU reviews the earnings. Once approved, 96% of the order total goes to your Available Balance. The other 4% is the LGU\'s share.'],
-      ['How do I withdraw my money?', 'Open your Wallet and click Request Withdrawal. Choose GCash, Maya or a bank account. A 6% payout fee is taken from the amount you request. The Super Admin approves the request and marks it paid once the money is sent.'],
-      ['My earnings review or withdrawal was rejected.', 'Open the rejected item and click Dispute This Rejection to explain your side. The person who rejected it reviews your dispute. If they accept it, the item is reopened for another review. A rejected withdrawal keeps its amount on hold while you decide: dispute it once within 7 days, or click Accept Rejection to return the amount to your Available Balance right away. If you do nothing for 7 days, or your dispute is rejected, the amount returns to your Available Balance on its own.'],
-      ['What is a Notice to Explain?', 'If your average rating falls to 3 stars or below, AbaiMarket sends you a Notice to Explain. Answer it from the Notices tab. Your first notice is only a warning. From the second notice on, your listings are paused until your LGU accepts your explanation.'],
+      ['When do I get paid?', 'After the buyer confirms they received the order, your LGU reviews the earnings. Once approved, 94% of the order total goes to your Available Balance. The other 6% is shared: 2% to your LGU and 4% to AbaiMarket.'],
+      ['How do I withdraw my money?', 'Open your Wallet and click Request Withdrawal. Choose GCash, Maya or a bank account. There is no payout fee, so you receive the full amount you request. The Super Admin approves the request and marks it paid once the money is sent.'],
+      ['My earnings review or withdrawal was rejected.', 'Open the rejected item and click Dispute This Rejection to explain your side. The person who rejected it reviews your dispute. If they accept it, the item is reopened for another review. A rejected withdrawal keeps its amount on hold while you decide: dispute it once within 7 days, or click Accept Rejection to return the amount to your Available Balance right away. If you do nothing for 7 days, or your dispute is rejected, the amount returns to your Available Balance on its own. If you still think a final rejection is wrong, message the Super Admin or send a support ticket under Wallet or withdrawal.'],
+      ['What is a Notice to Explain?', 'If your average rating falls to 3 stars or below, or your LGU finds a buyer\'s report against you valid, AbaiMarket sends you a Notice to Explain. Answer it from the Notices tab. Your first notice is only a warning. From the second notice on, your listings are paused until your LGU accepts your explanation. If your explanation is rejected, your seller account is suspended. You can dispute that decision once from the Notices tab; if the dispute is also rejected, message your LGU or send a support ticket.'],
     ],
   },
 ]
@@ -7271,14 +7303,14 @@ const NOTIFICATION_TABS = {
   seller: [
     ['withdrawal_', 'wallet'], ['earnings_', 'wallet'], ['dispute_resolved', 'wallet'],
     ['order_', 'orders'],
-    ['seller_notice', 'notices'], ['low_rating', 'notices'], ['seller_low_rating', 'notices'],
+    ['seller_notice', 'notices'], ['low_rating', 'notices'], ['seller_low_rating', 'notices'], ['notice_dispute_resolved', 'notices'],
     ['listing_', 'listings'],
   ],
   lgu_admin: [
     ['earnings_pending_approval', 'earnings'],
     ['seller_registration_submitted', 'sellers'],
     ['user_report', 'user-reports'],
-    ['seller_notice', 'notices'],
+    ['seller_notice', 'notices'], ['seller_report_notice', 'notices'],
     ['dispute_filed', 'disputes'],
     ['lgu_withdrawal_', 'wallet'], ['dispute_resolved', 'wallet'],
   ],
@@ -8153,11 +8185,11 @@ function StaffSupportTicket({ ticketId, base, onChanged }) {
 }
 
 /**
- * Notices to Explain -- the LGU's dedicated dashboard for sellers
- * automatically flagged for a low average rating (backend
- * App\Support\SellerReputation). Raising a notice never suspends anyone; this
- * is where the LGU reads the seller's explanation and decides what to do,
- * including suspending them from the Sellers tab if that is warranted.
+ * Notices to Explain -- the LGU's dedicated dashboard for sellers flagged for
+ * a low average rating or a valid buyer report (backend
+ * App\Support\SellerReputation). Raising a notice never suspends anyone;
+ * rejecting the explanation does (App\Support\SellerSanctions), and the
+ * seller's one dispute then appears under Disputes.
  */
 function SellerNoticesPanel({ scope = 'lgu' }) {
   // The Super Admin sees every municipality through the same panel -- the
@@ -8193,7 +8225,7 @@ function SellerNoticesPanel({ scope = 'lgu' }) {
     onSuccess: refreshNotices,
   })
   // Accept and reject are separate endpoints because they carry consequences:
-  // a rejection is an offense, and the third one suspends the seller.
+  // a rejection is an offense and suspends the seller (one dispute allowed).
   const acceptNotice = useMutation({
     mutationFn: async ({ id, notes }) => (await api.patch(`${base}/seller-notices/${id}/accept`, { notes: notes || undefined })).data,
     onSuccess: refreshNotices,
@@ -8206,12 +8238,13 @@ function SellerNoticesPanel({ scope = 'lgu' }) {
   return (
     <Section title="Notices to Explain">
       <p className="helper-text">
-        Sellers {scope === 'super_admin' ? 'across every municipality' : 'in your municipality'} whose average buyer rating has fallen to 3 stars or below are flagged here automatically. Their listings come
+        Sellers {scope === 'super_admin' ? 'across every municipality' : 'in your municipality'} get a Notice to Explain when their average buyer
+        rating falls to 3 stars or below, or when a buyer&apos;s report against them is found valid under User Reports.
         A seller&apos;s <strong>first</strong> notice is a warning: their listings stay up while they explain. From their{' '}
         <strong>second</strong> notice onward the listings come off the marketplace until you accept the explanation. Read it and decide:{' '}
-        <strong>accept</strong> puts their listings back with no offense recorded, <strong>reject</strong> records an offense. Nothing here
-        suspends anyone automatically -- a rating can fall because a buyer was trolling. Suspension is your call, from the Sellers tab, after
-        one notice or never.
+        <strong>accept</strong> puts their listings back with no offense recorded; <strong>reject</strong> records an offense and{' '}
+        <strong>suspends the seller</strong>. They can dispute that decision once (it appears under Disputes). If the dispute is rejected too,
+        their only route is to message you or send a support ticket.
       </p>
       {periodControls}
       {shownNotices.length ? (
@@ -8219,13 +8252,16 @@ function SellerNoticesPanel({ scope = 'lgu' }) {
           {shownNotices.map((notice) => (
             <div className="card report-card" key={notice.id}>
               <div className="card-row">
-                <strong>{notice.sellerProfile?.hatchery_name || 'Seller'}</strong>
-                <Badge tone="danger">{Number(notice.average_rating || 0).toFixed(2)}/5</Badge>
+                <strong><SellerLink seller={notice.sellerProfile} /></strong>
+                {notice.type === 'user_report'
+                  ? <Badge tone="danger">Buyer report</Badge>
+                  : <Badge tone="danger">{Number(notice.average_rating || 0).toFixed(2)}/5</Badge>}
                 <ReportStatusBadge status={notice.status} />
               </div>
               <p className="report-description">{notice.details}</p>
               <p className="muted">
-                Issued {new Date(notice.created_at).toLocaleString()} · {notice.ratings_count} review{notice.ratings_count === 1 ? '' : 's'} at the time
+                Issued {new Date(notice.created_at).toLocaleString()}
+                {notice.type !== 'user_report' && ` · ${notice.ratings_count} review${notice.ratings_count === 1 ? '' : 's'} at the time`}
               </p>
               <p className="muted">
                 Offenses on record: {notice.seller_offense_count ?? 0}
@@ -8244,7 +8280,7 @@ function SellerNoticesPanel({ scope = 'lgu' }) {
               {notice.lgu_notes && <p className="helper-text"><strong>Your notes:</strong> {notice.lgu_notes}</p>}
               {['accepted', 'rejected'].includes(notice.status) ? (
                 <p className="helper-text">
-                  {notice.status === 'accepted' ? 'Explanation accepted.' : 'Explanation rejected -- an offense was recorded.'}
+                  {notice.status === 'accepted' ? 'Explanation accepted.' : 'Explanation rejected -- an offense was recorded and the seller was suspended. They can dispute it once, under Disputes.'}
                   {notice.reviewer?.name ? ` Decided by ${notice.reviewer.name}.` : ''}
                 </p>
               ) : actingId === notice.id ? (
@@ -8268,14 +8304,18 @@ function SellerNoticesPanel({ scope = 'lgu' }) {
                       type="button"
                       className="ghost danger"
                       disabled={rejectNotice.isPending || decision.notes.trim().length < 10}
-                      onClick={() => rejectNotice.mutate({ id: notice.id, reason: decision.notes.trim() })}
+                      onClick={() => {
+                        if (window.confirm('Reject this explanation? The seller will be suspended. They can dispute this decision once.')) {
+                          rejectNotice.mutate({ id: notice.id, reason: decision.notes.trim() })
+                        }
+                      }}
                     >
                       Reject Explanation
                     </button>
                     <button type="button" className="ghost" onClick={() => setActingId(null)}>Cancel</button>
                   </div>
                   <p className="helper-text">
-                    Rejecting records an offense and leaves the listings as they are. To suspend this seller, use the Sellers tab.
+                    Rejecting records an offense and suspends this seller. They can dispute it once; an accepted dispute reinstates them.
                   </p>
                 </div>
               ) : (
@@ -8289,7 +8329,7 @@ function SellerNoticesPanel({ scope = 'lgu' }) {
             </div>
           ))}
         </div>
-      ) : periodEmpty || <EmptyState message={`No sellers ${scope === 'super_admin' ? '' : 'in your municipality '}are currently flagged for a low rating.`} />}
+      ) : periodEmpty || <EmptyState message={`No sellers ${scope === 'super_admin' ? '' : 'in your municipality '}have a Notice to Explain.`} />}
       {(updateNotice.error || acceptNotice.error || rejectNotice.error) && (
         <p className="error">
           {(updateNotice.error || acceptNotice.error || rejectNotice.error).response?.data?.message || 'Could not update this notice.'}
@@ -8300,11 +8340,13 @@ function SellerNoticesPanel({ scope = 'lgu' }) {
 }
 
 /**
- * The seller's own Notices to Explain. Raised automatically when their average
- * rating falls to 3 stars or below -- the seller answers here, and their LGU
- * reads the answer and decides. Responding never closes a notice.
+ * The seller's own Notices to Explain -- raised when their average rating falls
+ * to 3 stars or below, or when a buyer's report is found valid. The seller
+ * answers here and their LGU decides. A rejected explanation suspends them;
+ * they can dispute it once here, and after that the next step is their LGU or
+ * Help & Support (FinalRejectionHelp), like a rejected registration.
  */
-function SellerNoticesSection() {
+function SellerNoticesSection({ lguContact = null }) {
   const [drafts, setDrafts] = useState({})
 
   const notices = useQuery({
@@ -8328,10 +8370,11 @@ function SellerNoticesSection() {
   return (
     <Section title="Notices to Explain">
       <p className="helper-text">
-        If your average buyer rating falls to 3 stars or below, your LGU is notified automatically and asks you to explain. Your{' '}
-        <strong>first</strong> notice is a warning -- your listings stay on the marketplace while you explain. From your second notice onward your
-        listings come off the marketplace until your LGU accepts your explanation. Either way this is <strong>not</strong> a suspension: you can
-        still sign in, reply to buyers and complete orders already placed. Nothing suspends your account automatically.
+        You get a Notice to Explain if your average buyer rating falls to 3 stars or below, or if your LGU finds a buyer&apos;s report against you
+        valid. Your <strong>first</strong> notice is a warning -- your listings stay on the marketplace while you explain. From your second notice
+        onward your listings come off the marketplace until your LGU accepts your explanation. If your explanation is{' '}
+        <strong>rejected, your seller account is suspended</strong>. You can dispute that decision once from here; if the dispute is also
+        rejected, message your LGU or send a support ticket.
       </p>
       {periodControls}
       {shownNotices.length ? (
@@ -8344,8 +8387,8 @@ function SellerNoticesSection() {
             return (
               <div className="card report-card" key={notice.id}>
                 <div className="card-row">
-                  <strong>Low Rating Notice</strong>
-                  <Badge tone="danger">{Number(notice.average_rating || 0).toFixed(2)}/5</Badge>
+                  <strong>{notice.type === 'user_report' ? 'Buyer Report Notice' : 'Low Rating Notice'}</strong>
+                  {notice.type !== 'user_report' && <Badge tone="danger">{Number(notice.average_rating || 0).toFixed(2)}/5</Badge>}
                   <ReportStatusBadge status={notice.status} />
                 </div>
                 <p className="report-description">{notice.details}</p>
@@ -8361,7 +8404,24 @@ function SellerNoticesSection() {
                   <p className="helper-text">{reviewer} accepted this explanation. Your listings are back on the marketplace and no offense was recorded.</p>
                 )}
                 {notice.status === 'rejected' && (
-                  <p className="error">{reviewer} rejected this explanation, so an offense was recorded against your account.</p>
+                  <>
+                    <p className="error">{reviewer} rejected this explanation, so an offense was recorded and your seller account was suspended.</p>
+                    {notice.can_dispute && (
+                      <div className="row-actions">
+                        <p className="helper-text">You can dispute this decision once. Explain why it should be reconsidered.</p>
+                        <DisputeAction endpoint={`/seller/notices/${notice.id}/dispute`} invalidateKeys={['seller-notices', 'seller-dashboard']} label="Dispute This Decision" />
+                      </div>
+                    )}
+                    {notice.dispute?.status === 'open' && (
+                      <p className="helper-text">Your dispute is waiting for a decision. Your account stays suspended until then.</p>
+                    )}
+                    {notice.dispute?.status === 'rejected' && (
+                      <>
+                        <p className="error">Your dispute was rejected{notice.dispute.resolution_note ? `: ${notice.dispute.resolution_note}` : '.'}</p>
+                        <FinalRejectionHelp base="/seller/dashboard" contact={lguContact} contactLabel="your LGU" topic="Account or login" />
+                      </>
+                    )}
+                  </>
                 )}
                 {open ? (
                   <div className="form grid-form">
@@ -8434,7 +8494,7 @@ function SellerRegistrationQueue({ endpointBase, queryKey, stageLabel, approveLa
             <div className="card action" key={seller.id}>
               <div>
                 <div className="card-row">
-                  <strong>{seller.hatchery_name}</strong>
+                  <strong><SellerLink seller={seller} name={seller.hatchery_name} /></strong>
                   <Badge status={seller.approval_status}>{seller.approval_status_label}</Badge>
                 </div>
                 <p>{seller.user?.name} · {seller.user?.email}{seller.user?.phone ? ` · ${seller.user.phone}` : ''}</p>
@@ -8664,7 +8724,7 @@ function WithdrawalRow({ request, onApprove, onReject, onMarkPaid, type = 'selle
           ) : (
             <>
               <Avatar src={seller?.profile_picture} alt={seller?.hatchery_name} className="listing-seller-avatar" />
-              <strong>{seller?.hatchery_name || seller?.user?.name || 'Unknown seller'}</strong>
+              <strong><SellerLink seller={seller} /></strong>
             </>
           )}
           <Badge status={request.status}>{withdrawalStatusLabel(request.status)}</Badge>
@@ -8676,7 +8736,11 @@ function WithdrawalRow({ request, onApprove, onReject, onMarkPaid, type = 'selle
         {isLgu ? (
           <p className="muted">Requested by: {request.requestedBy?.name || 'Unknown'} · No platform fee applies to LGU withdrawals.</p>
         ) : (
-          <p className="muted">Platform payout fee (6%): {currency(request.platform_fee)} · Seller receives: {currency(request.net_amount)}</p>
+          <p className="muted">
+            {Number(request.platform_fee) > 0
+              ? `Platform payout fee (6%, requested before Oct 9, 2026): ${currency(request.platform_fee)} · Seller receives: ${currency(request.net_amount)}`
+              : `No payout fee · Seller receives: ${currency(request.net_amount)}`}
+          </p>
         )}
         <p className="muted">Requested {new Date(request.created_at).toLocaleDateString()}</p>
         {['rejected', 'rejected_final'].includes(request.status) && request.rejection_reason && (
@@ -8743,10 +8807,10 @@ function SuspendedAccountNotice({ role }) {
       </div>
       <p className="helper-text">
         {role === 'seller'
-          ? 'Your listings are off the marketplace, and you cannot add or edit listings, update orders, request withdrawals, post or message buyers until you are reinstated. You can still sign in, see your account, answer Notices to Explain and dispute rejected earnings or withdrawals.'
+          ? 'Your listings are off the marketplace, and you cannot add or edit listings, update orders, request withdrawals, post or message buyers until you are reinstated. You can still sign in, see your account, answer Notices to Explain and dispute rejected decisions -- a rejected Notice to Explain can be disputed once from the Notices tab.'
           : 'You cannot place orders, pay, message sellers or leave reviews until you are reinstated. You can still sign in, browse and see your orders.'}
         {' '}The reason is in your <Link to={`${base}?tab=notifications`}>Notifications</Link> and in the email we sent. If you think this is a mistake,{' '}
-        <Link to={`${base}?tab=support`}>send a support ticket</Link>.
+        <Link to={`${base}?tab=messages`}>message your LGU</Link> or <Link to={`${base}?tab=support`}>send a support ticket</Link>.
       </p>
     </div>
   )
@@ -8844,7 +8908,7 @@ function UserDirectoryList({ users, messageBasePath, emptyMessage = 'No users fo
         <div className="card action" key={user.id}>
           <div>
             <div className="card-row">
-              <strong>{user.name}</strong>
+              <strong><SellerLink id={user.sellerProfile?.id} name={user.name} /></strong>
               <Badge status={user.status || 'unknown'} />
             </div>
             <p>{user.email} · {user.phone || 'Not Available'}</p>
@@ -8926,6 +8990,7 @@ function OrderTable({ rows, onReview, onConfirmReceived, confirmPendingOrderId, 
       seller_name: hatcheryName || sellerPersonName || row.seller || 'Unknown seller',
       seller_contact_name: sellerPersonName && sellerPersonName !== hatcheryName ? sellerPersonName : null,
       seller_avatar: sellerProfile?.profile_picture || null,
+      seller_profile_id: row.seller_profile_id || sellerProfile?.id || null,
       buyer_name: row.buyer?.name || 'Unknown buyer',
       buyer_avatar: row.buyer?.profile_picture || null,
       quantity: row.quantity,
@@ -8971,7 +9036,7 @@ function OrderTable({ rows, onReview, onConfirmReceived, confirmPendingOrderId, 
             ) : (
               <span className="order-seller-cell">
                 <Avatar src={row.seller_avatar} alt={row.seller_name} className="order-seller-avatar" />
-                {row.seller_name}{row.seller_contact_name ? ` (${row.seller_contact_name})` : ''}
+                <SellerLink id={row.seller_profile_id} name={row.seller_name} />{row.seller_contact_name ? ` (${row.seller_contact_name})` : ''}
               </span>
             )}
             <span>{row.quantity_label}</span>
@@ -9219,7 +9284,7 @@ function OrderDetailPanel({ detail, paymentView = 'escrow' }) {
         <div className="order-detail-field"><span className="order-detail-field-label">Order Number</span><span>{detail.order_number}</span></div>
         <div className="order-detail-field"><span className="order-detail-field-label">Order Date</span><span>{formatOrderDate(detail.created_at)}</span></div>
         <div className="order-detail-field"><span className="order-detail-field-label">Listing</span><span>{detail.listing?.title || detail.listing?.species || 'N/A'}</span></div>
-        <div className="order-detail-field"><span className="order-detail-field-label">Seller</span><span>{detail.seller?.hatchery_name || 'N/A'}</span></div>
+        <div className="order-detail-field"><span className="order-detail-field-label">Seller</span><span><SellerLink seller={detail.seller} fallback="N/A" /></span></div>
         <div className="order-detail-field"><span className="order-detail-field-label">Buyer</span><span>{detail.buyer?.name || 'N/A'}</span></div>
         {detail.municipality && <div className="order-detail-field"><span className="order-detail-field-label">Municipality</span><span>{detail.municipality.name}</span></div>}
         <div className="order-detail-field"><span className="order-detail-field-label">Quantity</span><span>{formatQuantity(detail.quantity, detail.listing)}</span></div>
@@ -9394,6 +9459,30 @@ function RejectedWithdrawalActions({ request, disputeEndpoint, acceptEndpoint, i
   )
 }
 
+/**
+ * Shown once a rejection is final in the app (its one dispute is used up or
+ * it was accepted). Like a rejected registration, the next step is a person:
+ * a direct message or a support ticket. LGU Admins have no ticket form of
+ * their own, so only the message link is offered without a `topic`.
+ */
+function FinalRejectionHelp({ base, contact = null, contactLabel, topic = null }) {
+  const messageLink = `${base}?tab=messages${contact?.id ? `&with=${contact.id}` : ''}`
+  return (
+    <div className="table-row-appeal">
+      <p className="helper-text">
+        This rejection is final. If you still think it is wrong,{' '}
+        <Link to={messageLink}>message {contactLabel}{contact?.name ? ` (${contact.name})` : ''}</Link>
+        {topic && (
+          <>
+            {' '}or <Link to={`${base}?tab=support&view=contact`}>send a support ticket</Link> under &quot;{topic}&quot;
+          </>
+        )}
+        .
+      </p>
+    </div>
+  )
+}
+
 function DisputeAction({ endpoint, invalidateKeys = [], label = 'Dispute This' }) {
   const [open, setOpen] = useState(false)
   const [reason, setReason] = useState('')
@@ -9509,7 +9598,7 @@ function DisputesPanel({ scope = 'lgu' }) {
                   <Avatar src={row.filedBy?.profile_picture} alt={row.filedBy?.name} className="dispute-avatar" />
                   <div className="dispute-head-text">
                     <div className="card-row">
-                      <strong>{row.filedBy?.name || 'Unknown'}</strong>
+                      <strong><SellerLink id={row.filedBy?.sellerProfile?.id} name={row.filedBy?.name} fallback="Unknown" /></strong>
                       {row.filedBy?.role && <RoleBadge role={row.filedBy.role} />}
                       <Badge tone="warning">Open</Badge>
                     </div>
@@ -9571,7 +9660,7 @@ function DisputesPanel({ scope = 'lgu' }) {
                   <Avatar src={row.filedBy?.profile_picture} alt={row.filedBy?.name} className="dispute-avatar" />
                   <div className="dispute-head-text">
                     <div className="card-row">
-                      <strong>{row.filedBy?.name || 'Unknown'}</strong>
+                      <strong><SellerLink id={row.filedBy?.sellerProfile?.id} name={row.filedBy?.name} fallback="Unknown" /></strong>
                       {row.filedBy?.role && <RoleBadge role={row.filedBy.role} />}
                       <Badge status={row.status} tone={row.status === 'accepted' ? 'success' : undefined}>{row.status === 'accepted' ? 'Accepted' : 'Rejected'}</Badge>
                     </div>
@@ -9980,7 +10069,7 @@ function BuyerInvestmentPanel({ data, assumptions, setAssumptions, updating = fa
                   <small>{new Date(row.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small>
                 </span>
                 <span>{row.order_number}</span>
-                <span>{row.seller || 'Unknown'}</span>
+                <span><SellerLink id={row.seller_profile_id} name={row.seller} fallback="Unknown" /></span>
                 <span>{row.species || 'Fingerlings'}</span>
                 <span>{Number(row.quantity).toLocaleString()} {row.unit_label}</span>
                 <span>{currency(row.unit_price)}</span>

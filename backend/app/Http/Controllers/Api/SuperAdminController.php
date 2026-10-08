@@ -356,6 +356,7 @@ class SuperAdminController extends Controller
             'order_number' => $payment->order?->order_number,
             'buyer' => $payment->order?->buyer?->only(['id', 'name', 'email']),
             'hatchery_name' => $payment->order?->sellerProfile?->hatchery_name,
+            'seller_profile_id' => $payment->order?->seller_profile_id,
             'listing_title' => $payment->order?->listing?->title,
             'reason' => $logs->get($payment->id)?->firstWhere('event', '!=', 'refund.completed')?->payload['reason'] ?? null,
             'refund_reference' => $logs->get($payment->id)?->firstWhere('event', 'refund.completed')?->payload['reference'] ?? null,
@@ -457,12 +458,14 @@ class SuperAdminController extends Controller
             'type' => 'withdrawal_paid',
             'title' => 'Withdrawal Completed',
             'body' => sprintf(
-                'Your withdrawal request of ₱%s via %s has been paid out on %s. A ₱%s platform payout fee was deducted -- you received ₱%s.',
+                'Your withdrawal request of ₱%s via %s has been paid out on %s.%s',
                 number_format((float) $withdrawal->amount, 2),
                 $withdrawal->method,
                 $paidAt->format('M d, Y'),
-                number_format((float) $withdrawal->platform_fee, 2),
-                number_format($withdrawal->net_amount, 2)
+                // Only requests made before 2026-10-09 carry a payout fee.
+                (float) $withdrawal->platform_fee > 0
+                    ? sprintf(' A ₱%s platform payout fee was deducted -- you received ₱%s.', number_format((float) $withdrawal->platform_fee, 2), number_format($withdrawal->net_amount, 2))
+                    : ''
             ),
         ]);
 
@@ -646,12 +649,16 @@ class SuperAdminController extends Controller
         $data = $request->validate([
             'status' => ['required', Rule::in(UserReport::STATUSES)],
             // Dismissing turns the reporter away, so they are told why.
-            'resolution_notes' => ['nullable', 'required_if:status,dismissed', 'string', 'max:2000'],
+            // A Notice to Explain quotes these findings to the seller.
+            'resolution_notes' => ['nullable', 'required_if:status,dismissed', 'required_if:issue_notice,true', 'string', 'max:2000'],
+            'issue_notice' => ['sometimes', 'boolean'],
         ], [
-            'resolution_notes.required_if' => 'Please give a reason for dismissing this report.',
+            'resolution_notes.required_if' => 'Please give a reason for this decision.',
         ]);
+        $issueNotice = (bool) ($data['issue_notice'] ?? false);
+        abort_if($issueNotice && $data['status'] !== 'resolved', 422, 'Only a report you resolve as valid can send a Notice to Explain.');
 
-        return response()->json(UserReports::updateStatus($report, $request->user(), $data['status'], $data['resolution_notes'] ?? null));
+        return response()->json(UserReports::updateStatus($report, $request->user(), $data['status'], $data['resolution_notes'] ?? null, $issueNotice));
     }
 
     /**

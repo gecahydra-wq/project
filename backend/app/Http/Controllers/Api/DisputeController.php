@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Dispute;
 use App\Models\LguWithdrawalRequest;
 use App\Models\Order;
+use App\Models\SellerNotice;
 use App\Models\SellerProfile;
 use App\Models\WithdrawalRequest;
 use App\Support\DisputeResolution;
@@ -43,6 +44,20 @@ class DisputeController extends Controller
     }
 
     /**
+     * Seller: dispute the rejection of their explanation for a Notice to
+     * Explain -- the decision that suspended them. Allowed once.
+     */
+    public function disputeNotice(Request $request, SellerNotice $notice)
+    {
+        $seller = SellerProfile::where('user_id', $request->user()->id)->firstOrFail();
+        abort_if($notice->seller_profile_id !== $seller->id, 403, 'You can only dispute your own notices.');
+
+        $data = $request->validate(['reason' => ['required', 'string', 'max:2000']]);
+
+        return response()->json(DisputeResolution::file($notice, $request->user(), $data['reason']), 201);
+    }
+
+    /**
      * LGU Admin: dispute a rejected withdrawal of their municipality's own
      * earnings. The Super Admin rejected it, so the Super Admin hears this.
      */
@@ -58,7 +73,7 @@ class DisputeController extends Controller
     /** Reviewer: every dispute they are responsible for, newest first. */
     public function index(Request $request)
     {
-        $disputes = Dispute::with(['filedBy:id,name,role,profile_picture', 'resolvedBy:id,name', 'disputable'])
+        $disputes = Dispute::with(['filedBy:id,name,role,profile_picture', 'filedBy.sellerProfile:id,user_id', 'resolvedBy:id,name', 'disputable'])
             ->latest()
             ->get()
             ->filter(fn (Dispute $dispute) => $this->canReview($request, $dispute))
@@ -74,6 +89,7 @@ class DisputeController extends Controller
                     $subject instanceof Order => 'Rejected earnings approval',
                     $subject instanceof WithdrawalRequest => 'Rejected withdrawal',
                     $subject instanceof LguWithdrawalRequest => 'Rejected LGU withdrawal',
+                    $subject instanceof SellerNotice => 'Rejected explanation (Notice to Explain) -- seller suspended',
                     default => 'Rejected item',
                 });
 
@@ -81,6 +97,7 @@ class DisputeController extends Controller
                     $subject instanceof Order => 'Order #'.$subject->order_number,
                     $subject instanceof WithdrawalRequest,
                     $subject instanceof LguWithdrawalRequest => '₱'.number_format((float) $subject->amount, 2),
+                    $subject instanceof SellerNotice => $subject->loadMissing('sellerProfile')->sellerProfile?->hatchery_name,
                     default => null,
                 });
 
@@ -142,6 +159,10 @@ class DisputeController extends Controller
 
         if ($subject instanceof WithdrawalRequest) {
             return $subject->loadMissing('sellerProfile')->sellerProfile?->municipality_id === $user->municipality_id;
+        }
+
+        if ($subject instanceof SellerNotice) {
+            return $subject->municipality_id === $user->municipality_id;
         }
 
         return false;

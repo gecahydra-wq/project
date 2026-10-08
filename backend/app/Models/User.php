@@ -67,6 +67,12 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->hasOne(BuyerProfile::class);
     }
 
+    /** A Seller's hatchery profile -- the page every seller name links to. */
+    public function sellerProfile()
+    {
+        return $this->hasOne(SellerProfile::class);
+    }
+
     /**
      * Orders this user placed as a Buyer. A Seller's orders hang off their
      * hatchery profile instead -- see SellerProfile::orders.

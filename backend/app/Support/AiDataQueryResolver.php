@@ -253,7 +253,7 @@ class AiDataQueryResolver
     private static function sellerWallet(SellerProfile $seller): array
     {
         $w = SellerWallet::summary($seller);
-        $context = "Your wallet (based on your ".CommissionCalculator::SELLER_PERCENT."% Seller Share of each settled order): Pending Balance {$w['pending_balance']}, Processing Amount {$w['processing_amount']}, Available Balance {$w['available_balance']}, Total Earnings {$w['total_earnings']}, Withdrawn Amount {$w['withdrawn_amount']}. Note: a ".CommissionCalculator::WITHDRAWAL_FEE_PERCENT."% platform payout fee is deducted whenever you withdraw, so you'll receive slightly less than the amount you request.";
+        $context = "Your wallet (based on your ".CommissionCalculator::SELLER_PERCENT."% Seller Share of each settled order): Pending Balance {$w['pending_balance']}, Processing Amount {$w['processing_amount']}, Available Balance {$w['available_balance']}, Total Earnings {$w['total_earnings']}, Withdrawn Amount {$w['withdrawn_amount']}. There is no payout fee: the Platform's ".CommissionCalculator::PLATFORM_PERCENT."% and the LGU's ".CommissionCalculator::LGU_PERCENT."% are taken from each order when it is settled, so you receive the full amount you withdraw.";
 
         return [
             'subject' => 'seller_wallet',
@@ -566,11 +566,11 @@ class AiDataQueryResolver
         }
 
         // Checked before the broader "revenue" triggers below so "platform
-        // revenue" and "commission" always resolve to the Platform payout
-        // fee specifically, never the gross figure.
+        // revenue" and "commission" always resolve to the Platform's own
+        // share specifically, never the gross figure.
         if (self::matchesAny($lower, ['platform revenue', 'platform share', 'platform commission', 'marketplace commission', 'payout fee'])) {
             $cards = RevenueReport::platformCards();
-            $context = "Platform Revenue (a ".CommissionCalculator::WITHDRAWAL_FEE_PERCENT."% payout fee charged when a seller withdraws, realized only once the Super Admin marks that withdrawal Paid -- never taken from the order at settlement time): today ₱{$cards['today_platform_revenue']}, this month ₱{$cards['monthly_platform_revenue']}, all-time total ₱{$cards['total_platform_revenue']}.";
+            $context = "Platform Revenue (the Platform's ".CommissionCalculator::PLATFORM_PERCENT."% share of every settled order, plus the 6% payout fees on withdrawals requested before October 9, 2026): today ₱{$cards['today_platform_revenue']}, this month ₱{$cards['monthly_platform_revenue']}, all-time total ₱{$cards['total_platform_revenue']}.";
 
             return ['subject' => 'super_platform_revenue', 'context' => $context, 'fallback' => ['English' => $context, 'Tagalog' => $context, 'Bisaya' => $context]];
         }
@@ -579,7 +579,7 @@ class AiDataQueryResolver
             $seller = round((float) Settlement::sum('seller_share'), 2);
             $lgu = round((float) Settlement::sum('lgu_share'), 2);
             $platform = RevenueReport::platformCards()['total_platform_revenue'];
-            $context = "Commission distribution: Seller Share ₱{$seller} (".CommissionCalculator::SELLER_PERCENT."% of every settled order), LGU Share ₱{$lgu} (".CommissionCalculator::LGU_PERCENT."%, realized at settlement), realized Platform payout fee ₱{$platform} (".CommissionCalculator::WITHDRAWAL_FEE_PERCENT."% of withdrawn amounts, realized only once a seller's withdrawal is paid out). Seller and LGU shares are fixed at settlement; the Platform instead earns a fee on withdrawals.";
+            $context = "Commission distribution: Seller Share ₱{$seller} (".CommissionCalculator::SELLER_PERCENT."% of every settled order), LGU Share ₱{$lgu} (".CommissionCalculator::LGU_PERCENT."%, realized at settlement), realized Platform revenue ₱{$platform} (".CommissionCalculator::PLATFORM_PERCENT."% of every settled order, plus older payout fees). All three shares are fixed at settlement; withdrawals carry no fee.";
 
             return ['subject' => 'super_commission_distribution', 'context' => $context, 'fallback' => ['English' => $context, 'Tagalog' => $context, 'Bisaya' => $context]];
         }

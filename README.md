@@ -70,7 +70,7 @@ The system emphasizes correctness of money movement, strict role permissions, a 
 - Seller Wallet and LGU Wallet with Available / Pending / Processing / Withdrawn balances
 - Automated revenue distribution at LGU approval
 - Seller payout requests (`PAY-##`) and LGU payout requests (`LGU-##`), released by the Super Admin
-- Platform payout fee accounting
+- Platform revenue accounting (4% share at settlement; no payout fee)
 - **₱100 minimum withdrawal** for sellers and LGUs: the form warns while typing, and the server refuses anything lower (`PayoutAccount::MIN_AMOUNT`)
 - Bank-transfer payouts name the **Philippine bank** (a list, or "Other" with a typed name), with a reminder to double-check the bank, account number and name
 - A **rejected withdrawal holds its amount** until the rejection is final -- the owner accepts it, their one dispute is rejected, or 7 days pass -- so the same money can never be requested twice (`WithdrawalRejection`)
@@ -304,7 +304,8 @@ Fish farmers who purchase fingerlings.
 - Rate buyers after completed orders (so other sellers can gauge legitimacy)
 - View the marketplace read-only (cannot purchase from other sellers)
 - Analytics, messaging, notifications
-- A suspended seller can still log in (to read why and send a support ticket), but their listings leave the marketplace and they **cannot** add or edit listings, update orders, request withdrawals, post, or message buyers.
+- Answer **Notices to Explain** (raised by a low rating or a buyer report the LGU finds valid). A **rejected explanation suspends the seller**; they can dispute it **once**. If that dispute is rejected too, they message their LGU or send a support ticket.
+- A suspended seller can still log in (to read why, dispute, message their LGU or the Super Admin, and send a support ticket), but their listings leave the marketplace and they **cannot** add or edit listings, update orders, request withdrawals, post, or message buyers.
 
 ### LGU Admin
 Scoped strictly to their own municipality.
@@ -356,19 +357,19 @@ LGU requests payout   (LGU-##)   ──►  Super Admin approves & marks Paid
 
 ## Revenue Sharing
 
-The split is **fixed in code** (not a runtime setting) and happens in two separately-timed stages:
-
-**1. At LGU approval / settlement** — the gross order amount is divided:
+The split is **fixed in code** (not a runtime setting) and happens once, at **LGU approval / settlement**, when the gross order amount is divided:
 
 | Party | Share |
 | --- | --- |
-| **Seller** | **96%** |
-| **LGU (municipality)** | **4%** |
-| Platform | 0% at this stage |
+| **Seller** | **94%** |
+| **LGU (municipality)** | **2%** |
+| **Platform** | **4%** |
 
-The seller share is rounded to the centavo first; the LGU absorbs any rounding remainder so the two always sum to exactly the gross amount.
+The seller and LGU shares are rounded to the centavo first; the platform absorbs any rounding remainder so the three always sum to exactly the gross amount. All three shares are frozen onto the Settlement row.
 
-**2. At withdrawal** — the platform earns a **6% payout fee** on the amount a seller withdraws. This fee is frozen onto the withdrawal request when it is created and only becomes realized **Platform Revenue** once the Super Admin marks that withdrawal **Paid**. A settled-but-unwithdrawn order contributes nothing to platform revenue. Each withdrawal (seller or LGU) must be at least **₱100**.
+**Withdrawals carry no fee** — a seller receives the full amount they withdraw. Each withdrawal (seller or LGU) must be at least **₱100**.
+
+> **History:** before 9 October 2026 the split was Seller 96% / LGU 4% at settlement, plus a 6% platform payout fee on each seller withdrawal. Settlements and withdrawals made before then keep the figures frozen on them, and Platform Revenue still counts those old fees once the withdrawal is paid.
 
 > Source of truth: `App\Support\CommissionCalculator`, `App\Support\SellerWallet`, `App\Support\LguWallet`, and `App\Support\RevenueReport`.
 

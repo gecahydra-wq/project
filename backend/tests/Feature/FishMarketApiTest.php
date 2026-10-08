@@ -1046,19 +1046,19 @@ class FishMarketApiTest extends TestCase
         $seller = $this->makeSeller();
         $listing = $this->makeListing($seller);
 
-        // LGU-approved (Settlement exists): Seller Share (96% of ₱1000 = ₱960) is available.
+        // LGU-approved (Settlement exists): Seller Share (94% of ₱1000 = ₱940) is available.
         $releasedOrder = $this->makeOrder($buyer, $listing, ['status' => 'completed']);
         $releasedPayment = $this->makePayment($releasedOrder, ['status' => 'released', 'amount' => 1000]);
         $this->makeSettlement($releasedOrder, $releasedPayment);
 
-        // Delivered but not yet LGU-approved: still pending, projected at the Seller Share (96% of ₱500 = ₱480).
+        // Delivered but not yet LGU-approved: still pending, projected at the Seller Share (94% of ₱500 = ₱470).
         $deliveredOrder = $this->makeOrder($buyer, $listing, ['status' => 'completed']);
         $this->makePayment($deliveredOrder, ['status' => 'paid_held', 'amount' => 500]);
 
         // Buyer already paid but the order hasn't been delivered yet: earnings
         // must still be recognized in Pending Balance (Step 1 of the corrected
         // workflow) even though delivery (Step 2) hasn't happened. Projected at
-        // the Seller Share (96% of ₱200 = ₱192).
+        // the Seller Share (94% of ₱200 = ₱188).
         $inTransitOrder = $this->makeOrder($buyer, $listing, ['status' => 'in_transit']);
         $this->makePayment($inTransitOrder, ['status' => 'paid_held', 'amount' => 200]);
 
@@ -1070,10 +1070,10 @@ class FishMarketApiTest extends TestCase
         $response = $this->getJson('/api/seller/wallet');
 
         $response->assertOk()
-            ->assertJsonPath('available_balance', 960)
-            ->assertJsonPath('pending_balance', 672)
+            ->assertJsonPath('available_balance', 940)
+            ->assertJsonPath('pending_balance', 658)
             ->assertJsonPath('processing_amount', 0)
-            ->assertJsonPath('total_earnings', 1632)
+            ->assertJsonPath('total_earnings', 1598)
             ->assertJsonPath('withdrawn_amount', 0);
     }
 
@@ -1084,7 +1084,7 @@ class FishMarketApiTest extends TestCase
         $listing = $this->makeListing($seller);
         $order = $this->makeOrder($buyer, $listing, ['status' => 'completed']);
         $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 200]);
-        $this->makeSettlement($order, $payment); // Seller Share: 96% of ₱200 = ₱192.
+        $this->makeSettlement($order, $payment); // Seller Share: 94% of ₱200 = ₱188.
 
         Sanctum::actingAs($seller->user);
 
@@ -1095,22 +1095,21 @@ class FishMarketApiTest extends TestCase
             'amount' => 100,
         ]);
 
-        // Platform Payout Fee: 6% of ₱100 = ₱6, so the seller nets ₱94.
+        // No payout fee since 2026-10-09: the seller receives the full ₱100.
         $response->assertCreated()
             ->assertJsonPath('status', 'pending')
-            ->assertJsonPath('platform_fee', '6.00')
-            ->assertJsonPath('net_amount', 94);
+            ->assertJsonPath('platform_fee', '0.00')
+            ->assertJsonPath('net_amount', 100);
         $this->assertDatabaseHas('withdrawal_requests', [
             'seller_profile_id' => $seller->id,
             'amount' => 100,
-            'platform_fee' => 6,
+            'platform_fee' => 0,
             'status' => 'pending',
         ]);
 
-        // Available Balance is drawn down by the full requested amount (₱100),
-        // not the net -- the fee is realized separately once paid, not here.
+        // Available Balance is drawn down by the requested amount (₱100).
         $wallet = $this->getJson('/api/seller/wallet');
-        $wallet->assertOk()->assertJsonPath('available_balance', 92);
+        $wallet->assertOk()->assertJsonPath('available_balance', 88);
     }
 
     public function test_withdrawal_account_number_must_match_the_payout_method(): void
@@ -1195,7 +1194,7 @@ class FishMarketApiTest extends TestCase
         $listing = $this->makeListing($seller);
         $order = $this->makeOrder($buyer, $listing, ['status' => 'completed']);
         $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 100]);
-        $this->makeSettlement($order, $payment); // Seller Share: 96% of ₱100 = ₱96.
+        $this->makeSettlement($order, $payment); // Seller Share: 94% of ₱100 = ₱94.
 
         Sanctum::actingAs($seller->user);
 
@@ -1301,7 +1300,7 @@ class FishMarketApiTest extends TestCase
         $listing = $this->makeListing($seller);
         $order = $this->makeOrder($buyer, $listing, ['status' => 'completed']);
         $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 200]);
-        $this->makeSettlement($order, $payment); // Seller Share: 96% of ₱200 = ₱192.
+        $this->makeSettlement($order, $payment); // Seller Share: 94% of ₱200 = ₱188.
 
         Sanctum::actingAs($seller->user);
         $this->postJson('/api/seller/withdrawals', [
@@ -1314,7 +1313,7 @@ class FishMarketApiTest extends TestCase
 
         $before = $this->getJson('/api/seller/wallet');
         $before->assertOk()
-            ->assertJsonPath('available_balance', 92)
+            ->assertJsonPath('available_balance', 88)
             ->assertJsonPath('withdrawn_amount', 0);
 
         Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
@@ -1324,12 +1323,11 @@ class FishMarketApiTest extends TestCase
         Sanctum::actingAs($seller->user);
         $after = $this->getJson('/api/seller/wallet');
         $after->assertOk()
-            // Available Balance must NOT bounce back to 192 -- the ₱100 the
-            // seller drew down stays drawn down, regardless of the fee.
-            ->assertJsonPath('available_balance', 92)
-            // Withdrawn Amount tracks the NET amount actually received (₱100
-            // requested - 6% fee of ₱6 = ₱94), not the gross requested amount.
-            ->assertJsonPath('withdrawn_amount', 94);
+            // Available Balance must NOT bounce back to 188 -- the ₱100 the
+            // seller drew down stays drawn down.
+            ->assertJsonPath('available_balance', 88)
+            // No payout fee since 2026-10-09: the seller received all ₱100.
+            ->assertJsonPath('withdrawn_amount', 100);
     }
 
     /**
@@ -1361,9 +1359,8 @@ class FishMarketApiTest extends TestCase
         };
 
         // 1. Buyer places an order (100 pcs @ ₱10 = ₱1,000 gross) and 2. payment succeeds.
-        // The fixed settlement split (96/4) means the seller's earnings are
-        // always projected/settled at the ₱960 Seller Share, never the ₱1,000 gross.
-        // The Platform takes nothing at settlement -- only a fee on withdrawal.
+        // The fixed settlement split (94/2/4) means the seller's earnings are
+        // always projected/settled at the ₱940 Seller Share, never the ₱1,000 gross.
         Sanctum::actingAs($buyer);
         $order = $this->postJson('/api/orders', ['fingerling_listing_id' => $listing->id, 'quantity' => 100])->assertCreated()->json();
         $this->postJson("/api/orders/{$order['order_number']}/payment-success")->assertOk();
@@ -1371,11 +1368,11 @@ class FishMarketApiTest extends TestCase
         // 3. Earnings sit in Pending Balance (Seller Share projection), untouched by anything else yet.
         Sanctum::actingAs($seller->user);
         $wallet = $this->getJson('/api/seller/wallet')->assertOk()->json();
-        $this->assertEquals(960, $wallet['pending_balance']);
+        $this->assertEquals(940, $wallet['pending_balance']);
         $this->assertEquals(0, $wallet['available_balance']);
         $this->assertEquals(0, $wallet['processing_amount']);
         $this->assertEquals(0, $wallet['withdrawn_amount']);
-        $this->assertEquals(960, $wallet['total_earnings']);
+        $this->assertEquals(940, $wallet['total_earnings']);
         $assertReconciles($wallet);
 
         // 4-5. Seller ships, buyer's delivery is confirmed (order marked completed).
@@ -1385,7 +1382,7 @@ class FishMarketApiTest extends TestCase
 
         // 6-7. Until LGU approves, Pending must still hold the projected Seller Share and Available must stay at 0.
         $wallet = $this->getJson('/api/seller/wallet')->assertOk()->json();
-        $this->assertEquals(960, $wallet['pending_balance']);
+        $this->assertEquals(940, $wallet['pending_balance']);
         $this->assertEquals(0, $wallet['available_balance']);
         $assertReconciles($wallet);
 
@@ -1397,35 +1394,35 @@ class FishMarketApiTest extends TestCase
         Sanctum::actingAs($seller->user);
         $wallet = $this->getJson('/api/seller/wallet')->assertOk()->json();
         $this->assertEquals(0, $wallet['pending_balance']);
-        $this->assertEquals(960, $wallet['available_balance']);
-        $this->assertEquals(960, $wallet['total_earnings']);
+        $this->assertEquals(940, $wallet['available_balance']);
+        $this->assertEquals(940, $wallet['total_earnings']);
         $assertReconciles($wallet);
         $this->assertDatabaseHas('settlements', [
             'order_id' => $order['id'],
             'gross_amount' => 1000,
-            'seller_share' => 960,
-            'lgu_share' => 40,
-            'platform_share' => 0,
+            'seller_share' => 940,
+            'lgu_share' => 20,
+            'platform_share' => 40,
         ]);
 
-        // Nothing has been withdrawn yet, so Platform Revenue must still be zero.
+        // The Platform's 4% is realized at settlement, before any withdrawal.
         Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
-        $this->assertEquals(0, $this->getJson('/api/super-admin/dashboard')->json('platform_revenue.total_platform_revenue'));
+        $this->assertEquals(40, $this->getJson('/api/super-admin/dashboard')->json('platform_revenue.total_platform_revenue'));
 
         // 9. Seller requests a partial payout.
         Sanctum::actingAs($seller->user);
         $withdrawalResponse = $this->postJson('/api/seller/withdrawals', [
             'method' => 'gcash', 'account_name' => 'Seller', 'account_number' => '09000000000', 'amount' => 540,
         ])->assertCreated()->json();
-        // Platform Payout Fee: 6% of ₱540 = ₱32.40, so the seller nets ₱507.60.
-        $this->assertEquals(32.4, $withdrawalResponse['platform_fee']);
+        // No payout fee: the seller will receive all ₱540.
+        $this->assertEquals(0, $withdrawalResponse['platform_fee']);
         $withdrawal = WithdrawalRequest::where('seller_profile_id', $seller->id)->firstOrFail();
 
         // While requested-but-unpaid, the ₱540 must show as Processing, NOT vanish from the total.
         $wallet = $this->getJson('/api/seller/wallet')->assertOk()->json();
-        $this->assertEquals(420, $wallet['available_balance']);
+        $this->assertEquals(400, $wallet['available_balance']);
         $this->assertEquals(540, $wallet['processing_amount']);
-        $this->assertEquals(960, $wallet['total_earnings']);
+        $this->assertEquals(940, $wallet['total_earnings']);
         $assertReconciles($wallet);
 
         // Same must hold once the Super Admin approves it but hasn't paid it yet.
@@ -1433,37 +1430,35 @@ class FishMarketApiTest extends TestCase
         $this->patchJson("/api/super-admin/withdrawals/{$withdrawal->id}/approve")->assertOk();
         Sanctum::actingAs($seller->user);
         $wallet = $this->getJson('/api/seller/wallet')->assertOk()->json();
-        $this->assertEquals(420, $wallet['available_balance']);
+        $this->assertEquals(400, $wallet['available_balance']);
         $this->assertEquals(540, $wallet['processing_amount']);
         $this->assertEquals(0, $wallet['withdrawn_amount']);
         $assertReconciles($wallet);
-        // Still not realized -- "approved" is not "paid" yet.
+        // A withdrawal adds nothing to Platform Revenue any more.
         Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
-        $this->assertEquals(0, $this->getJson('/api/super-admin/dashboard')->json('platform_revenue.total_platform_revenue'));
+        $this->assertEquals(40, $this->getJson('/api/super-admin/dashboard')->json('platform_revenue.total_platform_revenue'));
 
-        // 10. Super Admin marks it paid: Processing -> Withdrawn (net of the fee). Available must NOT change again.
+        // 10. Super Admin marks it paid: Processing -> Withdrawn. Available must NOT change again.
         $this->patchJson("/api/super-admin/withdrawals/{$withdrawal->id}/paid")->assertOk();
         Sanctum::actingAs($seller->user);
         $wallet = $this->getJson('/api/seller/wallet')->assertOk()->json();
-        $this->assertEquals(420, $wallet['available_balance']);
+        $this->assertEquals(400, $wallet['available_balance']);
         $this->assertEquals(0, $wallet['processing_amount']);
-        // ₱540 requested - ₱32.40 platform fee = ₱507.60 actually received.
-        $this->assertEquals(507.6, $wallet['withdrawn_amount']);
-        $this->assertEquals(960, $wallet['total_earnings']);
+        $this->assertEquals(540, $wallet['withdrawn_amount']);
+        $this->assertEquals(940, $wallet['total_earnings']);
         $assertReconciles($wallet);
 
-        // Platform Revenue is now realized: exactly the ₱32.40 fee on the paid withdrawal.
+        // Paying it out leaves Platform Revenue at the settlement's ₱40.
         Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
-        $this->assertEquals(32.4, $this->getJson('/api/super-admin/dashboard')->json('platform_revenue.total_platform_revenue'));
+        $this->assertEquals(40, $this->getJson('/api/super-admin/dashboard')->json('platform_revenue.total_platform_revenue'));
     }
 
     /**
      * Marketplace Revenue Sharing: for a seller with NO prior earnings
      * history, a fresh ₱120 order must raise Available Balance by only the
-     * Seller Share (96% of ₱120 = ₱115.20) after LGU approval -- never the
-     * full ₱120 gross amount, since the LGU Share is carved out first (see
-     * App\Support\CommissionCalculator). The Platform takes nothing here at
-     * all -- its revenue comes later, from a fee on withdrawal. The buyer is
+     * Seller Share (94% of ₱120 = ₱112.80) after LGU approval -- never the
+     * full ₱120 gross amount, since the LGU and Platform Shares are carved
+     * out first (see App\Support\CommissionCalculator). The buyer is
      * still charged, and the payment still captures, the full gross amount;
      * only the wallet crediting is split.
      */
@@ -1481,7 +1476,7 @@ class FishMarketApiTest extends TestCase
 
         Sanctum::actingAs($seller->user);
         $wallet = $this->getJson('/api/seller/wallet')->assertOk()->json();
-        $this->assertEquals(115.2, $wallet['pending_balance'], 'Pending Balance must project the Seller Share (96% of ₱120), not the gross amount.');
+        $this->assertEquals(112.8, $wallet['pending_balance'], 'Pending Balance must project the Seller Share (94% of ₱120), not the gross amount.');
         $this->assertEquals(0, $wallet['available_balance']);
 
         $this->buyerConfirmsReceipt($order['id'], $seller->user);
@@ -1495,18 +1490,18 @@ class FishMarketApiTest extends TestCase
         Sanctum::actingAs($seller->user);
         $wallet = $this->getJson('/api/seller/wallet')->assertOk()->json();
         $this->assertEquals(0, $wallet['pending_balance']);
-        $this->assertEquals(115.2, $wallet['available_balance'], 'Available Balance must equal only the Seller Share (96% of ₱120 = ₱115.20).');
-        $this->assertEquals(115.2, $wallet['total_earnings']);
+        $this->assertEquals(112.8, $wallet['available_balance'], 'Available Balance must equal only the Seller Share (94% of ₱120 = ₱112.80).');
+        $this->assertEquals(112.8, $wallet['total_earnings']);
 
         $this->assertDatabaseHas('settlements', [
             'order_id' => $order['id'],
             'gross_amount' => 120,
-            'seller_share' => 115.2,
-            'lgu_share' => 4.8,
-            'platform_share' => 0,
-            'seller_percent' => 96,
-            'lgu_percent' => 4,
-            'platform_percent' => 0,
+            'seller_share' => 112.8,
+            'lgu_share' => 2.4,
+            'platform_share' => 4.8,
+            'seller_percent' => 94,
+            'lgu_percent' => 2,
+            'platform_percent' => 4,
         ]);
     }
 
@@ -2264,7 +2259,7 @@ class FishMarketApiTest extends TestCase
         $seller = $this->makeSeller();
         $order = $this->makeOrder($this->makeBuyer(), $this->makeListing($seller), ['status' => 'completed']);
         $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 200]);
-        $this->makeSettlement($order, $payment); // Seller Share: 96% of 200 = 192.
+        $this->makeSettlement($order, $payment); // Seller Share: 94% of 200 = 188.
 
         Sanctum::actingAs($seller->user);
         $withdrawalId = $this->postJson('/api/seller/withdrawals', [
@@ -2286,7 +2281,7 @@ class FishMarketApiTest extends TestCase
         $this->assertNull($withdrawal->rejection_reason);
     }
 
-    /** A seller with ₱192 settled (96% of ₱200) and one rejected ₱150 request. */
+    /** A seller with ₱188 settled (94% of ₱200) and one rejected ₱150 request. */
     private function sellerWithRejectedWithdrawal(): array
     {
         $superAdmin = User::where('role', 'super_admin')->firstOrFail();
@@ -2313,7 +2308,7 @@ class FishMarketApiTest extends TestCase
         // On hold, not back in Available: asking for it again is refused.
         Sanctum::actingAs($seller->user);
         $wallet = $this->getJson('/api/seller/wallet')->assertOk();
-        $this->assertEquals(42, $wallet['available_balance']);
+        $this->assertEquals(38, $wallet['available_balance']);
         $this->assertEquals(150, $wallet['on_hold_amount']);
         $this->assertSame('rejected', WithdrawalRequest::findOrFail($withdrawalId)->status);
         $this->postJson('/api/seller/withdrawals', [
@@ -2330,7 +2325,7 @@ class FishMarketApiTest extends TestCase
         Sanctum::actingAs($seller->user);
         $wallet = $this->getJson('/api/seller/wallet')->assertOk();
         $this->assertSame('pending', WithdrawalRequest::findOrFail($withdrawalId)->status);
-        $this->assertEquals(42, $wallet['available_balance']);
+        $this->assertEquals(38, $wallet['available_balance']);
         $this->assertEquals(150, $wallet['processing_amount']);
         $this->assertEquals(0, $wallet['on_hold_amount']);
         $this->assertSame(1, WithdrawalRequest::where('seller_profile_id', $seller->id)->count());
@@ -2347,7 +2342,7 @@ class FishMarketApiTest extends TestCase
         Sanctum::actingAs($seller->user);
         $this->postJson("/api/withdrawals/{$withdrawalId}/accept-rejection")
             ->assertOk()->assertJsonPath('status', 'rejected_final');
-        $this->assertEquals(192, $this->getJson('/api/seller/wallet')->json('available_balance'));
+        $this->assertEquals(188, $this->getJson('/api/seller/wallet')->json('available_balance'));
 
         // Final means final: no dispute afterwards, and it cannot be accepted twice.
         $this->postJson("/api/withdrawals/{$withdrawalId}/dispute", ['reason' => 'Changed my mind.'])->assertStatus(422);
@@ -2370,7 +2365,7 @@ class FishMarketApiTest extends TestCase
 
         $this->assertSame('rejected_final', WithdrawalRequest::findOrFail($withdrawalId)->status);
         Sanctum::actingAs($seller->user);
-        $this->assertEquals(192, $this->getJson('/api/seller/wallet')->json('available_balance'));
+        $this->assertEquals(188, $this->getJson('/api/seller/wallet')->json('available_balance'));
         $this->postJson("/api/withdrawals/{$withdrawalId}/dispute", ['reason' => 'Once more.'])->assertStatus(422);
     }
 
@@ -2398,9 +2393,9 @@ class FishMarketApiTest extends TestCase
     {
         $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
         $seller = $this->makeSeller([], ['municipality_id' => $lguAdmin->municipality_id]);
-        $order = $this->makeOrder($this->makeBuyer(), $this->makeListing($seller), ['status' => 'completed', 'total_amount' => 10000]);
-        $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 10000]);
-        $this->makeSettlement($order, $payment); // LGU Share: 400.
+        $order = $this->makeOrder($this->makeBuyer(), $this->makeListing($seller), ['status' => 'completed', 'total_amount' => 20000]);
+        $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 20000]);
+        $this->makeSettlement($order, $payment); // LGU Share: 2% = 400.
 
         Sanctum::actingAs($lguAdmin);
         $withdrawalId = $this->postJson('/api/lgu/withdrawals', [
@@ -2535,7 +2530,7 @@ class FishMarketApiTest extends TestCase
         Sanctum::actingAs($lguAdmin);
         $this->patchJson("/api/lgu/user-reports/{$reportId}", ['status' => 'dismissed'])
             ->assertStatus(422)
-            ->assertJsonPath('errors.resolution_notes.0', 'Please give a reason for dismissing this report.');
+            ->assertJsonPath('errors.resolution_notes.0', 'Please give a reason for this decision.');
         $this->patchJson("/api/lgu/user-reports/{$reportId}", ['status' => 'dismissed', 'resolution_notes' => 'The seller replied within a day.'])
             ->assertOk()->assertJsonPath('status', 'dismissed');
     }
@@ -2671,13 +2666,13 @@ class FishMarketApiTest extends TestCase
     public function test_the_assistant_states_the_withdrawal_payout_fee(): void
     {
         $topic = \App\Support\AiIntentClassifier::classify('how do I withdraw my earnings')['topic'];
-        $expected = \App\Support\CommissionCalculator::WITHDRAWAL_FEE_PERCENT.'% payout fee';
-
+        // Since 2026-10-09 there is no payout fee, and sellers ask what
+        // withdrawing costs -- the answer must say so outright.
         foreach (['buyer', 'seller'] as $role) {
             $this->assertStringContainsString(
-                $expected,
+                'no payout fee',
                 \App\Support\AiIntentClassifier::topicContext($topic, $role),
-                "The {$role} withdrawal answer must state the payout fee."
+                "The {$role} withdrawal answer must say there is no payout fee."
             );
         }
     }
@@ -2818,13 +2813,13 @@ class FishMarketApiTest extends TestCase
         $listing = $this->makeListing($seller);
         $order = $this->makeOrder($this->makeBuyer(), $listing, ['status' => 'completed', 'total_amount' => 500]);
         $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 500]);
-        $this->makeSettlement($order, $payment); // Seller Share: 96% of ₱500 = ₱480.
+        $this->makeSettlement($order, $payment); // Seller Share: 94% of ₱500 = ₱470.
 
         Sanctum::actingAs($seller->user);
         $response = $this->postJson('/api/ai-assistant/ask', ['question' => 'How much is my available balance?']);
 
         $response->assertCreated();
-        $this->assertStringContainsString('480', $response->json('response'));
+        $this->assertStringContainsString('470', $response->json('response'));
         $this->assertSame('seller_wallet', $response->json('data_subject'));
     }
 
@@ -2844,7 +2839,7 @@ class FishMarketApiTest extends TestCase
 
         $response->assertCreated();
         $this->assertStringNotContainsString('9999', $response->json('response'));
-        $this->assertStringNotContainsString('9599', $response->json('response')); // Seller B's Seller Share (96% of ₱9999) must not leak either.
+        $this->assertStringNotContainsString('9399', $response->json('response')); // Seller B's Seller Share (94% of ₱9999) must not leak either.
     }
 
     public function test_seller_ai_assistant_reports_listing_counts_by_status(): void
@@ -5317,6 +5312,13 @@ class FishMarketApiTest extends TestCase
         $this->assertFalse(collect($browse->json())->contains('id', $visibleListingId));
 
         $this->getJson("/api/listings/{$visibleListingId}")->assertStatus(404);
+
+        // The shop is hidden from the public, but the seller and staff can
+        // still open it (every seller name in the dashboards links there).
+        $this->getJson("/api/sellers/{$sellerProfile->id}")->assertOk();
+        Sanctum::actingAs(User::where('role', 'lgu_admin')->firstOrFail());
+        $this->getJson("/api/sellers/{$sellerProfile->id}")->assertOk();
+        Sanctum::actingAs($this->makeBuyer());
         $this->getJson("/api/sellers/{$sellerProfile->id}")->assertStatus(404);
     }
 
@@ -6053,7 +6055,8 @@ class FishMarketApiTest extends TestCase
         Mail::fake();
 
         $seller = $this->makeSeller();
-        $withdrawal = $this->makeWithdrawal($seller, ['amount' => 25]); // Platform Payout Fee: 6% of ₱25 = ₱1.50.
+        // A request from before 2026-10-09 still carries (and shows) its 6% fee.
+        $withdrawal = $this->makeWithdrawal($seller, ['amount' => 25, 'platform_fee' => 1.50]);
         Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
 
         $this->patchJson("/api/super-admin/withdrawals/{$withdrawal->id}/approve")->assertOk();
@@ -6095,7 +6098,7 @@ class FishMarketApiTest extends TestCase
         $listing = $this->makeListing($seller, ['species' => 'Tilapia']);
         $order = $this->makeOrder($buyer, $listing, ['status' => 'completed', 'total_amount' => 500]);
         $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 500, 'released_at' => now()]);
-        $settlement = $this->makeSettlement($order, $payment); // Seller Share: 96% of ₱500 = ₱480.
+        $settlement = $this->makeSettlement($order, $payment); // Seller Share: 94% of ₱500 = ₱470.
 
         $mailable = new SellerEarningsApprovedMail($settlement);
 
@@ -6106,15 +6109,15 @@ class FishMarketApiTest extends TestCase
         $this->assertStringContainsString($order->order_number, $html);
         $this->assertStringContainsString('Pending Balance', $html);
         $this->assertStringContainsString('Available Balance', $html);
-        $this->assertStringContainsString('96% Seller Share', $html);
+        $this->assertStringContainsString('94% Seller Share', $html);
         $this->assertStringContainsString('not a bank or e-wallet payout yet', $plainText);
         $this->assertStringNotContainsString('Withdrawal Has Been Successfully Processed', $html);
 
         // Must show only the Seller Share -- never the ₱500 gross amount, and
         // never the LGU Share, which a seller must never be able to infer.
-        $this->assertStringContainsString('480', $html);
+        $this->assertStringContainsString('470', $html);
         $this->assertStringNotContainsString('500.00', $html);
-        $this->assertStringNotContainsString('₱20.00', $html); // LGU Share (4% of ₱500).
+        $this->assertStringNotContainsString('₱10.00', $html); // LGU Share (2% of ₱500).
     }
 
     public function test_withdrawal_released_email_is_sent_only_after_payout(): void
@@ -6126,7 +6129,7 @@ class FishMarketApiTest extends TestCase
         $listing = $this->makeListing($seller);
         $order = $this->makeOrder($buyer, $listing, ['status' => 'completed']);
         $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 300]);
-        $this->makeSettlement($order, $payment); // Seller Share: 96% of ₱300 = ₱288.
+        $this->makeSettlement($order, $payment); // Seller Share: 94% of ₱300 = ₱282.
         Sanctum::actingAs($seller->user);
 
         $withdrawal = $this->postJson('/api/seller/withdrawals', [
@@ -6193,38 +6196,38 @@ class FishMarketApiTest extends TestCase
     {
         $split = CommissionCalculator::split(0.05);
 
-        $this->assertEquals(0.05, round($split['seller_share'] + $split['lgu_share'], 2));
-        // 96% of ₱0.05 = ₱0.048, which rounds to ₱0.05 (nearest centavo).
+        $this->assertEquals(0.05, round($split['seller_share'] + $split['lgu_share'] + $split['platform_share'], 2));
+        // 94% of ₱0.05 = ₱0.047, which rounds to ₱0.05 (nearest centavo).
         $this->assertEquals(0.05, $split['seller_share']);
-        // The LGU absorbs whatever the rounding of the seller share leaves over.
+        // 2% of ₱0.05 = ₱0.001, which rounds to ₱0.00.
         $this->assertEquals(0.00, $split['lgu_share']);
-        // The Platform takes nothing at settlement -- its revenue is a withdrawal fee instead.
+        // The Platform absorbs whatever rounding leaves over -- here nothing.
         $this->assertEquals(0.00, $split['platform_share']);
     }
 
-    public function test_commission_calculator_uses_the_fixed_96_4_settlement_split(): void
+    public function test_commission_calculator_uses_the_fixed_94_2_4_settlement_split(): void
     {
         $split = CommissionCalculator::split(1000);
 
-        $this->assertEquals(960, $split['seller_share']);
-        $this->assertEquals(40, $split['lgu_share']);
-        $this->assertEquals(0, $split['platform_share']);
-        $this->assertEquals(96, $split['seller_percent']);
-        $this->assertEquals(4, $split['lgu_percent']);
-        $this->assertEquals(0, $split['platform_percent']);
+        $this->assertEquals(940, $split['seller_share']);
+        $this->assertEquals(20, $split['lgu_share']);
+        $this->assertEquals(40, $split['platform_share']);
+        $this->assertEquals(94, $split['seller_percent']);
+        $this->assertEquals(2, $split['lgu_percent']);
+        $this->assertEquals(4, $split['platform_percent']);
 
-        $this->assertEquals(96.0, CommissionCalculator::SELLER_PERCENT);
-        $this->assertEquals(4.0, CommissionCalculator::LGU_PERCENT);
-        $this->assertEquals(6.0, CommissionCalculator::WITHDRAWAL_FEE_PERCENT);
+        $this->assertEquals(94.0, CommissionCalculator::SELLER_PERCENT);
+        $this->assertEquals(2.0, CommissionCalculator::LGU_PERCENT);
+        $this->assertEquals(4.0, CommissionCalculator::PLATFORM_PERCENT);
+        $this->assertEquals(0.0, CommissionCalculator::WITHDRAWAL_FEE_PERCENT);
     }
 
-    public function test_commission_calculator_computes_the_withdrawal_fee_on_the_requested_amount(): void
+    public function test_commission_calculator_charges_no_withdrawal_fee(): void
     {
         $fee = CommissionCalculator::withdrawalFee(1000);
 
-        $this->assertEquals(60, $fee['fee']);
-        $this->assertEquals(940, $fee['net_amount']);
-        $this->assertEquals(1000, round($fee['fee'] + $fee['net_amount'], 2));
+        $this->assertEquals(0, $fee['fee']);
+        $this->assertEquals(1000, $fee['net_amount']);
     }
 
     /**
@@ -6244,9 +6247,7 @@ class FishMarketApiTest extends TestCase
      * Even though the split can no longer be changed at runtime, every
      * settlement still freezes the percentages it used at creation time --
      * this proves a settlement's own stored numbers are self-contained and
-     * never re-derived from CommissionCalculator after the fact. The
-     * Platform takes nothing at settlement -- see the withdrawal-fee tests
-     * for where its revenue actually comes from.
+     * never re-derived from CommissionCalculator after the fact.
      */
     public function test_settlement_permanently_freezes_the_percentages_used_at_approval_time(): void
     {
@@ -6266,24 +6267,23 @@ class FishMarketApiTest extends TestCase
         $this->assertDatabaseHas('settlements', [
             'order_id' => $order['id'],
             'gross_amount' => 100,
-            'seller_share' => 96,
-            'lgu_share' => 4,
-            'platform_share' => 0,
-            'seller_percent' => 96,
-            'lgu_percent' => 4,
-            'platform_percent' => 0,
+            'seller_share' => 94,
+            'lgu_share' => 2,
+            'platform_share' => 4,
+            'seller_percent' => 94,
+            'lgu_percent' => 2,
+            'platform_percent' => 4,
         ]);
 
         Sanctum::actingAs($seller->user);
         $wallet = $this->getJson('/api/seller/wallet')->assertOk()->json();
-        $this->assertEquals(96, $wallet['available_balance']);
+        $this->assertEquals(94, $wallet['available_balance']);
     }
 
     /**
      * The withdrawal fee is frozen onto the WithdrawalRequest at the moment
-     * it's requested, exactly like Settlement freezes its percentages -- so
-     * it never changes even if CommissionCalculator::WITHDRAWAL_FEE_PERCENT
-     * is edited afterward.
+     * it's requested, exactly like Settlement freezes its percentages. Since
+     * 2026-10-09 that fee is 0, so the seller receives the full amount.
      */
     public function test_withdrawal_request_freezes_the_platform_fee_at_request_time(): void
     {
@@ -6292,7 +6292,7 @@ class FishMarketApiTest extends TestCase
         $listing = $this->makeListing($seller);
         $order = $this->makeOrder($buyer, $listing, ['status' => 'completed']);
         $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 1000]);
-        $this->makeSettlement($order, $payment); // Seller Share: 96% of ₱1000 = ₱960.
+        $this->makeSettlement($order, $payment); // Seller Share: 94% of ₱1000 = ₱940.
 
         Sanctum::actingAs($seller->user);
         $response = $this->postJson('/api/seller/withdrawals', [
@@ -6301,8 +6301,8 @@ class FishMarketApiTest extends TestCase
 
         $response->assertCreated()
             ->assertJsonPath('amount', '500.00')
-            ->assertJsonPath('platform_fee', '30.00')
-            ->assertJsonPath('net_amount', 470);
+            ->assertJsonPath('platform_fee', '0.00')
+            ->assertJsonPath('net_amount', 500);
     }
 
     public function test_lgu_dashboard_and_reports_reveal_only_their_own_municipalitys_lgu_share(): void
@@ -6318,22 +6318,22 @@ class FishMarketApiTest extends TestCase
 
         $cordovaOrder = $this->makeOrder($buyer, $this->makeListing($cordovaSeller), ['status' => 'completed', 'total_amount' => 1000]);
         $cordovaPayment = $this->makePayment($cordovaOrder, ['status' => 'released', 'amount' => 1000]);
-        $this->makeSettlement($cordovaOrder, $cordovaPayment); // LGU Share: 4% of ₱1000 = ₱40.
+        $this->makeSettlement($cordovaOrder, $cordovaPayment); // LGU Share: 2% of ₱1000 = ₱20.
 
-        $mandaueOrder = $this->makeOrder($buyer, $this->makeListing($mandaueSeller), ['status' => 'completed', 'total_amount' => 5000]);
-        $mandauePayment = $this->makePayment($mandaueOrder, ['status' => 'released', 'amount' => 5000]);
-        $this->makeSettlement($mandaueOrder, $mandauePayment); // LGU Share: 4% of ₱5000 = ₱200.
+        $mandaueOrder = $this->makeOrder($buyer, $this->makeListing($mandaueSeller), ['status' => 'completed', 'total_amount' => 30000]);
+        $mandauePayment = $this->makePayment($mandaueOrder, ['status' => 'released', 'amount' => 30000]);
+        $this->makeSettlement($mandaueOrder, $mandauePayment); // LGU Share: 2% of ₱30000 = ₱600.
 
         Sanctum::actingAs($cordovaAdmin);
         $dashboard = $this->getJson('/api/lgu/dashboard')->assertOk();
-        $this->assertEquals(40, $dashboard->json('municipality_revenue.total_revenue'));
+        $this->assertEquals(20, $dashboard->json('municipality_revenue.total_revenue'));
         $this->assertEquals(1, $dashboard->json('municipality_revenue.total_completed_orders'));
 
         $reports = $this->getJson('/api/lgu/reports')->assertOk();
-        $this->assertEquals(40, $reports->json('revenue_cards.total_revenue'));
+        $this->assertEquals(20, $reports->json('revenue_cards.total_revenue'));
 
         // Cordova's dashboard/reports must never mention Mandaue's larger revenue figure.
-        $this->assertStringNotContainsString('200', json_encode($dashboard->json('municipality_revenue')));
+        $this->assertStringNotContainsString('600', json_encode($dashboard->json('municipality_revenue')));
 
         // The response must never surface the Platform Share or the gross amount to an LGU.
         $this->assertArrayNotHasKey('platform_share', $dashboard->json('municipality_revenue'));
@@ -6341,35 +6341,30 @@ class FishMarketApiTest extends TestCase
 
         Sanctum::actingAs($mandaueAdmin);
         $mandaueDashboard = $this->getJson('/api/lgu/dashboard')->assertOk();
-        $this->assertEquals(200, $mandaueDashboard->json('municipality_revenue.total_revenue'));
+        $this->assertEquals(600, $mandaueDashboard->json('municipality_revenue.total_revenue'));
     }
 
     /**
-     * Platform Revenue is deliberately realized only once a seller's
-     * withdrawal has actually been paid out -- not at settlement time like
-     * Seller Share and LGU Share. This is the core behavior a Super Admin
-     * must see: settled-but-unwithdrawn earnings must never inflate
-     * Platform Revenue.
+     * Since 2026-10-09 the Platform's 4% is realized at settlement, like the
+     * Seller and LGU Shares, and a withdrawal adds no fee. A withdrawal made
+     * under the old rules still counts its frozen 6% fee once it is paid.
      */
-    public function test_platform_revenue_is_zero_until_a_sellers_withdrawal_is_actually_paid(): void
+    public function test_platform_revenue_is_realized_at_settlement_and_withdrawals_add_no_fee(): void
     {
         $seller = $this->makeSeller();
         $buyer = $this->makeBuyer();
         $order = $this->makeOrder($buyer, $this->makeListing($seller), ['status' => 'completed', 'total_amount' => 1000]);
         $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 1000]);
-        $this->makeSettlement($order, $payment); // Seller Share 960, LGU Share 40, Platform Share 0 -- all settled, nothing withdrawn.
+        $this->makeSettlement($order, $payment); // Seller Share 940, LGU Share 20, Platform Share 40.
 
         Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
         $dashboard = $this->getJson('/api/super-admin/dashboard')->assertOk();
-
-        // Gross Marketplace Revenue realizes at settlement -- non-zero immediately.
         $this->assertEquals(1000, $dashboard->json('platform_revenue.gross_marketplace_revenue'));
-        // Platform Revenue must NOT realize yet -- the seller hasn't withdrawn anything.
-        $this->assertEquals(0, $dashboard->json('platform_revenue.today_platform_revenue'));
-        $this->assertEquals(0, $dashboard->json('platform_revenue.monthly_platform_revenue'));
-        $this->assertEquals(0, $dashboard->json('platform_revenue.total_platform_revenue'));
+        $this->assertEquals(40, $dashboard->json('platform_revenue.today_platform_revenue'));
+        $this->assertEquals(40, $dashboard->json('platform_revenue.monthly_platform_revenue'));
+        $this->assertEquals(40, $dashboard->json('platform_revenue.total_platform_revenue'));
 
-        // The seller withdraws ₱450 of their ₱960 Seller Share.
+        // The seller withdraws ₱450 of their ₱940 and is paid: no fee, no change.
         Sanctum::actingAs($seller->user);
         $withdrawal = $this->postJson('/api/seller/withdrawals', [
             'method' => 'gcash', 'account_name' => 'Test Seller', 'account_number' => '09171234567', 'amount' => 450,
@@ -6377,19 +6372,14 @@ class FishMarketApiTest extends TestCase
 
         Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
         $this->patchJson("/api/super-admin/withdrawals/{$withdrawal['id']}/approve")->assertOk();
-
-        // Still not realized -- "approved" is not "paid" yet.
-        $stillZero = $this->getJson('/api/super-admin/dashboard')->assertOk();
-        $this->assertEquals(0, $stillZero->json('platform_revenue.total_platform_revenue'));
-
         $this->patchJson("/api/super-admin/withdrawals/{$withdrawal['id']}/paid")->assertOk();
+        $this->assertEquals(40, $this->getJson('/api/super-admin/dashboard')->json('platform_revenue.total_platform_revenue'));
 
-        // 6% payout fee on the ₱450 withdrawal = ₱27 of Platform Revenue is now realized.
+        // An old-rules withdrawal (6% of ₱450 = ₱27 frozen on it) still counts once paid.
+        $this->makeWithdrawal($seller, ['amount' => 450, 'platform_fee' => 27, 'status' => 'paid', 'paid_at' => now()]);
         $after = $this->getJson('/api/super-admin/dashboard')->assertOk();
-        $this->assertEquals(27, $after->json('platform_revenue.today_platform_revenue'));
-        $this->assertEquals(27, $after->json('platform_revenue.monthly_platform_revenue'));
-        $this->assertEquals(27, $after->json('platform_revenue.total_platform_revenue'));
-        // Gross Marketplace Revenue is unaffected by the withdrawal -- still the full settled gross.
+        $this->assertEquals(67, $after->json('platform_revenue.today_platform_revenue'));
+        $this->assertEquals(67, $after->json('platform_revenue.total_platform_revenue'));
         $this->assertEquals(1000, $after->json('platform_revenue.gross_marketplace_revenue'));
     }
 
@@ -6403,34 +6393,32 @@ class FishMarketApiTest extends TestCase
 
         $cordovaOrder = $this->makeOrder($buyer, $this->makeListing($cordovaSeller), ['status' => 'completed', 'total_amount' => 1000]);
         $cordovaPayment = $this->makePayment($cordovaOrder, ['status' => 'released', 'amount' => 1000]);
-        $this->makeSettlement($cordovaOrder, $cordovaPayment); // Seller Share 960.
+        $this->makeSettlement($cordovaOrder, $cordovaPayment); // Platform Share 40.
 
         $mandaueOrder = $this->makeOrder($buyer, $this->makeListing($mandaueSeller), ['status' => 'completed', 'total_amount' => 5000]);
         $mandauePayment = $this->makePayment($mandaueOrder, ['status' => 'released', 'amount' => 5000]);
-        $this->makeSettlement($mandaueOrder, $mandauePayment); // Seller Share 4800.
+        $this->makeSettlement($mandaueOrder, $mandauePayment); // Platform Share 200.
 
         Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
 
-        // Nothing withdrawn yet -- Platform Revenue must be zero even though ₱6000 is settled.
         $dashboard = $this->getJson('/api/super-admin/dashboard')->assertOk();
-        $this->assertEquals(0, $dashboard->json('platform_revenue.total_platform_revenue'));
+        $this->assertEquals(240, $dashboard->json('platform_revenue.total_platform_revenue'));
         $this->assertEquals(6000, $dashboard->json('platform_revenue.gross_marketplace_revenue'));
 
-        // Cordova's seller withdraws and is paid their full ₱960 Seller Share -- fee: 6% of ₱960 = ₱57.60.
-        $this->makeWithdrawal($cordovaSeller, ['amount' => 960, 'status' => 'paid', 'paid_at' => now()]);
-        // Mandaue's seller withdraws and is paid only half (₱2400) of their ₱4800 Seller Share -- fee: 6% of ₱2400 = ₱144.
-        $this->makeWithdrawal($mandaueSeller, ['amount' => 2400, 'status' => 'paid', 'paid_at' => now()]);
+        // A paid old-rules withdrawal from Mandaue adds its frozen ₱144 fee there.
+        $this->makeWithdrawal($mandaueSeller, ['amount' => 2400, 'platform_fee' => 144, 'status' => 'paid', 'paid_at' => now()]);
+        // A new one adds nothing.
+        $this->makeWithdrawal($cordovaSeller, ['amount' => 900, 'status' => 'paid', 'paid_at' => now()]);
 
         $dashboard = $this->getJson('/api/super-admin/dashboard')->assertOk();
-        // Realized: 57.60 + 144 = 201.60.
-        $this->assertEquals(201.6, $dashboard->json('platform_revenue.total_platform_revenue'));
-        $this->assertEquals(6000, $dashboard->json('platform_revenue.gross_marketplace_revenue'));
+        $this->assertEquals(384, $dashboard->json('platform_revenue.total_platform_revenue'));
 
         $reports = $this->getJson('/api/super-admin/reports')->assertOk();
-        $this->assertEquals(201.6, $reports->json('revenue_cards.total_platform_revenue'));
+        $this->assertEquals(384, $reports->json('revenue_cards.total_platform_revenue'));
         $municipalityRevenue = collect($reports->json('revenue_by_municipality'))->keyBy('municipality');
-        $this->assertEquals(57.6, $municipalityRevenue['Cordova']['amount']);
-        $this->assertEquals(144, $municipalityRevenue['Mandaue']['amount']);
+        $this->assertEquals(40, $municipalityRevenue['Cordova']['amount']);
+        $this->assertEquals(344, $municipalityRevenue['Mandaue']['amount']);
+        $this->assertEquals(384, round(collect($reports->json('platform_revenue_over_time'))->sum('amount'), 2));
     }
 
     public function test_lgu_ai_assistant_reports_municipality_revenue_using_lgu_share_only(): void
@@ -6442,7 +6430,7 @@ class FishMarketApiTest extends TestCase
         $buyer = $this->makeBuyer();
         $order = $this->makeOrder($buyer, $this->makeListing($seller), ['status' => 'completed', 'total_amount' => 1000]);
         $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 1000]);
-        $this->makeSettlement($order, $payment); // LGU Share: 4% of ₱1000 = ₱40.
+        $this->makeSettlement($order, $payment); // LGU Share: 2% of ₱1000 = ₱20.
 
         $mandaueAdmin = $this->makeLguAdmin(['municipality_id' => $mandaue->id]);
         Sanctum::actingAs($mandaueAdmin);
@@ -6450,7 +6438,7 @@ class FishMarketApiTest extends TestCase
         $response = $this->postJson('/api/ai-assistant/ask', ['question' => 'What is our municipality revenue?']);
 
         $response->assertCreated();
-        $this->assertStringContainsString('40', $response->json('response'));
+        $this->assertStringContainsString('₱20', $response->json('response'));
         // Must never leak the gross amount (1000) into the LGU's own revenue answer -- only the LGU Share.
         $this->assertStringNotContainsString('1000', $response->json('response'));
     }
@@ -6463,21 +6451,21 @@ class FishMarketApiTest extends TestCase
         $buyer = $this->makeBuyer();
         $order = $this->makeOrder($buyer, $this->makeListing($seller), ['status' => 'completed', 'total_amount' => 1000]);
         $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 1000]);
-        $this->makeSettlement($order, $payment); // Seller Share 960, Platform Share 0 -- settled, not yet withdrawn.
+        $this->makeSettlement($order, $payment); // Seller Share 940, Platform Share 40.
 
         Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
 
-        // Platform Revenue must read as zero before any withdrawal is paid, even though the order is already settled.
+        // The Platform Share is realized at settlement.
         $beforeWithdrawal = $this->postJson('/api/ai-assistant/ask', ['question' => 'What is our platform revenue?']);
         $beforeWithdrawal->assertCreated();
-        $this->assertStringContainsString('₱0', $beforeWithdrawal->json('response'));
+        $this->assertStringContainsString('₱40', $beforeWithdrawal->json('response'));
 
-        // Seller withdraws and is paid their full ₱960 Seller Share -- fee: 6% of ₱960 = ₱57.60.
-        $this->makeWithdrawal($seller, ['amount' => 960, 'status' => 'paid', 'paid_at' => now()]);
+        // A paid old-rules withdrawal adds its frozen ₱57.60 fee: 40 + 57.60.
+        $this->makeWithdrawal($seller, ['amount' => 940, 'platform_fee' => 57.6, 'status' => 'paid', 'paid_at' => now()]);
 
         $platformResponse = $this->postJson('/api/ai-assistant/ask', ['question' => 'What is our platform revenue?']);
         $platformResponse->assertCreated();
-        $this->assertStringContainsString('57.6', $platformResponse->json('response'));
+        $this->assertStringContainsString('97.6', $platformResponse->json('response'));
 
         $grossResponse = $this->postJson('/api/ai-assistant/ask', ['question' => 'What is our gross marketplace revenue?']);
         $grossResponse->assertCreated();
@@ -6495,9 +6483,9 @@ class FishMarketApiTest extends TestCase
         $seller = $this->makeSeller([], ['municipality_id' => $municipalityId]);
         $buyer = $this->makeBuyer();
 
-        $order = $this->makeOrder($buyer, $this->makeListing($seller), ['status' => 'completed', 'total_amount' => 1000]);
-        $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 1000]);
-        $this->makeSettlement($order, $payment); // LGU Share: 4% of ₱1000 = ₱40.
+        $order = $this->makeOrder($buyer, $this->makeListing($seller), ['status' => 'completed', 'total_amount' => 2000]);
+        $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 2000]);
+        $this->makeSettlement($order, $payment); // LGU Share: 2% of ₱2000 = ₱40.
 
         Sanctum::actingAs($lguAdmin);
         $response = $this->getJson('/api/lgu/wallet');
@@ -6512,7 +6500,7 @@ class FishMarketApiTest extends TestCase
         // Revenue history must show the settlement's LGU Share, never the
         // gross amount, the Seller Share, or the Platform Share.
         $this->assertEquals(40, $response->json('revenue_history.0.lgu_share'));
-        $this->assertEquals(1000, $response->json('revenue_history.0.gross_amount'));
+        $this->assertEquals(2000, $response->json('revenue_history.0.gross_amount'));
     }
 
     public function test_lgu_can_submit_withdrawal_request_within_available_balance(): void
@@ -6522,8 +6510,8 @@ class FishMarketApiTest extends TestCase
         $seller = $this->makeSeller([], ['municipality_id' => $municipalityId]);
         $buyer = $this->makeBuyer();
 
-        $order = $this->makeOrder($buyer, $this->makeListing($seller), ['status' => 'completed', 'total_amount' => 10000]);
-        $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 10000]);
+        $order = $this->makeOrder($buyer, $this->makeListing($seller), ['status' => 'completed', 'total_amount' => 20000]);
+        $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 20000]);
         $this->makeSettlement($order, $payment); // LGU Share: 400.
 
         Sanctum::actingAs($lguAdmin);
@@ -6556,8 +6544,8 @@ class FishMarketApiTest extends TestCase
         $seller = $this->makeSeller([], ['municipality_id' => $municipalityId]);
         $buyer = $this->makeBuyer();
 
-        $order = $this->makeOrder($buyer, $this->makeListing($seller), ['status' => 'completed', 'total_amount' => 1000]);
-        $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 1000]);
+        $order = $this->makeOrder($buyer, $this->makeListing($seller), ['status' => 'completed', 'total_amount' => 2000]);
+        $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 2000]);
         $this->makeSettlement($order, $payment); // LGU Share: 40.
 
         Sanctum::actingAs($lguAdmin);
@@ -6586,8 +6574,8 @@ class FishMarketApiTest extends TestCase
         $seller = $this->makeSeller([], ['municipality_id' => $municipalityId]);
         $buyer = $this->makeBuyer();
 
-        $order = $this->makeOrder($buyer, $this->makeListing($seller), ['status' => 'completed', 'total_amount' => 20000]);
-        $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 20000]);
+        $order = $this->makeOrder($buyer, $this->makeListing($seller), ['status' => 'completed', 'total_amount' => 40000]);
+        $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 40000]);
         $this->makeSettlement($order, $payment); // LGU Share: 800.
 
         Sanctum::actingAs($lguAdmin);
@@ -6630,8 +6618,8 @@ class FishMarketApiTest extends TestCase
         $municipalityId = $lguAdmin->municipality_id;
         $seller = $this->makeSeller([], ['municipality_id' => $municipalityId]);
         $buyer = $this->makeBuyer();
-        $order = $this->makeOrder($buyer, $this->makeListing($seller), ['status' => 'completed', 'total_amount' => 1000]);
-        $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 1000]);
+        $order = $this->makeOrder($buyer, $this->makeListing($seller), ['status' => 'completed', 'total_amount' => 2000]);
+        $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 2000]);
         $this->makeSettlement($order, $payment); // LGU Share: 40.
 
         $withdrawal = $this->makeLguWithdrawal($municipalityId, ['requested_by' => $lguAdmin->id, 'amount' => 25]);
@@ -6670,8 +6658,8 @@ class FishMarketApiTest extends TestCase
         $municipalityId = $lguAdmin->municipality_id;
         $seller = $this->makeSeller([], ['municipality_id' => $municipalityId]);
         $buyer = $this->makeBuyer();
-        $order = $this->makeOrder($buyer, $this->makeListing($seller), ['status' => 'completed', 'total_amount' => 10000]);
-        $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 10000]);
+        $order = $this->makeOrder($buyer, $this->makeListing($seller), ['status' => 'completed', 'total_amount' => 20000]);
+        $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 20000]);
         $this->makeSettlement($order, $payment); // LGU Share: 400.
 
         Sanctum::actingAs($lguAdmin);
@@ -6771,13 +6759,13 @@ class FishMarketApiTest extends TestCase
         $mandaueSeller = $this->makeSeller([], ['municipality_id' => $mandaue->id]);
         $buyer = $this->makeBuyer();
 
-        $cordovaOrder = $this->makeOrder($buyer, $this->makeListing($cordovaSeller), ['status' => 'completed', 'total_amount' => 1000]);
-        $cordovaPayment = $this->makePayment($cordovaOrder, ['status' => 'released', 'amount' => 1000]);
+        $cordovaOrder = $this->makeOrder($buyer, $this->makeListing($cordovaSeller), ['status' => 'completed', 'total_amount' => 2000]);
+        $cordovaPayment = $this->makePayment($cordovaOrder, ['status' => 'released', 'amount' => 2000]);
         $this->makeSettlement($cordovaOrder, $cordovaPayment); // Cordova LGU Share: 40.
 
-        $mandaueOrder = $this->makeOrder($buyer, $this->makeListing($mandaueSeller), ['status' => 'completed', 'total_amount' => 5000]);
-        $mandauePayment = $this->makePayment($mandaueOrder, ['status' => 'released', 'amount' => 5000]);
-        $this->makeSettlement($mandaueOrder, $mandauePayment); // Mandaue LGU Share: 200. Gross: 5000. Seller Share: 4800.
+        $mandaueOrder = $this->makeOrder($buyer, $this->makeListing($mandaueSeller), ['status' => 'completed', 'total_amount' => 10000]);
+        $mandauePayment = $this->makePayment($mandaueOrder, ['status' => 'released', 'amount' => 10000]);
+        $this->makeSettlement($mandaueOrder, $mandauePayment); // Mandaue LGU Share: 200. Gross: 10000. Seller Share: 9400.
 
         $this->makeLguWithdrawal($mandaue->id, ['requested_by' => $mandaueAdmin->id, 'amount' => 50]);
 
@@ -6790,9 +6778,9 @@ class FishMarketApiTest extends TestCase
         // or the seller's own share) or its withdrawal request.
         $body = json_encode($wallet->json());
         $this->assertStringNotContainsString('"total_revenue":200', $body);
-        $this->assertStringNotContainsString('"gross_amount":"5000.00"', $body);
+        $this->assertStringNotContainsString('"gross_amount":"10000.00"', $body);
         $this->assertStringNotContainsString('"lgu_share":"200.00"', $body);
-        $this->assertStringNotContainsString('"seller_share":"4800.00"', $body);
+        $this->assertStringNotContainsString('"seller_share":"9400.00"', $body);
         $this->assertEmpty($wallet->json('withdrawal_requests'));
         $this->assertCount(1, $wallet->json('revenue_history'));
 
@@ -6811,8 +6799,8 @@ class FishMarketApiTest extends TestCase
         $municipalityId = $lguAdmin->municipality_id;
         $seller = $this->makeSeller([], ['municipality_id' => $municipalityId]);
         $buyer = $this->makeBuyer();
-        $order = $this->makeOrder($buyer, $this->makeListing($seller), ['status' => 'completed', 'total_amount' => 1000]);
-        $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 1000]);
+        $order = $this->makeOrder($buyer, $this->makeListing($seller), ['status' => 'completed', 'total_amount' => 2000]);
+        $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 2000]);
         $this->makeSettlement($order, $payment); // LGU Share: 40.
         $this->makeLguWithdrawal($municipalityId, ['requested_by' => $lguAdmin->id, 'amount' => 10, 'status' => 'paid', 'paid_at' => now()]);
 
@@ -6837,8 +6825,8 @@ class FishMarketApiTest extends TestCase
         $municipalityId = $lguAdmin->municipality_id;
         $seller = $this->makeSeller([], ['municipality_id' => $municipalityId]);
         $buyer = $this->makeBuyer();
-        $order = $this->makeOrder($buyer, $this->makeListing($seller), ['status' => 'completed', 'total_amount' => 1000]);
-        $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 1000]);
+        $order = $this->makeOrder($buyer, $this->makeListing($seller), ['status' => 'completed', 'total_amount' => 2000]);
+        $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 2000]);
         $this->makeSettlement($order, $payment); // LGU Share: 40.
         $this->makeLguWithdrawal($municipalityId, ['requested_by' => $lguAdmin->id, 'amount' => 15, 'status' => 'paid', 'paid_at' => now()]);
 
@@ -6866,17 +6854,17 @@ class FishMarketApiTest extends TestCase
         $listing = $this->makeListing($seller);
         $order = $this->makeOrder($buyer, $listing, ['status' => 'completed']);
         $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 200]);
-        $this->makeSettlement($order, $payment); // Seller Share: 96% of ₱200 = ₱192.
+        $this->makeSettlement($order, $payment); // Seller Share: 94% of ₱200 = ₱188.
 
         Sanctum::actingAs($seller->user);
         $wallet = $this->getJson('/api/seller/wallet')->assertOk();
-        $wallet->assertJsonPath('available_balance', 192)->assertJsonPath('total_earnings', 192);
+        $wallet->assertJsonPath('available_balance', 188)->assertJsonPath('total_earnings', 188);
 
         $response = $this->postJson('/api/seller/withdrawals', [
             'method' => 'gcash', 'account_name' => 'Test Seller', 'account_number' => '09171234567', 'amount' => 100,
         ]);
-        // Seller withdrawals still carry the 6% platform payout fee, unlike LGU withdrawals.
-        $response->assertCreated()->assertJsonPath('platform_fee', '6.00')->assertJsonPath('net_amount', 94);
+        // Like LGU withdrawals, seller withdrawals carry no fee since 2026-10-09.
+        $response->assertCreated()->assertJsonPath('platform_fee', '0.00')->assertJsonPath('net_amount', 100);
     }
 
     // ------------------------------------------------------------------
@@ -9126,15 +9114,8 @@ class FishMarketApiTest extends TestCase
         $this->postListing(['species' => 'Tilapia', 'title' => 'Still allowed', 'quantity' => 10, 'price_per_piece' => 5])
             ->assertCreated();
 
-        // Even a REJECTED explanation on a first notice does not freeze them --
-        // it only records an offense for the LGU to weigh.
-        Sanctum::actingAs($lguAdmin);
-        $this->patchJson("/api/lgu/seller-notices/{$notice->id}/reject", [
-            'reason' => 'The explanation does not address the complaints raised.',
-        ])->assertOk()->assertJsonPath('status', 'rejected');
-
-        $this->assertSame(1, SellerSanctions::offenseCount($seller->id));
-        $this->assertNull($seller->fresh()->listings_frozen_at);
+        // Raising the notice never suspends anyone; only a rejected
+        // explanation does (see the suspension tests below).
         $this->assertNotSame('suspended', $seller->fresh()->status);
     }
 
@@ -9183,41 +9164,173 @@ class FishMarketApiTest extends TestCase
         $this->assertTrue(collect($this->getJson('/api/listings')->assertOk()->json())->contains('id', $listing->id));
     }
 
-    /**
-     * Suspension is a judgement call, never a counter. However many
-     * explanations are rejected, the account stays active until a human
-     * decides otherwise.
-     */
-    public function test_repeated_rejected_explanations_never_suspend_the_account_on_their_own(): void
+    /** A seller with a Notice to Explain whose explanation the LGU has just rejected. */
+    private function sellerWithRejectedExplanation(): array
     {
         $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
         $seller = $this->makeSeller(
             ['municipality_id' => $lguAdmin->municipality_id],
             ['municipality_id' => $lguAdmin->municipality_id]
         );
+        $notice = SellerReputation::raiseLowRatingNotice($seller, 2.0, 5);
 
-        foreach ([1, 2, 3, 4] as $round) {
-            $notice = SellerReputation::raiseLowRatingNotice($seller->fresh(), 2.0, 5);
-            $this->assertNotNull($notice, "notice {$round} should have been raised");
+        Sanctum::actingAs($seller->user);
+        $this->postJson("/api/seller/notices/{$notice->id}/respond", ['response' => 'Our courier lost two shipments.'])->assertOk();
 
-            Sanctum::actingAs($lguAdmin);
-            $this->patchJson("/api/lgu/seller-notices/{$notice->id}/reject", [
-                'reason' => 'The explanation still does not address the delivery complaints.',
-            ])->assertOk();
-
-            $this->assertSame($round, SellerSanctions::offenseCount($seller->id));
-            $this->assertNotSame('suspended', $seller->fresh()->status, "must not auto-suspend at offense {$round}");
-        }
-
-        // The LGU can still suspend by hand whenever it judges it warranted,
-        // and reinstating lifts the freeze with it.
         Sanctum::actingAs($lguAdmin);
-        $this->patchJson("/api/lgu/sellers/{$seller->id}/suspend", ['reason' => 'Repeated unresolved delivery complaints.'])->assertOk();
-        $this->assertSame('suspended', $seller->fresh()->status);
+        $this->patchJson("/api/lgu/seller-notices/{$notice->id}/reject", [
+            'reason' => 'The explanation does not address the complaints raised.',
+        ])->assertOk()->assertJsonPath('status', 'rejected');
 
-        AccountModeration::reinstateSeller($seller->fresh(), $lguAdmin, 'Appeal upheld.');
+        return [$seller, $lguAdmin, $notice];
+    }
+
+    /**
+     * Team rule (2026-10-09): a rejected explanation suspends the seller.
+     * They may dispute it ONCE; after a rejected dispute the app points them
+     * to their LGU or Help & Support, like a rejected registration.
+     */
+    public function test_a_rejected_explanation_suspends_the_seller_who_may_dispute_it_once(): void
+    {
+        [$seller, $lguAdmin, $notice] = $this->sellerWithRejectedExplanation();
+
+        $this->assertSame('suspended', $seller->fresh()->status);
+        $this->assertSame(1, SellerSanctions::offenseCount($seller->id));
+        $this->assertStringContainsString('dispute this decision once',
+            AppNotification::where('user_id', $seller->user_id)->where('type', 'account_suspended')->value('body'));
+
+        // The seller sees the one dispute they are allowed, and files it.
+        Sanctum::actingAs($seller->user);
+        $this->getJson('/api/seller/notices')->assertOk()->assertJsonPath('0.can_dispute', true);
+        $disputeId = $this->postJson("/api/seller/notices/{$notice->id}/dispute", ['reason' => 'The buyers who rated us never received the courier refund.'])
+            ->assertCreated()->json('id');
+        $this->getJson('/api/seller/notices')->assertOk()
+            ->assertJsonPath('0.can_dispute', false)
+            ->assertJsonPath('0.dispute.status', 'open');
+        $this->postJson("/api/seller/notices/{$notice->id}/dispute", ['reason' => 'Another try.'])->assertStatus(422);
+
+        // Their LGU hears it, and sees what it is about.
+        Sanctum::actingAs($lguAdmin);
+        $this->getJson('/api/lgu/disputes')->assertOk()
+            ->assertJsonPath('0.id', $disputeId)
+            ->assertJsonPath('0.subject_reference', $seller->hatchery_name);
+        $this->patchJson("/api/lgu/disputes/{$disputeId}/reject", ['note' => 'The ratings are about late replies, not refunds.'])->assertOk();
+
+        // The second rejection is final in the app: still suspended, no more disputes.
+        $this->assertSame('suspended', $seller->fresh()->status);
+        $this->assertStringContainsString('message your LGU or send a support ticket',
+            AppNotification::where('user_id', $seller->user_id)->where('type', "notice_dispute_resolved:{$disputeId}")->value('body'));
+        Sanctum::actingAs($seller->user);
+        $this->postJson("/api/seller/notices/{$notice->id}/dispute", ['reason' => 'Please look again.'])->assertStatus(422);
+
+        // A human can still reinstate them, which lifts any freeze too.
+        AccountModeration::reinstateSeller($seller->fresh(), $lguAdmin, 'Reviewed again after a support ticket.');
         $this->assertNotSame('suspended', $seller->fresh()->status);
         $this->assertNull($seller->fresh()->listings_frozen_at);
+    }
+
+    public function test_an_accepted_notice_dispute_reinstates_the_seller_and_clears_the_offense(): void
+    {
+        [$seller, , $notice] = $this->sellerWithRejectedExplanation();
+
+        Sanctum::actingAs($seller->user);
+        $disputeId = $this->postJson("/api/seller/notices/{$notice->id}/dispute", ['reason' => 'Here are the courier receipts.'])->json('id');
+
+        // Another municipality's LGU cannot decide it; the Super Admin can.
+        Sanctum::actingAs($this->makeLguAdmin(['municipality_id' => Municipality::where('id', '!=', $seller->municipality_id)->value('id')]));
+        $this->patchJson("/api/lgu/disputes/{$disputeId}/accept")->assertStatus(403);
+
+        Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
+        $this->patchJson("/api/super-admin/disputes/{$disputeId}/accept")->assertOk();
+
+        $this->assertNotSame('suspended', $seller->fresh()->status);
+        $this->assertSame('accepted', $notice->fresh()->status);
+        $this->assertSame(0, SellerSanctions::offenseCount($seller->id));
+    }
+
+    public function test_a_suspended_seller_can_still_message_their_lgu_but_not_buyers(): void
+    {
+        [$seller, $lguAdmin] = $this->sellerWithRejectedExplanation();
+        $buyer = $this->makeBuyer();
+
+        Sanctum::actingAs($seller->user);
+        $this->postJson('/api/messages', ['receiver_id' => $lguAdmin->id, 'body' => 'Can we talk about my notice?'])->assertCreated();
+        $this->postJson('/api/messages', ['receiver_id' => User::where('role', 'super_admin')->value('id'), 'body' => 'Please review my case.'])->assertCreated();
+        $this->postJson('/api/messages', ['receiver_id' => $buyer->id, 'body' => 'Hello'])->assertStatus(403);
+    }
+
+    public function test_a_valid_report_against_a_seller_sends_a_notice_to_explain(): void
+    {
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $seller = $this->makeSeller(
+            ['municipality_id' => $lguAdmin->municipality_id],
+            ['municipality_id' => $lguAdmin->municipality_id]
+        );
+        $buyer = $this->makeBuyer();
+
+        Sanctum::actingAs($buyer);
+        $reportId = $this->postJson('/api/reports', [
+            'reported_user_id' => $seller->user_id,
+            'reason' => 'Seller unresponsive',
+            'description' => 'No response to any of my messages about this order.',
+        ])->assertCreated()->json('id');
+
+        Sanctum::actingAs($lguAdmin);
+        // Findings are required: the notice quotes them to the seller.
+        $this->patchJson("/api/lgu/user-reports/{$reportId}", ['status' => 'resolved', 'issue_notice' => true])->assertStatus(422);
+        // Only a report resolved as valid can send one.
+        $this->patchJson("/api/lgu/user-reports/{$reportId}", ['status' => 'dismissed', 'issue_notice' => true, 'resolution_notes' => 'x'])->assertStatus(422);
+
+        $this->patchJson("/api/lgu/user-reports/{$reportId}", [
+            'status' => 'resolved',
+            'issue_notice' => true,
+            'resolution_notes' => 'Three buyers confirm no replies for two weeks.',
+        ])->assertOk()->assertJsonPath('status', 'resolved');
+
+        $notice = SellerNotice::where('seller_profile_id', $seller->id)->firstOrFail();
+        $this->assertSame('user_report', $notice->type);
+        $this->assertSame('open', $notice->status);
+        $this->assertStringContainsString('Three buyers confirm', $notice->details);
+        $this->assertDatabaseHas('notifications', ['user_id' => $seller->user_id, 'type' => 'seller_notice_to_explain', 'title' => 'Notice to Explain -- Buyer Report']);
+
+        // One open notice at a time: a second valid report is refused and left untouched.
+        Sanctum::actingAs($buyer);
+        $secondId = $this->postJson('/api/reports', [
+            'reported_user_id' => $seller->user_id,
+            'reason' => 'Seller unresponsive',
+            'description' => 'Still no response after another week.',
+        ])->assertCreated()->json('id');
+        Sanctum::actingAs($lguAdmin);
+        $this->patchJson("/api/lgu/user-reports/{$secondId}", ['status' => 'resolved', 'issue_notice' => true, 'resolution_notes' => 'Same issue.'])->assertStatus(422);
+        $this->assertSame('pending', \App\Models\UserReport::findOrFail($secondId)->status);
+
+        // A rejected explanation for a report-based notice suspends too.
+        Sanctum::actingAs($lguAdmin);
+        $this->patchJson("/api/lgu/seller-notices/{$notice->id}/reject", ['reason' => 'No explanation was given for the silence.'])->assertOk();
+        $this->assertSame('suspended', $seller->fresh()->status);
+    }
+
+    public function test_a_report_against_a_buyer_cannot_send_a_notice_to_explain(): void
+    {
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $seller = $this->makeSeller(
+            ['municipality_id' => $lguAdmin->municipality_id],
+            ['municipality_id' => $lguAdmin->municipality_id]
+        );
+        $buyer = $this->makeBuyer();
+        $order = $this->makeOrder($buyer, $this->makeListing($seller), ['status' => 'completed']);
+
+        Sanctum::actingAs($seller->user);
+        $reportId = $this->postJson('/api/reports', [
+            'reported_user_id' => $buyer->id,
+            'order_id' => $order->id,
+            'reason' => collect(\App\Models\UserReport::SELLER_REASONS)->first(),
+            'description' => 'The buyer never collected the order.',
+        ])->assertCreated()->json('id');
+
+        Sanctum::actingAs($lguAdmin);
+        $this->patchJson("/api/lgu/user-reports/{$reportId}", ['status' => 'resolved', 'issue_notice' => true, 'resolution_notes' => 'Confirmed.'])->assertStatus(422);
+        $this->assertSame(0, SellerNotice::count());
     }
 
     public function test_the_super_admin_can_decide_a_notice_in_any_municipality(): void

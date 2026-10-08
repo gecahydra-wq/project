@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AppNotification;
+use App\Models\Dispute;
 use App\Models\FingerlingListing;
 use App\Models\Message;
 use App\Models\MockPayment;
@@ -56,6 +57,9 @@ class SellerController extends Controller
             // the admin who reviewed it if still active, else any active LGU
             // Admin of the municipality. Null when the town has none.
             'lgu_contact' => $this->lguContact($seller),
+            // Who to message once a withdrawal rejection is final: the Super
+            // Admin decides payouts. Null if the platform has none.
+            'support_contact' => User::where('role', 'super_admin')->orderBy('id')->first(['id', 'name']),
         ]);
     }
 
@@ -246,10 +250,9 @@ class SellerController extends Controller
             return response()->json(['message' => 'Withdrawal amount exceeds your available balance.'], 422);
         }
 
-        // The platform's payout fee is frozen onto the request at the
-        // moment it's made -- see App\Support\CommissionCalculator -- so a
-        // later change to the fee percentage never retroactively alters an
-        // already-submitted withdrawal request.
+        // The payout fee (0 since 2026-10-09) is frozen onto the request at
+        // the moment it's made -- see App\Support\CommissionCalculator -- so
+        // a fee change never retroactively alters an already-submitted request.
         $fee = CommissionCalculator::withdrawalFee((float) $data['amount']);
 
         $withdrawal = WithdrawalRequest::create([
@@ -368,6 +371,11 @@ class SellerController extends Controller
             SellerNotice::with('reviewer:id,role')->where('seller_profile_id', $seller->id)->latest()->get()
                 ->map(function (SellerNotice $notice) {
                     $notice->reviewed_by_label = $notice->reviewed_by ? SellerSanctions::reviewerLabel($notice->reviewer) : null;
+                    // A rejected explanation can be disputed once; the UI shows
+                    // the button, the pending appeal, or where to go next.
+                    $dispute = $notice->morphMany(Dispute::class, 'disputable')->latest()->first(['id', 'status', 'resolution_note', 'created_at', 'resolved_at']);
+                    $notice->dispute = $dispute;
+                    $notice->can_dispute = $notice->status === SellerNotice::STATUS_REJECTED && ! $dispute;
 
                     return $notice->unsetRelation('reviewer');
                 })

@@ -21,12 +21,14 @@ use App\Models\User;
  *     already placed. It is reversible the moment the LGU accepts their
  *     explanation. This is the "your shop is closed while we talk" state.
  *
- *  2. SUSPENSION -- never automatic. Nothing in this class suspends an
- *     account. Whether a seller's conduct warrants suspension is a judgement
- *     an LGU Admin or the Super Admin makes from the Sellers tab, and they can
- *     make it after a single notice or never. A rating can fall because a
- *     buyer was trolling, and a rule that suspended on a count alone would
- *     punish the seller for that.
+ *  2. SUSPENSION -- automatic when an explanation is REJECTED (the team's
+ *     rule since 2026-10-09; it replaced the adviser's earlier "never
+ *     auto-suspend"). Raising a notice still never suspends: only a reviewer
+ *     who has read the explanation and found it wanting can trigger it. The
+ *     seller may dispute that decision ONCE (App\Support\DisputeResolution);
+ *     an accepted dispute reinstates them. After a rejected dispute the app
+ *     offers no further appeal -- they message their LGU or send a support
+ *     ticket, the same path a rejected registration has.
  *
  * THE FIRST NOTICE IS A WARNING ONLY. A seller hitting the threshold for the
  * first time keeps their listings up while they explain -- one bad run is not
@@ -166,7 +168,7 @@ class SellerSanctions
 
     /**
      * The LGU is not satisfied. This is the one path that records an offense,
-     * and the third one suspends the account.
+     * and it suspends the seller's account (see the class docblock).
      */
     public static function rejectExplanation(SellerNotice $notice, User $actor, string $reason): SellerNotice
     {
@@ -182,20 +184,26 @@ class SellerSanctions
             return $notice->fresh();
         }
 
-        // Deliberately does NOT freeze and does NOT suspend. Whether the shop
-        // stays open is decided by which notice this is (see
-        // SellerReputation::raiseLowRatingNotice), and suspension is the LGU's
-        // judgement call from the Sellers tab -- available to them after one
-        // rejected explanation or never. An automatic sanction here would
-        // punish a seller for buyers who were simply trolling.
         $offenses = self::offenseCount($seller->id);
 
         self::notifySeller($seller, 'seller_notice_rejected', 'Explanation Rejected', sprintf(
-            '%s rejected your explanation. This is recorded as offense %d against your account. Reason: %s',
+            '%s rejected your explanation. This is recorded as offense %d against your account, and your seller account has been suspended. Reason: %s You can dispute this decision once from the Notices tab.',
             self::reviewerLabel($actor),
             $offenses,
             $reason
         ));
+
+        // Suspension lifts only through an accepted dispute or a manual
+        // reinstatement, both of which go through AccountModeration.
+        if ($seller->status !== 'suspended') {
+            AccountModeration::suspendSeller(
+                $seller,
+                $actor,
+                "Your explanation for a Notice to Explain was rejected: {$reason}",
+                null,
+                'You can dispute this decision once from the Notices tab. If that dispute is also rejected, message your LGU or send a support ticket from Help & Support.'
+            );
+        }
 
         ActivityLog::record([
             'actor_id' => $actor->id,
@@ -204,7 +212,7 @@ class SellerSanctions
             'target_user_id' => $seller->user_id,
             'municipality_id' => $notice->municipality_id,
             'description' => sprintf(
-                'Rejected %s\'s explanation -- offense %d on record. No automatic sanction applied.',
+                'Rejected %s\'s explanation -- offense %d on record. Seller account suspended.',
                 $seller->hatchery_name,
                 $offenses
             ),

@@ -283,12 +283,16 @@ class LguController extends Controller
         $data = $request->validate([
             'status' => ['required', Rule::in(UserReport::STATUSES)],
             // Dismissing turns the reporter away, so they are told why.
-            'resolution_notes' => ['nullable', 'required_if:status,dismissed', 'string', 'max:2000'],
+            // A Notice to Explain quotes these findings to the seller.
+            'resolution_notes' => ['nullable', 'required_if:status,dismissed', 'required_if:issue_notice,true', 'string', 'max:2000'],
+            'issue_notice' => ['sometimes', 'boolean'],
         ], [
-            'resolution_notes.required_if' => 'Please give a reason for dismissing this report.',
+            'resolution_notes.required_if' => 'Please give a reason for this decision.',
         ]);
+        $issueNotice = (bool) ($data['issue_notice'] ?? false);
+        abort_if($issueNotice && $data['status'] !== 'resolved', 422, 'Only a report you resolve as valid can send a Notice to Explain.');
 
-        return response()->json(UserReports::updateStatus($report, $request->user(), $data['status'], $data['resolution_notes'] ?? null));
+        return response()->json(UserReports::updateStatus($report, $request->user(), $data['status'], $data['resolution_notes'] ?? null, $issueNotice));
     }
 
     /**
@@ -523,7 +527,7 @@ class LguController extends Controller
 
         return response()->json([
             'buyers' => User::where('role', 'buyer')->where('municipality_id', $municipalityId)->with('buyerProfile:user_id,rating,ratings_count')->get(),
-            'sellers' => User::where('role', 'seller')->where('municipality_id', $municipalityId)->get(),
+            'sellers' => User::where('role', 'seller')->where('municipality_id', $municipalityId)->with('sellerProfile:id,user_id')->get(),
         ]);
     }
 

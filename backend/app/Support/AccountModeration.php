@@ -66,7 +66,13 @@ class AccountModeration
         return $buyer->fresh();
     }
 
-    public static function suspendSeller(SellerProfile $seller, User $moderator, ?string $reason = null, ?string $notes = null): SellerProfile
+    /**
+     * @param  ?string  $nextSteps  What the seller can do about it, in place of
+     *                              the default "send a support ticket" line --
+     *                              e.g. the one dispute a rejected Notice to
+     *                              Explain allows (SellerSanctions).
+     */
+    public static function suspendSeller(SellerProfile $seller, User $moderator, ?string $reason = null, ?string $notes = null, ?string $nextSteps = null): SellerProfile
     {
         $seller->update(['status' => 'suspended']);
         // Deliberately NOT revoking tokens: a suspended seller stays signed in
@@ -77,9 +83,10 @@ class AccountModeration
             self::log($seller->user, 'seller', $moderator, 'suspended', $reason, $notes, 'suspended');
             SafeMailer::send($seller->user->email, new AccountSuspendedMail($seller->user, 'seller', $moderator, $reason, $notes));
             self::notify($seller->user, 'account_suspended', 'Account Suspended', sprintf(
-                '%s suspended your seller account.%s Your listings are off the marketplace. You can still sign in, but you cannot add or edit listings, update orders, request withdrawals, post or message buyers. If you think this is a mistake, send a support ticket from Help & Support.',
+                '%s suspended your seller account.%s Your listings are off the marketplace. You can still sign in, but you cannot add or edit listings, update orders, request withdrawals, post or message buyers. %s',
                 SellerSanctions::reviewerLabel($moderator),
-                self::reasonSentence($reason, $notes)
+                self::reasonSentence($reason, $notes),
+                $nextSteps ?? 'If you think this is a mistake, message your LGU or send a support ticket from Help & Support.'
             ));
         }
 

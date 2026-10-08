@@ -66,8 +66,18 @@ class UserReports
      * dismissed) also tells the reporter the outcome, so a complaint never
      * disappears silently.
      */
-    public static function updateStatus(UserReport $report, User $reviewer, string $status, ?string $notes = null): UserReport
+    public static function updateStatus(UserReport $report, User $reviewer, string $status, ?string $notes = null, bool $issueNotice = false): UserReport
     {
+        // A valid report against a seller can ask them to explain. Raised
+        // first, so a refusal (an open notice already) leaves the report as it was.
+        if ($issueNotice) {
+            $seller = $report->reported_role === 'seller'
+                ? SellerProfile::where('user_id', $report->reported_user_id)->first()
+                : null;
+            abort_unless($seller, 422, 'A Notice to Explain can only be sent to a reported seller.');
+            SellerReputation::raiseReportNotice($seller, $report, $reviewer, (string) $notes);
+        }
+
         $report->update([
             'status' => $status,
             'resolution_notes' => $notes ?? $report->resolution_notes,
@@ -110,7 +120,8 @@ class UserReports
      */
     public static function query(?int $municipalityId = null): Builder
     {
-        return UserReport::with(['reporter', 'reportedUser', 'municipality', 'order:id,order_number', 'reviewer'])
+        // sellerProfile ids let the dashboards link a seller's name to their profile.
+        return UserReport::with(['reporter.sellerProfile:id,user_id', 'reportedUser.sellerProfile:id,user_id', 'municipality', 'order:id,order_number', 'reviewer'])
             ->when($municipalityId, fn ($q) => $q->where('municipality_id', $municipalityId))
             ->latest();
     }

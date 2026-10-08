@@ -26,11 +26,10 @@ class WithdrawalNotifications
             "withdrawal_requested:{$withdrawal->id}",
             'New Seller Withdrawal Request',
             sprintf(
-                '%s requested a withdrawal of ₱%s via %s (₱%s after the platform fee). Review it under Payouts.',
+                '%s requested a withdrawal of ₱%s via %s. Review it under Payouts.',
                 $seller?->hatchery_name ?: ($seller?->user?->name ?? 'A seller'),
                 $amount,
-                $method,
-                self::money($withdrawal->amount - $withdrawal->platform_fee)
+                $method
             )
         );
 
@@ -41,11 +40,9 @@ class WithdrawalNotifications
             ], [
                 'title' => 'Withdrawal Request Submitted',
                 'body' => sprintf(
-                    'Your request to withdraw ₱%s via %s was sent to the Super Admin. After the %s%% platform fee of ₱%s, you will receive ₱%s once it is approved and paid.',
+                    'Your request to withdraw ₱%s via %s was sent to the Super Admin. You will receive the full ₱%s once it is approved and paid.',
                     $amount,
                     $method,
-                    rtrim(rtrim(number_format(CommissionCalculator::WITHDRAWAL_FEE_PERCENT, 2), '0'), '.'),
-                    self::money($withdrawal->platform_fee),
                     self::money($withdrawal->amount - $withdrawal->platform_fee)
                 ),
             ]);

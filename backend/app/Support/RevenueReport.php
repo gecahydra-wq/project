@@ -14,12 +14,13 @@ use Illuminate\Support\Carbon;
  * Seller Share and LGU Share both realize at LGU-approval/settlement time --
  * the instant a Settlement row is created, that money is "earned" for the
  * seller (Pending -> Available Balance) and for the LGU (informational
- * revenue). The Platform earns nothing at settlement time at all -- its
- * revenue is a payout fee charged on withdrawals (see
- * CommissionCalculator::withdrawalFee()), frozen onto each WithdrawalRequest
- * as platform_fee when the seller requests it, and only realized once the
- * Super Admin actually marks that withdrawal Paid. A settled-but-unwithdrawn
- * order contributes nothing to Platform Revenue.
+ * revenue), and so does the Platform Share (4% since 2026-10-09).
+ *
+ * Platform Revenue therefore has two sources, added together everywhere:
+ *  - settlements.platform_share, dated by settled_at (the current model);
+ *  - platform_fee on PAID seller withdrawals, dated by paid_at -- the 6%
+ *    payout fee charged before 2026-10-09. New withdrawals carry a 0 fee, so
+ *    this only ever adds the old income back in.
  */
 class RevenueReport
 {
@@ -53,18 +54,17 @@ class RevenueReport
 
     /**
      * Super Admin dashboard cards -- platform-wide. Platform Revenue is the
-     * sum of platform_fee on PAID withdrawals only (see class docblock).
+     * Platform Share of settlements plus the old payout fees (see class docblock).
      * gross_marketplace_revenue is a different concept entirely -- the full
      * buyer payment total across every settled order -- and stays
      * settlement-based since it's not the platform's own earned income.
      */
     public static function platformCards(): array
     {
-        $paid = WithdrawalRequest::where('status', 'paid');
-
-        $today = (float) (clone $paid)->whereDate('paid_at', now()->toDateString())->sum('platform_fee');
-        $monthly = (float) (clone $paid)->whereBetween('paid_at', [now()->startOfMonth(), now()->endOfMonth()])->sum('platform_fee');
-        $total = (float) (clone $paid)->sum('platform_fee');
+        $today = self::realizedPlatformRevenueTotal(now()->startOfDay(), now()->endOfDay());
+        $monthly = self::realizedPlatformRevenueTotal(now()->startOfMonth(), now()->endOfMonth());
+        $total = (float) Settlement::sum('platform_share')
+            + (float) WithdrawalRequest::where('status', 'paid')->sum('platform_fee');
 
         $gross = (float) Settlement::sum('gross_amount');
         $orders = Settlement::count();
@@ -128,24 +128,29 @@ class RevenueReport
      */
     public static function realizedPlatformRevenueTotal(Carbon $start, Carbon $end): float
     {
-        return round((float) WithdrawalRequest::where('status', 'paid')
+        $shares = (float) Settlement::whereBetween('settled_at', [$start, $end])->sum('platform_share');
+        $fees = (float) WithdrawalRequest::where('status', 'paid')
             ->whereBetween('paid_at', [$start, $end])
-            ->sum('platform_fee'), 2);
+            ->sum('platform_fee');
+
+        return round($shares + $fees, 2);
     }
 
     /**
-     * Realized Platform Revenue Over Time -- bucketized by paid_at on paid
-     * withdrawals' platform_fee, NOT by settled_at on settlements. This is a
-     * deliberately different time axis from LGU Revenue Over Time, which
-     * still buckets by settlement date.
+     * Realized Platform Revenue Over Time -- settlement Platform Shares by
+     * settled_at plus old payout fees by paid_at, bucket by bucket.
      */
     public static function platformRevenueOverTime(Carbon $start, Carbon $end, string $unit): array
     {
-        $rows = WithdrawalRequest::where('status', 'paid')
+        $shares = Settlement::whereBetween('settled_at', [$start, $end])
+            ->get(['settled_at', 'platform_share'])
+            ->map(fn ($row) => (object) ['at' => $row->settled_at, 'amount' => (float) $row->platform_share]);
+        $fees = WithdrawalRequest::where('status', 'paid')
             ->whereBetween('paid_at', [$start, $end])
-            ->get(['paid_at', 'platform_fee']);
+            ->get(['paid_at', 'platform_fee'])
+            ->map(fn ($row) => (object) ['at' => $row->paid_at, 'amount' => (float) $row->platform_fee]);
 
-        return AnalyticsPeriod::bucketize($start, $end, $unit, $rows, 'paid_at', 'platform_fee');
+        return AnalyticsPeriod::bucketize($start, $end, $unit, $shares->concat($fees), 'at', 'amount');
     }
 
     /**
@@ -166,26 +171,45 @@ class RevenueReport
 
     /**
      * Realized Platform Revenue by municipality -- exact, not an
-     * approximation, since every withdrawal belongs to exactly one seller
-     * who belongs to exactly one municipality.
+     * approximation: every settlement and every withdrawal belongs to exactly
+     * one seller, who belongs to exactly one municipality. "total" counts the
+     * settled orders plus the old fee-bearing payouts behind the amount.
      */
     public static function platformRevenueByMunicipality(Carbon $start, Carbon $end)
     {
-        return WithdrawalRequest::where('withdrawal_requests.status', 'paid')
+        $shares = Settlement::whereBetween('settlements.settled_at', [$start, $end])
+            ->where('settlements.platform_share', '>', 0)
+            ->join('municipalities', 'settlements.municipality_id', '=', 'municipalities.id')
+            ->selectRaw('municipalities.name as municipality, sum(settlements.platform_share) as amount, count(*) as total')
+            ->groupBy('municipalities.name')
+            ->get();
+
+        $fees = WithdrawalRequest::where('withdrawal_requests.status', 'paid')
             ->whereBetween('withdrawal_requests.paid_at', [$start, $end])
+            ->where('withdrawal_requests.platform_fee', '>', 0)
             ->join('seller_profiles', 'withdrawal_requests.seller_profile_id', '=', 'seller_profiles.id')
             ->join('municipalities', 'seller_profiles.municipality_id', '=', 'municipalities.id')
             ->selectRaw('municipalities.name as municipality, sum(withdrawal_requests.platform_fee) as amount, count(*) as total')
             ->groupBy('municipalities.name')
-            ->orderByDesc('amount')
             ->get();
+
+        return $shares->toBase()->concat($fees->toBase())
+            ->groupBy('municipality')
+            ->map(fn ($rows, $municipality) => (object) [
+                'municipality' => $municipality,
+                'amount' => round($rows->sum(fn ($row) => (float) $row->amount), 2),
+                'total' => $rows->sum(fn ($row) => (int) $row->total),
+            ])
+            ->sortByDesc('amount')
+            ->values();
     }
 
     /**
-     * Realized Platform Revenue by fish species -- a withdrawal draws from a
-     * seller's pooled balance across every one of their settled orders, not
-     * from one specific order, so species can't be attributed exactly the
-     * way municipality can. Instead this distributes the realized total
+     * Realized Platform Revenue by fish species -- an old payout fee draws
+     * from a seller's pooled balance, not one order, so species can't be
+     * attributed exactly the way municipality can. (The 4% Platform Share is
+     * proportional to gross anyway, so for current orders the result below
+     * is exact.) Instead this distributes the realized total
      * proportionally across species using each species' share of settled
      * gross order value in range -- a standard weighted-allocation approach
      * that always sums back to exactly the same realized total shown on the

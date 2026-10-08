@@ -161,7 +161,7 @@ class ReportExporter
 
         return [
             'title' => 'Municipality Revenue',
-            'columns' => ['Municipality', 'Realized Platform Revenue', 'Paid Withdrawals'],
+            'columns' => ['Municipality', 'Realized Platform Revenue', 'Orders / Payouts'],
             'rows' => collect($rows)->map(fn ($row) => [
                 $row->municipality,
                 number_format((float) $row->amount, 2),

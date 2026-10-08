@@ -23,7 +23,16 @@ class SellerProfileController extends Controller
 
     public function show(Request $request, SellerProfile $seller)
     {
-        abort_if($seller->status === 'suspended', 404);
+        // A suspended shop is hidden from the public, but staff (who decide
+        // the suspension) and the seller themselves can still open it -- every
+        // seller name in the dashboards links here.
+        $viewer = $request->user('sanctum');
+        abort_if(
+            $seller->status === 'suspended'
+                && ! in_array($viewer?->role, ['lgu_admin', 'super_admin'], true)
+                && $viewer?->id !== $seller->user_id,
+            404
+        );
 
         $seller->load(['user', 'municipality']);
 

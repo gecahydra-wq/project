@@ -193,6 +193,7 @@ class BuyerInvestmentReport
             'order_number' => $order->order_number,
             'date' => $order->created_at?->toIso8601String(),
             'seller' => $order->sellerProfile?->hatchery_name,
+            'seller_profile_id' => $order->seller_profile_id,
             'species' => $order->listing?->species ?? $order->listing?->title,
             'quantity' => (int) $order->quantity,
             'unit_label' => $order->listing?->unit_label_plural ?? 'pcs',

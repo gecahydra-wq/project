@@ -144,6 +144,8 @@ Route::middleware(['auth:sanctum', 'verified', 'role:seller'])->group(function (
     // answer them; only their LGU can close one.
     Route::get('seller/notices', [SellerController::class, 'notices']);
     Route::post('seller/notices/{notice}/respond', [SellerController::class, 'respondToNotice']);
+    // A rejected explanation suspends the seller; they may dispute it once.
+    Route::post('seller/notices/{notice}/dispute', [DisputeController::class, 'disputeNotice']);
     Route::get('seller/buyers/{buyer}', [SellerController::class, 'buyerProfile']);
     Route::patch('orders/{order:order_number}/notes', [OrderController::class, 'updateSellerNotes'])->middleware('active-seller');
 });

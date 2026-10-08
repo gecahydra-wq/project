@@ -142,10 +142,14 @@ class MessageController extends Controller
         ]);
 
         $sender = $request->user();
-        abort_if($sender->role === 'buyer' && $sender->status === 'suspended', 403, 'Your account has been suspended and cannot send messages. Contact support for assistance.');
-        abort_if($sender->role === 'seller' && SellerProfile::where('user_id', $sender->id)->value('status') === 'suspended', 403, 'Your seller account has been suspended and cannot send messages. Send a support ticket from Help & Support if you think this is a mistake.');
-
         $receiver = User::findOrFail($data['receiver_id']);
+
+        // A suspended account may still message its LGU and the Super Admin --
+        // that is how it asks for a second look -- but not other traders.
+        $toStaff = in_array($receiver->role, ['lgu_admin', 'super_admin'], true);
+        abort_if(! $toStaff && $sender->role === 'buyer' && $sender->status === 'suspended', 403, 'Your account has been suspended, so you can only message your LGU or the Super Admin. Send a support ticket from Help & Support if you think this is a mistake.');
+        abort_if(! $toStaff && $sender->role === 'seller' && SellerProfile::where('user_id', $sender->id)->value('status') === 'suspended', 403, 'Your seller account has been suspended, so you can only message your LGU or the Super Admin. Send a support ticket from Help & Support if you think this is a mistake.');
+
         $this->assertCanMessage($sender, $receiver);
 
         $message = Message::create([

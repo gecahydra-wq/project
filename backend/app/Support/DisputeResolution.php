@@ -6,6 +6,7 @@ use App\Models\AppNotification;
 use App\Models\Dispute;
 use App\Models\LguWithdrawalRequest;
 use App\Models\Order;
+use App\Models\SellerNotice;
 use App\Models\User;
 use App\Models\WithdrawalRequest;
 use Illuminate\Database\Eloquent\Model;
@@ -14,8 +15,9 @@ use Illuminate\Support\Facades\DB;
 /**
  * Filing and resolving appeals against a rejection.
  *
- * Three unrelated things can be rejected -- an order's earnings review, a
- * seller's withdrawal, an LGU's withdrawal -- and all three need the same
+ * Four unrelated things can be rejected -- an order's earnings review, a
+ * seller's withdrawal, an LGU's withdrawal, a seller's explanation for a
+ * Notice to Explain -- and all of them need the same
  * treatment: the rejected party explains, and the reviewer either accepts
  * (undoing the rejection and putting the item back in their queue) or rejects
  * the explanation (the rejection stands). Keeping that in one place is what
@@ -39,6 +41,7 @@ class DisputeResolution
         return match (true) {
             $subject instanceof Order => $subject->lgu_review_status === 'rejected',
             $subject instanceof WithdrawalRequest, $subject instanceof LguWithdrawalRequest => $subject->status === 'rejected',
+            $subject instanceof SellerNotice => $subject->status === SellerNotice::STATUS_REJECTED,
             default => false,
         };
     }
@@ -49,6 +52,7 @@ class DisputeResolution
         return match (true) {
             $subject instanceof Order => $subject->lgu_review_reason,
             $subject instanceof WithdrawalRequest, $subject instanceof LguWithdrawalRequest => $subject->rejection_reason,
+            $subject instanceof SellerNotice => $subject->lgu_notes,
             default => null,
         };
     }
@@ -73,6 +77,17 @@ class DisputeResolution
         if ($subject instanceof WithdrawalRequest || $subject instanceof LguWithdrawalRequest) {
             $blocker = WithdrawalRejection::disputeBlocker($subject);
             abort_if($blocker !== null, 422, (string) $blocker);
+        }
+
+        // A rejected explanation suspends the seller, and they get ONE appeal
+        // against it. After that the app's part is done -- they talk to their
+        // LGU or Help & Support, like a rejected registration.
+        if ($subject instanceof SellerNotice) {
+            abort_if(
+                $subject->morphMany(Dispute::class, 'disputable')->exists(),
+                422,
+                'You have already disputed this decision once. Message your LGU or send a support ticket from Help & Support.'
+            );
         }
 
         $dispute = Dispute::create([
@@ -128,11 +143,13 @@ class DisputeResolution
                 'resolved_at' => now(),
             ]);
 
-            self::notifyFiler($dispute, $subject, 'Dispute accepted', sprintf(
-                'Your explanation was accepted. The rejected %s has been reopened and is back under review.%s',
-                self::label($subject),
-                $note ? " Note: {$note}" : ''
-            ));
+            self::notifyFiler($dispute, $subject, 'Dispute accepted', $subject instanceof SellerNotice
+                ? sprintf('Your dispute was accepted. Your seller account is reinstated and your listings are back on the marketplace. No offense is recorded for this notice.%s', $note ? " Note: {$note}" : '')
+                : sprintf(
+                    'Your explanation was accepted. The rejected %s has been reopened and is back under review.%s',
+                    self::label($subject),
+                    $note ? " Note: {$note}" : ''
+                ));
 
             self::log($dispute, $subject, $actor, 'dispute_accepted', 'Accepted a dispute and reopened the rejected %s.');
 
@@ -163,11 +180,19 @@ class DisputeResolution
             $released = sprintf(' The ₱%s is back in your Available Balance.', number_format((float) $subject->amount, 2));
         }
 
+        // That was the one dispute this item allows, so say where to go next.
+        $nextStep = match (true) {
+            $subject instanceof SellerNotice => ' Your account stays suspended. This was your one dispute -- to ask again, message your LGU or send a support ticket from Help & Support.',
+            $subject instanceof WithdrawalRequest, $subject instanceof LguWithdrawalRequest => ' If you still think this is wrong, message the Super Admin or send a support ticket from Help & Support.',
+            default => '',
+        };
+
         self::notifyFiler($dispute, $subject, 'Dispute rejected', sprintf(
-            'Your explanation was reviewed and the original decision on your %s stands. Reason: %s%s',
+            'Your explanation was reviewed and the original decision on your %s stands. Reason: %s%s%s',
             self::label($subject),
             $note,
-            $released
+            $released,
+            $nextStep
         ));
 
         self::log($dispute, $subject, $actor, 'dispute_rejected', 'Rejected a dispute; the original decision on the %s stands.');
@@ -207,6 +232,25 @@ class DisputeResolution
             return;
         }
 
+        // An explanation accepted on appeal: no offense on record, and the
+        // suspension it caused is lifted (reinstating also lifts the freeze).
+        if ($subject instanceof SellerNotice) {
+            $subject->update([
+                'status' => SellerNotice::STATUS_ACCEPTED,
+                'reviewed_by' => $actor->id,
+                'reviewed_at' => now(),
+            ]);
+
+            $seller = $subject->sellerProfile;
+            if ($seller?->status === 'suspended') {
+                AccountModeration::reinstateSeller($seller, $actor, 'Your dispute against a rejected Notice to Explain was accepted.');
+            } elseif ($seller) {
+                SellerSanctions::liftFreeze($seller);
+            }
+
+            return;
+        }
+
         abort(422, 'This item cannot be reopened.');
     }
 
@@ -238,7 +282,7 @@ class DisputeResolution
             return $subject->loadMissing('sellerProfile')->sellerProfile?->municipality_id;
         }
 
-        if ($subject instanceof LguWithdrawalRequest) {
+        if ($subject instanceof LguWithdrawalRequest || $subject instanceof SellerNotice) {
             return $subject->municipality_id;
         }
 
@@ -250,6 +294,7 @@ class DisputeResolution
         return match (true) {
             $subject instanceof Order => 'earnings approval',
             $subject instanceof WithdrawalRequest, $subject instanceof LguWithdrawalRequest => 'withdrawal request',
+            $subject instanceof SellerNotice => 'Notice to Explain',
             default => 'item',
         };
     }
@@ -266,9 +311,13 @@ class DisputeResolution
 
     private static function notifyFiler(Dispute $dispute, Model $subject, string $title, string $body): void
     {
+        // Its own prefix so the seller's notification opens the Notices tab,
+        // not the Wallet where the other disputes live.
+        $prefix = $subject instanceof SellerNotice ? 'notice_dispute_resolved' : 'dispute_resolved';
+
         AppNotification::firstOrCreate([
             'user_id' => $dispute->filed_by,
-            'type' => "dispute_resolved:{$dispute->id}",
+            'type' => "{$prefix}:{$dispute->id}",
         ], [
             'title' => $title,
             'body' => $body,
