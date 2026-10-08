@@ -126,7 +126,6 @@ Route::middleware(['auth:sanctum', 'verified', 'role:seller'])->group(function (
     // again -- see App\Support\DisputeResolution.
     Route::post('orders/{order}/dispute-earnings', [DisputeController::class, 'disputeEarnings']);
     Route::post('withdrawals/{withdrawal}/dispute', [DisputeController::class, 'disputeWithdrawal']);
-    Route::post('withdrawals/{withdrawal}/accept-rejection', [SellerController::class, 'acceptWithdrawalRejection']);
     Route::get('seller/notifications', [SellerController::class, 'notifications']);
     Route::patch('seller/notifications/read-all', [SellerController::class, 'markAllNotificationsRead']);
     Route::patch('seller/notifications/{notification}/read', [SellerController::class, 'markNotificationRead']);

@@ -4011,7 +4011,6 @@ function SellerDashboard() {
                     <RejectedWithdrawalActions
                       request={request}
                       disputeEndpoint={`/withdrawals/${request.id}/dispute`}
-                      acceptEndpoint={`/withdrawals/${request.id}/accept-rejection`}
                       invalidateKeys={['seller-wallet']}
                     />
                   )}
@@ -4021,6 +4020,7 @@ function SellerDashboard() {
                       contact={dashboard.data?.support_contact}
                       contactLabel="the Super Admin"
                       topic="Wallet or withdrawal"
+                      returnedAmount={request.amount}
                     />
                   )}
                   </Fragment>
@@ -5554,7 +5554,7 @@ function LguDashboard() {
                     />
                   )}
                   {request.status === 'rejected_final' && (
-                    <FinalRejectionHelp base="/lgu/dashboard" contactLabel="the Super Admin" />
+                    <FinalRejectionHelp base="/lgu/dashboard" contactLabel="the Super Admin" returnedAmount={request.amount} />
                   )}
                   </Fragment>
                 ))}
@@ -6489,6 +6489,7 @@ function SuperAdminDashboard() {
               ['Pending Listing Approvals', dashboard.data?.pending_listing_approvals ?? 0, false, '/admin/dashboard?tab=listings'],
               ['Open User Reports', dashboard.data?.open_user_reports ?? 0, false, '/admin/dashboard?tab=user-reports'],
               ['Explanations to Review', dashboard.data?.notice_explanations_to_review ?? 0, false, '/admin/dashboard?tab=notices'],
+              ['Pending Seller Disputes', dashboard.data?.pending_seller_disputes ?? 0, false, '/admin/dashboard?tab=disputes'],
               ['Pending Seller Withdrawals', dashboard.data?.pending_seller_withdrawals ?? 0, false, '/admin/dashboard?tab=payouts&focus=seller-payouts'],
               ['Pending LGU Withdrawals', dashboard.data?.pending_lgu_withdrawals ?? 0, false, '/admin/dashboard?tab=payouts&focus=lgu-payouts'],
             ]} />
@@ -7214,7 +7215,7 @@ const HELP_TOPICS = [
     items: [
       ['When do I get paid?', 'After the buyer confirms they received the order, your LGU reviews the earnings. Once approved, 94% of the order total goes to your Available Balance. The other 6% is shared: 2% to your LGU and 4% to AbaiMarket.'],
       ['How do I withdraw my money?', 'Open your Wallet and click Request Withdrawal. Choose GCash, Maya or a bank account. There is no payout fee, so you receive the full amount you request. The Super Admin approves the request and marks it paid once the money is sent.'],
-      ['My earnings review or withdrawal was rejected.', 'Open the rejected item and click Dispute This Rejection to explain your side. The person who rejected it reviews your dispute. If they accept it, the item is reopened for another review. A rejected withdrawal keeps its amount on hold while you decide: dispute it once within 7 days, or click Accept Rejection to return the amount to your Available Balance right away. If you do nothing for 7 days, or your dispute is rejected, the amount returns to your Available Balance on its own. If you still think a final rejection is wrong, message the Super Admin or send a support ticket under Wallet or withdrawal.'],
+      ['My earnings review or withdrawal was rejected.', 'Open the rejected item and click Dispute This Rejection to explain your side. The person who rejected it reviews your dispute. If they accept it, the item is reopened for another review. A rejected withdrawal keeps its amount on hold for 7 days so you can dispute it once. If you do not dispute it within 7 days, or your dispute is rejected, the amount returns to your Available Balance on its own. If you still think a final rejection is wrong, message the Super Admin or send a support ticket under Wallet or withdrawal.'],
       ['What is a Notice to Explain?', 'If your average rating falls to 3 stars or below, or your LGU finds a buyer\'s report against you valid, AbaiMarket sends you a Notice to Explain. Answer it from the Notices tab. Your first notice is only a warning. From the second notice on, your listings are paused until your LGU accepts your explanation. You can send one explanation per notice. If it is rejected, your seller account is suspended; to have it reviewed again, message your LGU or send a support ticket.'],
     ],
   },
@@ -9482,11 +9483,12 @@ function PaymentCell({ row, view, onPay, pending }) {
 /**
  * A rejected withdrawal keeps its amount on hold while it can be disputed, so
  * one amount can never be requested twice (see App\Support\WithdrawalRejection).
- * The owner either disputes it once within the window, or accepts the
- * rejection to release the amount now; otherwise it releases itself when the
- * window closes.
+ * The owner disputes it once within the window; otherwise it releases itself
+ * when the window closes. Only an LGU (`acceptEndpoint`) may also accept the
+ * rejection to release the amount now -- a seller never gets that button,
+ * since they would always rather defend their money (user decision).
  */
-function RejectedWithdrawalActions({ request, disputeEndpoint, acceptEndpoint, invalidateKeys, rejectedBy = 'the Super Admin' }) {
+function RejectedWithdrawalActions({ request, disputeEndpoint, acceptEndpoint = null, invalidateKeys, rejectedBy = 'the Super Admin' }) {
   const accept = useMutation({
     mutationFn: async () => (await api.post(acceptEndpoint)).data,
     onSuccess: () => invalidateKeys.forEach((key) => queryClient.invalidateQueries({ queryKey: [key] })),
@@ -9501,18 +9503,22 @@ function RejectedWithdrawalActions({ request, disputeEndpoint, acceptEndpoint, i
         ) : request.can_dispute ? (
           <>
             <p className="error">
-              This withdrawal was rejected by {rejectedBy}. The {currency(request.amount)} is on hold{deadline ? ` until ${deadline}` : ''}: dispute it once if you think it should be reconsidered, or accept the rejection to return the amount to your Available Balance now.
+              {acceptEndpoint
+                ? `This withdrawal was rejected by ${rejectedBy}. The ${currency(request.amount)} is on hold${deadline ? ` until ${deadline}` : ''}: dispute it once if you think it should be reconsidered, or accept the rejection to return the amount to your Available Balance now.`
+                : `This withdrawal was rejected by ${rejectedBy}. The ${currency(request.amount)} is on hold${deadline ? ` until ${deadline}` : ''} so you can dispute it once if you think it should be reconsidered. If you don't, it returns to your Available Balance${deadline ? ' on that date' : ''}.`}
             </p>
             <div className="row-actions">
               <DisputeAction endpoint={disputeEndpoint} invalidateKeys={invalidateKeys} label="Dispute This Rejection" />
-              <button
-                type="button"
-                className="ghost"
-                disabled={accept.isPending}
-                onClick={() => { if (window.confirm('Accept this rejection? The amount returns to your Available Balance and this rejection can no longer be disputed.')) accept.mutate() }}
-              >
-                {accept.isPending ? 'Releasing...' : 'Accept Rejection'}
-              </button>
+              {acceptEndpoint && (
+                <button
+                  type="button"
+                  className="ghost"
+                  disabled={accept.isPending}
+                  onClick={() => { if (window.confirm('Accept this rejection? The amount returns to your Available Balance and this rejection can no longer be disputed.')) accept.mutate() }}
+                >
+                  {accept.isPending ? 'Releasing...' : 'Accept Rejection'}
+                </button>
+              )}
             </div>
           </>
         ) : (
@@ -9526,17 +9532,20 @@ function RejectedWithdrawalActions({ request, disputeEndpoint, acceptEndpoint, i
 
 /**
  * Shown once a rejection is final in the app (a rejected Notice to Explain, or
- * a withdrawal whose one dispute is used up or
- * it was accepted). Like a rejected registration, the next step is a person:
- * a direct message or a support ticket. LGU Admins have no ticket form of
- * their own, so only the message link is offered without a `topic`.
+ * a withdrawal whose one dispute is used up or whose dispute window closed).
+ * Like a rejected registration, the next step is a person: a direct message or
+ * a support ticket. LGU Admins have no ticket form of their own, so only the
+ * message link is offered without a `topic`. `returnedAmount` (withdrawals
+ * only) says the held money is back, so nobody thinks it was lost.
  */
-function FinalRejectionHelp({ base, contact = null, contactLabel, topic = null }) {
+function FinalRejectionHelp({ base, contact = null, contactLabel, topic = null, returnedAmount = null }) {
   const messageLink = `${base}?tab=messages${contact?.id ? `&with=${contact.id}` : ''}`
   return (
     <div className="table-row-appeal">
       <p className="helper-text">
-        This rejection is final. If you still think it is wrong,{' '}
+        This rejection is final.
+        {returnedAmount != null && ` The ${currency(returnedAmount)} was returned to your Available Balance, so you can request it again.`}
+        {' '}If you still think it is wrong,{' '}
         <Link to={messageLink}>message {contactLabel}{contact?.name ? ` (${contact.name})` : ''}</Link>
         {topic && (
           <>

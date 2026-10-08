@@ -21,7 +21,8 @@ use Illuminate\Database\Eloquent\Model;
  * ('rejected', still counted as reserved by SellerWallet/LguWallet) until the
  * rejection is FINAL ('rejected_final', money back in Available), which
  * happens when:
- *   - the owner accepts the rejection (acceptByOwner),
+ *   - the LGU accepts the rejection of its own withdrawal (acceptByOwner;
+ *     a seller cannot -- since 2026-10-09 they can only dispute or wait),
  *   - their one dispute against it is rejected (DisputeResolution::reject), or
  *   - DISPUTE_DAYS pass with no dispute filed (finalizeExpired, scheduled).
  */

@@ -2331,22 +2331,39 @@ class FishMarketApiTest extends TestCase
         $this->assertSame(1, WithdrawalRequest::where('seller_profile_id', $seller->id)->count());
     }
 
-    public function test_accepting_a_rejection_releases_the_amount_and_ends_the_dispute_window(): void
+    /** A seller can only dispute a rejected withdrawal or wait; there is no "accept". */
+    public function test_a_seller_cannot_accept_a_withdrawal_rejection(): void
     {
         [$seller, , $withdrawalId] = $this->sellerWithRejectedWithdrawal();
 
-        // Another seller cannot release it.
-        Sanctum::actingAs($this->makeSeller()->user);
-        $this->postJson("/api/withdrawals/{$withdrawalId}/accept-rejection")->assertStatus(403);
+        Sanctum::actingAs($seller->user);
+        $this->postJson("/api/withdrawals/{$withdrawalId}/accept-rejection")->assertNotFound();
+        $this->assertSame('rejected', WithdrawalRequest::findOrFail($withdrawalId)->status);
+        $this->assertEquals(150, $this->getJson('/api/seller/wallet')->json('on_hold_amount'));
+        $this->assertDatabaseHas('notifications', [
+            'user_id' => $seller->user_id,
+            'type' => 'withdrawal_rejected',
+            'body' => 'Your withdrawal request of ₱150.00 via gcash was rejected. Reason: Account name does not match. The amount stays on hold for 7 days so you can dispute the rejection. If you do not, it returns to your Available Balance after that.',
+        ]);
+    }
+
+    public function test_the_super_admin_dashboard_counts_pending_seller_disputes(): void
+    {
+        [$seller, $superAdmin, $withdrawalId] = $this->sellerWithRejectedWithdrawal();
+
+        Sanctum::actingAs($superAdmin);
+        $this->getJson('/api/super-admin/dashboard')->assertOk()->assertJsonPath('pending_seller_disputes', 0);
 
         Sanctum::actingAs($seller->user);
-        $this->postJson("/api/withdrawals/{$withdrawalId}/accept-rejection")
-            ->assertOk()->assertJsonPath('status', 'rejected_final');
-        $this->assertEquals(188, $this->getJson('/api/seller/wallet')->json('available_balance'));
+        $disputeId = $this->postJson("/api/withdrawals/{$withdrawalId}/dispute", ['reason' => 'Please check again.'])
+            ->assertCreated()->json('id');
 
-        // Final means final: no dispute afterwards, and it cannot be accepted twice.
-        $this->postJson("/api/withdrawals/{$withdrawalId}/dispute", ['reason' => 'Changed my mind.'])->assertStatus(422);
-        $this->postJson("/api/withdrawals/{$withdrawalId}/accept-rejection")->assertStatus(422);
+        Sanctum::actingAs($superAdmin);
+        $this->getJson('/api/super-admin/dashboard')->assertOk()->assertJsonPath('pending_seller_disputes', 1);
+
+        // Decided disputes drop off the card.
+        $this->patchJson("/api/super-admin/disputes/{$disputeId}/reject", ['note' => 'The name still does not match.'])->assertOk();
+        $this->getJson('/api/super-admin/dashboard')->assertOk()->assertJsonPath('pending_seller_disputes', 0);
     }
 
     public function test_a_rejection_can_be_disputed_once_and_a_rejected_dispute_makes_it_final(): void
@@ -2358,7 +2375,7 @@ class FishMarketApiTest extends TestCase
             ->assertCreated()->json('id');
 
         // While the dispute is open the amount stays on hold.
-        $this->postJson("/api/withdrawals/{$withdrawalId}/accept-rejection")->assertStatus(422);
+        $this->assertEquals(150, $this->getJson('/api/seller/wallet')->json('on_hold_amount'));
 
         Sanctum::actingAs($superAdmin);
         $this->patchJson("/api/super-admin/disputes/{$disputeId}/reject", ['note' => 'The name still does not match.'])->assertOk();

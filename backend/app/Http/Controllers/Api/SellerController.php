@@ -273,19 +273,6 @@ class SellerController extends Controller
     }
 
     /**
-     * The seller agrees with a rejection, so its held amount returns to their
-     * Available Balance now instead of after the dispute window. See
-     * App\Support\WithdrawalRejection.
-     */
-    public function acceptWithdrawalRejection(Request $request, WithdrawalRequest $withdrawal)
-    {
-        $seller = SellerProfile::where('user_id', $request->user()->id)->firstOrFail();
-        abort_if($withdrawal->seller_profile_id !== $seller->id, 403, 'You can only manage your own withdrawal requests.');
-
-        return response()->json(WithdrawalRejection::acceptByOwner($withdrawal, $request->user()));
-    }
-
-    /**
      * Balance math lives in App\Support\SellerWallet so the AI Assistant can
      * compute a seller's own wallet answers using the exact same rules as
      * this page instead of a re-derived approximation.

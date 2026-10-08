@@ -10,6 +10,7 @@ use App\Mail\LguWithdrawalReleasedMail;
 use App\Mail\SellerWithdrawalApprovedMail;
 use App\Mail\WithdrawalReleasedMail;
 use App\Models\AppNotification;
+use App\Models\Dispute;
 use App\Models\FingerlingListing;
 use App\Models\LguWithdrawalRequest;
 use App\Models\MockPayment;
@@ -94,6 +95,12 @@ class SuperAdminController extends Controller
             // Sellers who have explained a Notice to Explain and wait on a decision.
             'notice_explanations_to_review' => SellerNotice::whereIn('status', SellerNotice::OPEN_STATUSES)
                 ->whereNotNull('seller_response')
+                ->count(),
+            // Sellers' disputes of a rejected earnings approval or withdrawal
+            // that nobody has decided yet. An LGU's own withdrawal dispute is
+            // not a seller's, so it is left out.
+            'pending_seller_disputes' => Dispute::open()
+                ->where('disputable_type', '!=', (new LguWithdrawalRequest)->getMorphClass())
                 ->count(),
             // Recent Activity -- the platform-wide audit trail's most recent
             // entries, reusing the exact same read path as the Activity Log tab
@@ -438,7 +445,7 @@ class SuperAdminController extends Controller
             'type' => 'withdrawal_rejected',
             'title' => 'Withdrawal Rejected',
             'body' => sprintf(
-                'Your withdrawal request of ₱%s via %s was rejected. Reason: %s. The amount stays on hold for %d days: dispute the rejection if you disagree, or accept it to return the amount to your Available Balance now.',
+                'Your withdrawal request of ₱%s via %s was rejected. Reason: %s. The amount stays on hold for %d days so you can dispute the rejection. If you do not, it returns to your Available Balance after that.',
                 number_format((float) $withdrawal->amount, 2),
                 $withdrawal->method,
                 rtrim($data['reason'], '.'),
