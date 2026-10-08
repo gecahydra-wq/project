@@ -22,6 +22,7 @@ use App\Models\ActivityLogEntry;
 use App\Models\AppNotification;
 use App\Models\BuyerProfile;
 use App\Models\FingerlingListing;
+use App\Models\Dispute;
 use App\Models\LguWithdrawalRequest;
 use App\Models\ListingMedia;
 use App\Models\Message;
@@ -2427,9 +2428,31 @@ class FishMarketApiTest extends TestCase
         $this->assertEquals(100, $wallet['available_balance']);
         $this->assertEquals(300, $wallet['on_hold_amount']);
 
-        $this->postJson("/api/lgu/lgu-withdrawals/{$withdrawalId}/accept-rejection")
-            ->assertOk()->assertJsonPath('status', 'rejected_final');
+        // No "accept" shortcut for the LGU either: dispute it or wait.
+        $this->postJson("/api/lgu/lgu-withdrawals/{$withdrawalId}/accept-rejection")->assertNotFound();
+        $this->assertSame('rejected', LguWithdrawalRequest::findOrFail($withdrawalId)->status);
+
+        // When the window closes the amount comes back.
+        $this->travel(8)->days();
+        $this->artisan('withdrawals:finalize-rejections')->assertSuccessful();
         $this->assertEquals(400, $this->getJson('/api/lgu/wallet')->json('available_balance'));
+    }
+
+    public function test_the_lgu_dashboard_counts_its_own_sellers_pending_disputes(): void
+    {
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $buyer = $this->makeBuyer();
+        $ownSeller = $this->makeSeller([], ['municipality_id' => $lguAdmin->municipality_id]);
+        $otherMunicipality = Municipality::where('id', '!=', $lguAdmin->municipality_id)->firstOrFail();
+        $otherSeller = $this->makeSeller([], ['municipality_id' => $otherMunicipality->id]);
+
+        foreach ([$ownSeller, $otherSeller] as $i => $seller) {
+            $order = $this->makeOrder($buyer, $this->makeListing($seller), ['order_number' => "FG-DISP0{$i}", 'status' => 'completed', 'lgu_review_status' => 'rejected', 'lgu_review_reason' => 'Missing receipt.']);
+            Dispute::create(['disputable_type' => $order->getMorphClass(), 'disputable_id' => $order->id, 'filed_by' => $seller->user_id, 'reason' => 'Receipt attached.', 'status' => Dispute::OPEN]);
+        }
+
+        Sanctum::actingAs($lguAdmin);
+        $this->getJson('/api/lgu/dashboard')->assertOk()->assertJsonPath('pending_seller_disputes', 1);
     }
 
     public function test_new_withdrawal_requests_notify_the_super_admin_and_the_requester(): void

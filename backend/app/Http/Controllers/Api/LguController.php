@@ -7,6 +7,7 @@ use App\Mail\ListingApprovedMail;
 use App\Mail\ListingRejectedMail;
 use App\Mail\SellerEarningsApprovedMail;
 use App\Models\AppNotification;
+use App\Models\Dispute;
 use App\Models\FingerlingListing;
 use App\Models\LguWithdrawalRequest;
 use App\Models\MockPayment;
@@ -16,6 +17,7 @@ use App\Models\SellerNotice;
 use App\Models\SellerProfile;
 use App\Models\Review;
 use App\Models\UserReport;
+use App\Models\WithdrawalRequest;
 use App\Models\Settlement;
 use App\Models\User;
 use App\Support\AccountModeration;
@@ -33,7 +35,6 @@ use App\Support\SellerApproval;
 use App\Support\SellerSanctions;
 use App\Support\UserReports;
 use App\Support\WithdrawalNotifications;
-use App\Support\WithdrawalRejection;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -65,6 +66,15 @@ class LguController extends Controller
             'notice_explanations_to_review' => SellerNotice::where('municipality_id', $municipalityId)
                 ->whereIn('status', SellerNotice::OPEN_STATUSES)
                 ->whereNotNull('seller_response')
+                ->count(),
+            // This municipality's sellers' disputes nobody has decided yet --
+            // the same ones the Disputes tab lists for this LGU.
+            'pending_seller_disputes' => Dispute::open()
+                ->whereHasMorph('disputable', [Order::class, WithdrawalRequest::class, SellerNotice::class], function ($q, $type) use ($municipalityId) {
+                    $type === SellerNotice::class
+                        ? $q->where('municipality_id', $municipalityId)
+                        : $q->whereHas('sellerProfile', fn ($s) => $s->where('municipality_id', $municipalityId));
+                })
                 ->count(),
             'notifications' => AppNotification::where('user_id', $request->user()->id)->whereNull('read_at')->latest()->get(),
             // Municipality Revenue -- the LGU's own settled share only, never
@@ -975,13 +985,5 @@ class LguController extends Controller
         WithdrawalNotifications::lguRequested($withdrawal);
 
         return response()->json($withdrawal, 201);
-    }
-
-    /** The LGU agrees with a rejection, so its held amount returns to the LGU Wallet now. */
-    public function acceptWithdrawalRejection(Request $request, LguWithdrawalRequest $withdrawal)
-    {
-        abort_if($withdrawal->municipality_id !== $request->user()->municipality_id, 403, 'You can only manage your own municipality\'s withdrawal requests.');
-
-        return response()->json(WithdrawalRejection::acceptByOwner($withdrawal, $request->user()));
     }
 }

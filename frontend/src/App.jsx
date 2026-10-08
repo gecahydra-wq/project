@@ -5374,6 +5374,7 @@ function LguDashboard() {
             ['Open User Reports', lgu.data?.open_user_reports ?? 0, false, '/lgu/dashboard?tab=user-reports'],
             ['Open Notices to Explain', lgu.data?.open_seller_notices ?? 0, false, '/lgu/dashboard?tab=notices'],
             ['Explanations to Review', lgu.data?.notice_explanations_to_review ?? 0, false, '/lgu/dashboard?tab=notices'],
+            ['Pending Seller Disputes', lgu.data?.pending_seller_disputes ?? 0, false, '/lgu/dashboard?tab=disputes'],
           ]} />
           <Section title="Municipality Revenue" actions={<Link className="ghost" to="/lgu/dashboard?tab=wallet">Go to LGU Wallet</Link>}>
             <p className="helper-text">Your municipality&apos;s share of settled orders. Request a withdrawal of your Available Balance any time from the LGU Wallet page.</p>
@@ -5548,7 +5549,6 @@ function LguDashboard() {
                     <RejectedWithdrawalActions
                       request={request}
                       disputeEndpoint={`/lgu/lgu-withdrawals/${request.id}/dispute`}
-                      acceptEndpoint={`/lgu/lgu-withdrawals/${request.id}/accept-rejection`}
                       invalidateKeys={['lgu-wallet', 'lgu-dashboard']}
                       rejectedBy="the Super Admin"
                     />
@@ -9484,15 +9484,10 @@ function PaymentCell({ row, view, onPay, pending }) {
  * A rejected withdrawal keeps its amount on hold while it can be disputed, so
  * one amount can never be requested twice (see App\Support\WithdrawalRejection).
  * The owner disputes it once within the window; otherwise it releases itself
- * when the window closes. Only an LGU (`acceptEndpoint`) may also accept the
- * rejection to release the amount now -- a seller never gets that button,
- * since they would always rather defend their money (user decision).
+ * when the window closes. There is no "accept the rejection" button for
+ * anyone: an owner would always rather defend their money (user decision).
  */
-function RejectedWithdrawalActions({ request, disputeEndpoint, acceptEndpoint = null, invalidateKeys, rejectedBy = 'the Super Admin' }) {
-  const accept = useMutation({
-    mutationFn: async () => (await api.post(acceptEndpoint)).data,
-    onSuccess: () => invalidateKeys.forEach((key) => queryClient.invalidateQueries({ queryKey: [key] })),
-  })
+function RejectedWithdrawalActions({ request, disputeEndpoint, invalidateKeys, rejectedBy = 'the Super Admin' }) {
   const deadline = request.dispute_deadline ? new Date(request.dispute_deadline).toLocaleDateString() : null
 
   return (
@@ -9503,28 +9498,17 @@ function RejectedWithdrawalActions({ request, disputeEndpoint, acceptEndpoint = 
         ) : request.can_dispute ? (
           <>
             <p className="error">
-              {acceptEndpoint
-                ? `This withdrawal was rejected by ${rejectedBy}. The ${currency(request.amount)} is on hold${deadline ? ` until ${deadline}` : ''}: dispute it once if you think it should be reconsidered, or accept the rejection to return the amount to your Available Balance now.`
-                : `This withdrawal was rejected by ${rejectedBy}. The ${currency(request.amount)} is on hold${deadline ? ` until ${deadline}` : ''} so you can dispute it once if you think it should be reconsidered. If you don't, it returns to your Available Balance${deadline ? ' on that date' : ''}.`}
+              This withdrawal was rejected by {rejectedBy}. The {currency(request.amount)} is on hold{deadline ? ` until ${deadline}` : ''} so
+              you can dispute it once if you think it should be reconsidered. If you don&apos;t, it returns to your Available
+              Balance{deadline ? ' on that date' : ''}.
             </p>
             <div className="row-actions">
               <DisputeAction endpoint={disputeEndpoint} invalidateKeys={invalidateKeys} label="Dispute This Rejection" />
-              {acceptEndpoint && (
-                <button
-                  type="button"
-                  className="ghost"
-                  disabled={accept.isPending}
-                  onClick={() => { if (window.confirm('Accept this rejection? The amount returns to your Available Balance and this rejection can no longer be disputed.')) accept.mutate() }}
-                >
-                  {accept.isPending ? 'Releasing...' : 'Accept Rejection'}
-                </button>
-              )}
             </div>
           </>
         ) : (
           <p className="helper-text">The dispute window has closed. The {currency(request.amount)} will return to your Available Balance shortly.</p>
         )}
-        {accept.error && <p className="error">{accept.error.response?.data?.message || 'Could not accept this rejection.'}</p>}
       </div>
     </div>
   )

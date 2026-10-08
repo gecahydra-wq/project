@@ -236,7 +236,6 @@ Route::prefix('lgu')->middleware(['auth:sanctum', 'verified', 'role:lgu_admin'])
     Route::patch('disputes/{dispute}/accept', [DisputeController::class, 'accept']);
     Route::patch('disputes/{dispute}/reject', [DisputeController::class, 'reject']);
     Route::post('lgu-withdrawals/{withdrawal}/dispute', [DisputeController::class, 'disputeLguWithdrawal']);
-    Route::post('lgu-withdrawals/{withdrawal}/accept-rejection', [LguController::class, 'acceptWithdrawalRejection']);
     // Backstop for a buyer who never confirms, which would otherwise leave
     // the seller's money frozen in escrow -- see markOrderDelivered.
     Route::patch('orders/{order}/mark-delivered', [LguController::class, 'markOrderDelivered']);

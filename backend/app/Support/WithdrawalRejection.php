@@ -21,10 +21,11 @@ use Illuminate\Database\Eloquent\Model;
  * ('rejected', still counted as reserved by SellerWallet/LguWallet) until the
  * rejection is FINAL ('rejected_final', money back in Available), which
  * happens when:
- *   - the LGU accepts the rejection of its own withdrawal (acceptByOwner;
- *     a seller cannot -- since 2026-10-09 they can only dispute or wait),
- *   - their one dispute against it is rejected (DisputeResolution::reject), or
+ *   - the owner's one dispute against it is rejected (DisputeResolution::reject), or
  *   - DISPUTE_DAYS pass with no dispute filed (finalizeExpired, scheduled).
+ *
+ * There is no "accept the rejection" shortcut (removed 2026-10-09): an owner
+ * would always rather defend their money, so they dispute it or wait.
  */
 class WithdrawalRejection
 {
@@ -84,21 +85,6 @@ class WithdrawalRejection
     {
         return $withdrawal->status === self::ON_HOLD
             && self::disputesOnThisRejection($withdrawal)->where('status', Dispute::OPEN)->exists();
-    }
-
-    /** The owner agrees with the rejection, so the held money is released now. */
-    public static function acceptByOwner(Model $withdrawal, User $owner): Model
-    {
-        abort_unless($withdrawal->status === self::ON_HOLD, 422, 'Only a rejected withdrawal that is still on hold can be accepted.');
-        abort_if(
-            self::hasOpenDispute($withdrawal),
-            422,
-            'You have an open dispute on this rejection. Wait for it to be decided.'
-        );
-
-        self::finalize($withdrawal, $owner, 'Accepted the rejection of their withdrawal request; the amount returned to Available Balance.');
-
-        return $withdrawal->fresh();
     }
 
     /**

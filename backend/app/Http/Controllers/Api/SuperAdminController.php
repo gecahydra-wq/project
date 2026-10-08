@@ -272,7 +272,7 @@ class SuperAdminController extends Controller
                 'type' => 'lgu_withdrawal_rejected',
                 'title' => 'LGU Withdrawal Rejected',
                 'body' => sprintf(
-                    'Your withdrawal request of ₱%s for %s via %s was rejected. Reason: %s. The amount stays on hold for %d days: dispute the rejection if you disagree, or accept it to return the amount to your Available Balance now.',
+                    'Your withdrawal request of ₱%s for %s via %s was rejected. Reason: %s. The amount stays on hold for %d days so you can dispute the rejection. If you do not, it returns to your Available Balance after that.',
                     number_format((float) $withdrawal->amount, 2),
                     $withdrawal->municipality?->name ?? 'your municipality',
                     $withdrawal->method,
