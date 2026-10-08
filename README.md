@@ -73,7 +73,7 @@ The system emphasizes correctness of money movement, strict role permissions, a 
 - Platform revenue accounting (4% share at settlement; no payout fee)
 - **₱100 minimum withdrawal** for sellers and LGUs: the form warns while typing, and the server refuses anything lower (`PayoutAccount::MIN_AMOUNT`)
 - Bank-transfer payouts name the **Philippine bank** (a list, or "Other" with a typed name), with a reminder to double-check the bank, account number and name
-- A **rejected withdrawal holds its amount** until the rejection is final -- the owner accepts it, their one dispute is rejected, or 7 days pass -- so the same money can never be requested twice (`WithdrawalRejection`)
+- A **rejected withdrawal holds its amount** until the rejection is final -- their one dispute is rejected, or 7 days pass with no dispute -- so the same money can never be requested twice (`WithdrawalRejection`). There is no "accept the rejection" button for sellers or LGUs; the final notice says the amount went back to their Available Balance
 
 **Governance & Moderation**
 - LGU: seller verification, listing approval/rejection/archival, seller suspension, earnings verification (approve / hold / reject / **reopen** a rejected transaction back into the queue)
@@ -85,7 +85,7 @@ The system emphasizes correctness of money movement, strict role permissions, a 
 - Buyer, Seller, LGU, and Super Admin (executive) analytics dashboards
 - Revenue, orders, listings, sellers, and moderation reports
 - PDF and Excel report exports
-- LGU and Super Admin dashboard cards are clickable and open the page they count (e.g. Pending LGU Withdrawals → LGU Payouts)
+- LGU and Super Admin dashboard cards are clickable and open the page they count (e.g. Pending LGU Withdrawals → LGU Payouts). Both have an **Action Required** section with the same titled groups: Seller registrations and listings, and Reports/notices/disputes (Open User Reports, Open Notices to Explain, Explanations to Review, Pending Seller Disputes). The Super Admin also has Seller earnings and Payouts; the LGU's numbers count only its own municipality
 
 **Platform**
 - **Site-wide announcement bar** — Super Admin announcements appear at the top of every page: the public storefront (guests included) and every tab of all four dashboards. Colour-coded by category (maintenance, update, policy, holiday, general), shown only between their start and expiry dates, dismissible per browser (an edited announcement shows again), and also delivered as an in-app notification. Scheduled announcements publish automatically.

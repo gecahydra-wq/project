@@ -801,6 +801,30 @@ main {
   overflow: hidden;
 }
 
+/* Super Admin "Action Required": titled groups of queue counts (ActionGroup). */
+.action-groups {
+  display: grid;
+  gap: 1rem;
+}
+
+.action-group {
+  display: grid;
+  gap: 0.6rem;
+}
+
+/* Two to four counts per group: fill the row instead of a fixed three columns,
+   and drop to one column on a phone. */
+.action-group .stats-inline {
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+.action-group-meta {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
 .seller-earnings-card {
   display: grid;
   gap: 0.6rem;

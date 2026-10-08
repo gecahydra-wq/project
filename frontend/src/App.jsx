@@ -5371,11 +5371,28 @@ function LguDashboard() {
           <StatsRow items={[
             ['Registered Sellers', reports.data?.registered_sellers ?? 0, false, '/lgu/dashboard?tab=sellers'],
             ['Listings', reports.data?.listings ?? 0, false, '/lgu/dashboard?tab=listings'],
-            ['Open User Reports', lgu.data?.open_user_reports ?? 0, false, '/lgu/dashboard?tab=user-reports'],
-            ['Open Notices to Explain', lgu.data?.open_seller_notices ?? 0, false, '/lgu/dashboard?tab=notices'],
-            ['Explanations to Review', lgu.data?.notice_explanations_to_review ?? 0, false, '/lgu/dashboard?tab=notices'],
-            ['Pending Seller Disputes', lgu.data?.pending_seller_disputes ?? 0, false, '/lgu/dashboard?tab=disputes'],
           ]} />
+          <Section title="Action Required">
+            <p className="helper-text">Everything in your municipality waiting on you, grouped by what it is about. Click a number to open the page that handles it.</p>
+            <div className="action-groups">
+              <ActionGroup
+                title="Seller registrations and listings"
+                items={[
+                  ['Pending Seller Approvals', lgu.data?.pending_seller_registrations ?? 0, '/lgu/dashboard?tab=sellers'],
+                  ['Pending Listing Approvals', lgu.data?.pending_approvals?.length ?? 0, '/lgu/dashboard?tab=listings'],
+                ]}
+              />
+              <ActionGroup
+                title="Reports, notices and disputes"
+                items={[
+                  ['Open User Reports', lgu.data?.open_user_reports ?? 0, '/lgu/dashboard?tab=user-reports'],
+                  ['Open Notices to Explain', lgu.data?.open_seller_notices ?? 0, '/lgu/dashboard?tab=notices'],
+                  ['Explanations to Review', lgu.data?.notice_explanations_to_review ?? 0, '/lgu/dashboard?tab=notices'],
+                  ['Pending Seller Disputes', lgu.data?.pending_seller_disputes ?? 0, '/lgu/dashboard?tab=disputes'],
+                ]}
+              />
+            </div>
+          </Section>
           <Section title="Municipality Revenue" actions={<Link className="ghost" to="/lgu/dashboard?tab=wallet">Go to LGU Wallet</Link>}>
             <p className="helper-text">Your municipality&apos;s share of settled orders. Request a withdrawal of your Available Balance any time from the LGU Wallet page.</p>
             <StatsRow items={[
@@ -6481,18 +6498,41 @@ function SuperAdminDashboard() {
             ['Total Buyers', reports.data?.total_buyers ?? 0, false, '/admin/dashboard?tab=users'],
             ['Total Settled Orders', dashboard.data?.platform_revenue?.total_settled_orders ?? 0, false, '/admin/dashboard?tab=earnings'],
           ]} />
-          <Section title="Action Required" actions={<Link className="ghost" to="/admin/dashboard?tab=payouts">Manage Payouts</Link>}>
-            <p className="helper-text">Approval and payout queues awaiting Super Admin or LGU action across the platform.</p>
-            <StatsRow items={[
-              ['Pending Seller Approvals', dashboard.data?.pending_seller_approvals ?? 0, false, '/admin/dashboard?tab=sellers'],
-              ['Pending LGU Approvals', dashboard.data?.pending_lgu_approvals ?? 0, false, '/admin/dashboard?tab=earnings'],
-              ['Pending Listing Approvals', dashboard.data?.pending_listing_approvals ?? 0, false, '/admin/dashboard?tab=listings'],
-              ['Open User Reports', dashboard.data?.open_user_reports ?? 0, false, '/admin/dashboard?tab=user-reports'],
-              ['Explanations to Review', dashboard.data?.notice_explanations_to_review ?? 0, false, '/admin/dashboard?tab=notices'],
-              ['Pending Seller Disputes', dashboard.data?.pending_seller_disputes ?? 0, false, '/admin/dashboard?tab=disputes'],
-              ['Pending Seller Withdrawals', dashboard.data?.pending_seller_withdrawals ?? 0, false, '/admin/dashboard?tab=payouts&focus=seller-payouts'],
-              ['Pending LGU Withdrawals', dashboard.data?.pending_lgu_withdrawals ?? 0, false, '/admin/dashboard?tab=payouts&focus=lgu-payouts'],
-            ]} />
+          <Section title="Action Required">
+            <p className="helper-text">Everything waiting on the Super Admin or an LGU across the platform, grouped by what it is about. Click a number to open the page that handles it.</p>
+            <div className="action-groups">
+              <ActionGroup
+                title="Seller registrations and listings"
+                items={[
+                  ['Pending Seller Approvals', dashboard.data?.pending_seller_approvals ?? 0, '/admin/dashboard?tab=sellers'],
+                  ['Pending Listing Approvals', dashboard.data?.pending_listing_approvals ?? 0, '/admin/dashboard?tab=listings'],
+                ]}
+              />
+              <ActionGroup
+                title="Seller earnings"
+                action={['Go to Seller Earnings', '/admin/dashboard?tab=earnings']}
+                items={[
+                  ['Earnings Awaiting LGU Approval', dashboard.data?.pending_lgu_approvals ?? 0, '/admin/dashboard?tab=earnings'],
+                ]}
+              />
+              <ActionGroup
+                title="Reports, notices and disputes"
+                items={[
+                  ['Open User Reports', dashboard.data?.open_user_reports ?? 0, '/admin/dashboard?tab=user-reports'],
+                  ['Open Notices to Explain', dashboard.data?.open_seller_notices ?? 0, '/admin/dashboard?tab=notices'],
+                  ['Explanations to Review', dashboard.data?.notice_explanations_to_review ?? 0, '/admin/dashboard?tab=notices'],
+                  ['Pending Seller Disputes', dashboard.data?.pending_seller_disputes ?? 0, '/admin/dashboard?tab=disputes'],
+                ]}
+              />
+              <ActionGroup
+                title="Payouts"
+                action={['Manage Payouts', '/admin/dashboard?tab=payouts']}
+                items={[
+                  ['Pending Seller Withdrawals', dashboard.data?.pending_seller_withdrawals ?? 0, '/admin/dashboard?tab=payouts&focus=seller-payouts'],
+                  ['Pending LGU Withdrawals', dashboard.data?.pending_lgu_withdrawals ?? 0, '/admin/dashboard?tab=payouts&focus=lgu-payouts'],
+                ]}
+              />
+            </div>
           </Section>
           <Section title="Marketplace Revenue" actions={<Link className="ghost" to="/admin/dashboard?tab=reports">View Analytics</Link>}>
             <p className="helper-text">Platform Revenue is the platform&apos;s 4% share of every order, recognized when the LGU approves the seller&apos;s earnings (the seller keeps 94%, the LGU 2%). It also includes the 6% payout fees on withdrawals requested before October 9, 2026. Gross Marketplace Revenue is the full value paid by buyers before revenue sharing, recognized at settlement.</p>
@@ -8888,6 +8928,33 @@ function Stat({ value, label, highlight = false, to }) {
   return to
     ? <Link className={className} to={to}>{body}</Link>
     : <div className={className}>{body}</div>
+}
+
+/**
+ * One titled group of queue counts on a dashboard, styled like the LGU's
+ * "Seller Earnings Approval" card, so a reviewer can tell at a glance which
+ * number belongs to sellers, reports or payouts. `items` are
+ * [label, count, link]; `action` is an optional [label, link] button for a
+ * group whose numbers all lead to one page.
+ */
+function ActionGroup({ title, items, action = null }) {
+  const waiting = items.reduce((sum, [, count]) => sum + Number(count || 0), 0)
+  return (
+    <div className="card action-group">
+      <div className="card-row">
+        <h3>{title}</h3>
+        <div className="action-group-meta">
+          {waiting > 0 && <Badge tone="warning">{waiting} waiting</Badge>}
+          {action && <Link className="ghost" to={action[1]}>{action[0]}</Link>}
+        </div>
+      </div>
+      <div className="stats-inline">
+        {items.map(([label, count, to]) => (
+          <Stat key={label} value={count} label={label} to={to} highlight={Number(count) > 0} />
+        ))}
+      </div>
+    </div>
+  )
 }
 
 function TopPerformerCard({ eyebrow, icon: Icon, performer }) {

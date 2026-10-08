@@ -79,7 +79,7 @@ class SuperAdminController extends Controller
             // Approval queues awaiting action. Pending Seller Approvals are
             // registrations awaiting review platform-wide -- normally an LGU
             // Admin's job for their own municipality, but the Super Admin can
-            // clear any of them. Pending LGU Approvals are settled-but-held
+            // clear any of them. "Earnings Awaiting LGU Approval" (pending_lgu_approvals) are settled-but-held
             // payments awaiting LGU earnings verification (the "LGU verifies
             // transaction" step), platform-wide.
             'pending_seller_approvals' => SellerProfile::where('approval_status', SellerApproval::PENDING)->count(),
@@ -92,6 +92,9 @@ class SuperAdminController extends Controller
             // Complaints filed by buyers about sellers, or sellers about
             // buyers, that no admin has closed yet (App\Support\UserReports).
             'open_user_reports' => UserReport::whereNotIn('status', UserReport::CLOSED_STATUSES)->count(),
+            // Notices to Explain still open platform-wide (answered or not),
+            // the same count the LGU dashboard shows for its municipality.
+            'open_seller_notices' => SellerNotice::whereIn('status', SellerNotice::OPEN_STATUSES)->count(),
             // Sellers who have explained a Notice to Explain and wait on a decision.
             'notice_explanations_to_review' => SellerNotice::whereIn('status', SellerNotice::OPEN_STATUSES)
                 ->whereNotNull('seller_response')

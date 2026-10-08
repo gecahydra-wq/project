@@ -22,7 +22,6 @@ use App\Support\PayoutAccount;
 use App\Support\SellerSanctions;
 use App\Support\SellerWallet;
 use App\Support\WithdrawalNotifications;
-use App\Support\WithdrawalRejection;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Validation\Rule;

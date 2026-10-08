@@ -1755,6 +1755,24 @@ class FishMarketApiTest extends TestCase
         }
     }
 
+    /** "My withdrawal was rejected" gets the hold / dispute-once rules, with no Accept Rejection. */
+    public function test_the_ai_explains_what_happens_to_a_rejected_withdrawal(): void
+    {
+        foreach (['my withdrawal was rejected, what now?', 'bakit na-reject ang payout ko?'] as $question) {
+            $result = \App\Support\AiIntentClassifier::classify($question);
+            $this->assertSame('Withdrawals', $result['category'], $question);
+        }
+
+        $topic = \App\Support\AiIntentClassifier::classify('my withdrawal was rejected')['topic'];
+        $seller = \App\Support\AiIntentClassifier::topicFallback($topic, 'seller')['English'];
+        $this->assertStringContainsString('on hold for 7 days', $seller);
+        $this->assertStringContainsString('Dispute This Rejection', $seller);
+        $this->assertStringContainsString('Available Balance', $seller);
+        $this->assertStringContainsString('dispute it once', \App\Support\AiIntentClassifier::topicFallback($topic, 'lgu_admin')['English']);
+        $this->assertStringContainsString('Pending Seller Disputes', \App\Support\AiIntentClassifier::topicFallback($topic, 'super_admin')['English']);
+        $this->assertStringContainsString('no Accept Rejection', \App\Support\AiIntentClassifier::topicFallback($topic, 'buyer')['English']);
+    }
+
     /**
      * Widening the gate must not widen it onto everything. Off-topic messages
      * share no vocabulary with fish farming and still refuse -- including the
@@ -2353,7 +2371,9 @@ class FishMarketApiTest extends TestCase
         [$seller, $superAdmin, $withdrawalId] = $this->sellerWithRejectedWithdrawal();
 
         Sanctum::actingAs($superAdmin);
-        $this->getJson('/api/super-admin/dashboard')->assertOk()->assertJsonPath('pending_seller_disputes', 0);
+        $this->getJson('/api/super-admin/dashboard')->assertOk()
+            ->assertJsonPath('pending_seller_disputes', 0)
+            ->assertJsonPath('open_seller_notices', SellerNotice::whereIn('status', SellerNotice::OPEN_STATUSES)->count());
 
         Sanctum::actingAs($seller->user);
         $disputeId = $this->postJson("/api/withdrawals/{$withdrawalId}/dispute", ['reason' => 'Please check again.'])
