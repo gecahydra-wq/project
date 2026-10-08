@@ -53,7 +53,12 @@ class SellerEarningsApprovedMail extends Mailable
             ['Order Number', $order?->order_number ?? 'N/A'],
             ['Buyer', $order?->buyer?->name ?? 'Unknown buyer'],
             ['Listing', $order?->listing?->species ?? 'Fingerlings'],
-            ['Your Earnings', '₱'.number_format((float) $settlement->seller_share, 2)],
+            // The same breakdown as Order Details and the wallet's Payment
+            // History, from the settlement's frozen figures.
+            ['Order Total', '₱'.number_format((float) $settlement->gross_amount, 2)],
+            ['Platform Fee ('.self::percent($settlement->platform_percent).'%)', '−₱'.number_format((float) $settlement->platform_share, 2)],
+            ['LGU Share ('.self::percent($settlement->lgu_percent).'%)', '−₱'.number_format((float) $settlement->lgu_share, 2)],
+            ['Your Earnings ('.self::percent($settlement->seller_percent).'%)', '₱'.number_format((float) $settlement->seller_share, 2)],
             ['Approval Date', $settlement->settled_at->format('M d, Y g:i A')],
         ];
 
@@ -69,11 +74,17 @@ class SellerEarningsApprovedMail extends Mailable
                 'headline' => 'Your order earnings have been approved',
                 'preheader' => 'The completed order payment has been approved.',
                 'sellerName' => $seller?->hatchery_name ?? ($seller?->user?->name ?? 'there'),
-                'sellerPercent' => rtrim(rtrim(number_format((float) $settlement->seller_percent, 2), '0'), '.'),
+                'sellerPercent' => self::percent($settlement->seller_percent),
                 'rows' => $rows,
                 'ctaLabel' => 'View Wallet',
                 'ctaUrl' => "{$frontend}/seller/dashboard?tab=wallet",
             ],
         );
+    }
+
+    /** 94.00 -> "94", 2.50 -> "2.5". */
+    private static function percent($value): string
+    {
+        return rtrim(rtrim(number_format((float) $value, 2), '0'), '.');
     }
 }

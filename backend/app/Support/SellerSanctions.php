@@ -24,11 +24,10 @@ use App\Models\User;
  *  2. SUSPENSION -- automatic when an explanation is REJECTED (the team's
  *     rule since 2026-10-09; it replaced the adviser's earlier "never
  *     auto-suspend"). Raising a notice still never suspends: only a reviewer
- *     who has read the explanation and found it wanting can trigger it. The
- *     seller may dispute that decision ONCE (App\Support\DisputeResolution);
- *     an accepted dispute reinstates them. After a rejected dispute the app
- *     offers no further appeal -- they message their LGU or send a support
- *     ticket, the same path a rejected registration has.
+ *     who has read the explanation and found it wanting can trigger it. There
+ *     is no in-app dispute of that decision: the seller messages their LGU or
+ *     sends a support ticket, the same path a rejected registration has, and
+ *     staff reinstate by hand (AccountModeration::reinstateSeller).
  *
  * THE FIRST NOTICE IS A WARNING ONLY. A seller hitting the threshold for the
  * first time keeps their listings up while they explain -- one bad run is not
@@ -187,21 +186,22 @@ class SellerSanctions
         $offenses = self::offenseCount($seller->id);
 
         self::notifySeller($seller, 'seller_notice_rejected', 'Explanation Rejected', sprintf(
-            '%s rejected your explanation. This is recorded as offense %d against your account, and your seller account has been suspended. Reason: %s You can dispute this decision once from the Notices tab.',
+            '%s rejected your explanation. This is recorded as offense %d against your account, and your seller account has been suspended. Reason: %s If you want it reviewed again, message your LGU or send a support ticket from Help & Support.',
             self::reviewerLabel($actor),
             $offenses,
             $reason
         ));
 
-        // Suspension lifts only through an accepted dispute or a manual
-        // reinstatement, both of which go through AccountModeration.
+        // Suspension lifts only through a manual reinstatement
+        // (AccountModeration::reinstateSeller), after the seller has messaged
+        // their LGU or sent a support ticket.
         if ($seller->status !== 'suspended') {
             AccountModeration::suspendSeller(
                 $seller,
                 $actor,
                 "Your explanation for a Notice to Explain was rejected: {$reason}",
                 null,
-                'You can dispute this decision once from the Notices tab. If that dispute is also rejected, message your LGU or send a support ticket from Help & Support.'
+                'If you want it reviewed again, message your LGU or send a support ticket from Help & Support.'
             );
         }
 

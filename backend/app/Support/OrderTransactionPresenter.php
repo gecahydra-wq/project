@@ -10,8 +10,9 @@ use App\Models\Order;
  * SuperAdminController::showOrder) and by AiDataQueryResolver's order-number
  * answers -- so there is exactly one place that assembles "what does this
  * transaction look like," never a per-role duplicate. Only LGU Admin and
- * Super Admin views get the revenue distribution preview and LGU
- * verification status; Buyer/Seller payloads never include them.
+ * Super Admin views get the LGU verification status. The seller, LGU Admin
+ * and Super Admin all get the earnings breakdown (order total, platform fee,
+ * LGU share, seller receives -- see earningsBreakdown()); the buyer never does.
  */
 class OrderTransactionPresenter
 {
@@ -69,8 +70,13 @@ class OrderTransactionPresenter
             'created_at' => $order->created_at?->toIso8601String(),
         ];
 
+        // Since 2026-10-09 the seller sees the split too, so they know why
+        // they receive less than the order total (user request).
+        if (in_array($viewerRole, ['seller', 'lgu_admin', 'super_admin'], true)) {
+            $payload['revenue_distribution_preview'] = self::earningsBreakdown($order);
+        }
+
         if (in_array($viewerRole, ['lgu_admin', 'super_admin'], true)) {
-            $payload['revenue_distribution_preview'] = self::revenueDistributionPreview($order);
             $payload['lgu_verification'] = [
                 'status' => self::lguVerificationStatus($order),
                 'review_reason' => $order->lgu_review_reason,
@@ -115,12 +121,15 @@ class OrderTransactionPresenter
     }
 
     /**
-     * Read-only preview using the existing, unmodified commission rules
-     * (App\Support\CommissionCalculator::split) -- never persisted here.
-     * Once a Settlement exists, shows the actual frozen shares instead of a
-     * hypothetical recomputation.
+     * How an order's total splits into the seller's earnings, the LGU share
+     * and the platform fee. Once a Settlement exists it shows the actual
+     * frozen shares and percentages (so an order settled under the old 96/4
+     * rule still reads 96/4); before that it is a preview using today's
+     * rules (App\Support\CommissionCalculator::split) -- never persisted.
+     * Shared by Order Details, the seller's Payment History and the
+     * earnings-approved email so all three always show the same numbers.
      */
-    private static function revenueDistributionPreview(Order $order): array
+    public static function earningsBreakdown(Order $order): array
     {
         $settlement = $order->settlement;
 
@@ -133,6 +142,7 @@ class OrderTransactionPresenter
                 'platform_share' => (float) $settlement->platform_share,
                 'seller_percent' => (float) $settlement->seller_percent,
                 'lgu_percent' => (float) $settlement->lgu_percent,
+                'platform_percent' => (float) $settlement->platform_percent,
             ];
         }
 
@@ -147,6 +157,7 @@ class OrderTransactionPresenter
             'platform_share' => $split['platform_share'],
             'seller_percent' => $split['seller_percent'],
             'lgu_percent' => $split['lgu_percent'],
+            'platform_percent' => $split['platform_percent'],
         ];
     }
 }

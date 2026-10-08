@@ -243,7 +243,7 @@ class AiIntentClassifier
             'Bisaya' => 'Ang matag seller naay star rating (1-5) base sa reviews sa buyer, gipakita sa ilang profile ug listing cards. Ang "Verified Seller" badge nagpasabot nga na-review ug na-aprubahan na sa LGU ang ilang hatchery credentials -- tan-awa ang duha kung mopili kinsay palitan.',
             'roles' => [
                 'lgu_admin' => [
-                    'English' => 'You verify sellers in your municipality from the Sellers tab -- review their hatchery details and mark them Verified, or Suspend a seller who violates marketplace rules (this immediately revokes their login access).',
+                    'English' => 'You verify sellers in your municipality from the Sellers tab -- review their hatchery details and mark them Verified, or Suspend a seller who violates marketplace rules (their listings leave the marketplace and they cannot sell, but they can still sign in to read why and contact you).',
                 ],
             ],
         ],
@@ -285,6 +285,31 @@ class AiIntentClassifier
         // -- New role-aware topics (appended, never inserted earlier) so every
         // existing keyword match above keeps resolving to the exact same
         // category it always has.
+        // Notices to Explain, suspension and reinstatement (rules of
+        // 2026-10-09). Placed BEFORE the generic Account topic so "my account
+        // is suspended" lands here, not on profile settings. Reuses the
+        // 'Account' category so CATEGORIES is unchanged. Phrase keywords only,
+        // so "suspended sellers" style admin data questions (answered earlier
+        // by AiDataQueryResolver) and the Reports topic are not affected.
+        [
+            'category' => 'Account',
+            'keywords' => [
+                'notice to explain', 'nte', 'explanation rejected', 'explanation was rejected', 'reject my explanation',
+                'account suspended', 'account is suspended', 'am i suspended', 'got suspended', 'been suspended', 'why suspended',
+                'reinstate', 'reinstated', 'unsuspend', 'lift my suspension',
+            ],
+            'English' => 'A seller gets a Notice to Explain when their average rating falls to 3 stars or below, or when their LGU finds a buyer\'s report against them valid. The seller sends ONE explanation from the Notices tab. If the LGU accepts it, nothing happens to the account. If the LGU rejects it, the seller account is suspended: listings leave the marketplace, but the seller can still sign in. There is no dispute button for this -- to be reviewed again, message your LGU or send a support ticket from Help & Support, and your LGU or the Super Admin can reinstate the account.',
+            'Tagalog' => 'Nakakatanggap ang seller ng Notice to Explain kapag bumaba sa 3 stars o mas mababa ang average rating niya, o kapag nakita ng LGU na totoo ang report ng isang buyer laban sa kanya. Isang paliwanag lang ang maipapadala mula sa Notices tab. Kapag tinanggap ng LGU, walang mangyayari sa account. Kapag tinanggihan, masususpinde ang seller account: aalisin ang mga listing sa marketplace, pero makakapag-sign in pa rin. Walang dispute button para dito -- para masuri ulit, i-message ang iyong LGU o magpadala ng support ticket mula sa Help & Support, at maaaring i-reinstate ng LGU o ng Super Admin ang account.',
+            'Bisaya' => 'Makadawat ang seller og Notice to Explain kung ang iyang average rating mous-os sa 3 stars o ubos pa, o kung makita sa LGU nga tinuod ang report sa usa ka buyer batok niya. Usa ra ka pasabot ang mapadala gikan sa Notices tab. Kung dawaton sa LGU, walay mahitabo sa account. Kung isalikway, ma-suspend ang seller account: tangtangon ang mga listing sa marketplace, pero makasign in gihapon. Walay dispute button para niini -- aron masusi pag-usab, i-message ang imong LGU o magpadala og support ticket gikan sa Help & Support, ug ang LGU o ang Super Admin makahimo sa pag-reinstate sa account.',
+            'roles' => [
+                'lgu_admin' => [
+                    'English' => 'Notices to Explain come from a low rating (3 stars or below) or from a buyer report you resolve as "Valid: send Notice to Explain". The seller sends one explanation, and you get a notification. Accepting puts their listings back with no offense. Rejecting records an offense and suspends the seller automatically. There is no in-app dispute: the seller messages you or sends a support ticket, and you can reinstate them from the Sellers tab with a reason.',
+                ],
+                'super_admin' => [
+                    'English' => 'Notices to Explain come from a low rating (3 stars or below) or from a buyer report resolved as "Valid: send Notice to Explain". You and the seller\'s LGU are both notified when the seller explains, and either of you can decide it. Rejecting records an offense and suspends the seller automatically. There is no in-app dispute: the seller messages their LGU or sends a support ticket, and the account can be reinstated from the Sellers tab with a reason.',
+                ],
+            ],
+        ],
         [
             'category' => 'Account',
             'keywords' => ['my account', 'my profile', 'update my profile', 'change my password', 'change password', 'profile picture', 'edit my profile', 'account settings'],

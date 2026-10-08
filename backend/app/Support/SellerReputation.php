@@ -205,7 +205,7 @@ class SellerReputation
             'type' => 'seller_notice_to_explain',
             'title' => $title,
             'body' => sprintf(
-                '%s Open the Notices tab on your dashboard to respond. %s Your account has not been suspended, but if your explanation is rejected it will be -- you can then dispute that decision once.',
+                '%s Open the Notices tab on your dashboard to respond. %s Your account has not been suspended, but it will be if your explanation is rejected. You can send one explanation, so make it complete.',
                 $why,
                 $frozen
                     ? 'Because this is not your first notice, your listings have been taken off the marketplace until your LGU accepts your explanation. You can still sign in, reply to buyers and complete orders already placed.'

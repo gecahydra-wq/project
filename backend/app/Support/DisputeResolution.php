@@ -79,16 +79,11 @@ class DisputeResolution
             abort_if($blocker !== null, 422, (string) $blocker);
         }
 
-        // A rejected explanation suspends the seller, and they get ONE appeal
-        // against it. After that the app's part is done -- they talk to their
-        // LGU or Help & Support, like a rejected registration.
-        if ($subject instanceof SellerNotice) {
-            abort_if(
-                $subject->morphMany(Dispute::class, 'disputable')->exists(),
-                422,
-                'You have already disputed this decision once. Message your LGU or send a support ticket from Help & Support.'
-            );
-        }
+        // A rejected explanation cannot be disputed in the app (team rule,
+        // 2026-10-09): the suspended seller messages their LGU or sends a
+        // support ticket, and staff reinstate by hand. Any notice dispute filed
+        // before that rule can still be decided below.
+        abort_if($subject instanceof SellerNotice, 422, 'A Notice to Explain decision cannot be disputed. Message your LGU or send a support ticket from Help & Support.');
 
         $dispute = Dispute::create([
             'disputable_type' => $subject->getMorphClass(),

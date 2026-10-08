@@ -61,6 +61,11 @@ class LguController extends Controller
             'open_seller_notices' => SellerNotice::where('municipality_id', $municipalityId)
                 ->whereIn('status', SellerNotice::OPEN_STATUSES)
                 ->count(),
+            // Sellers who have explained and are waiting on a decision.
+            'notice_explanations_to_review' => SellerNotice::where('municipality_id', $municipalityId)
+                ->whereIn('status', SellerNotice::OPEN_STATUSES)
+                ->whereNotNull('seller_response')
+                ->count(),
             'notifications' => AppNotification::where('user_id', $request->user()->id)->whereNull('read_at')->latest()->get(),
             // Municipality Revenue -- the LGU's own settled share only, never
             // the platform's cut or another municipality's. Includes

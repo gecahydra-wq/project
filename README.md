@@ -304,7 +304,7 @@ Fish farmers who purchase fingerlings.
 - Rate buyers after completed orders (so other sellers can gauge legitimacy)
 - View the marketplace read-only (cannot purchase from other sellers)
 - Analytics, messaging, notifications
-- Answer **Notices to Explain** (raised by a low rating or a buyer report the LGU finds valid). A **rejected explanation suspends the seller**; they can dispute it **once**. If that dispute is rejected too, they message their LGU or send a support ticket.
+- Answer **Notices to Explain** (raised by a low rating or a buyer report the LGU finds valid) with **one** explanation; their LGU and the Super Admin are notified. A **rejected explanation suspends the seller**. There is no in-app dispute of that: they message their LGU or send a support ticket, and staff can reinstate them (the notice card then shows the reinstatement date).
 - A suspended seller can still log in (to read why, dispute, message their LGU or the Super Admin, and send a support ticket), but their listings leave the marketplace and they **cannot** add or edit listings, update orders, request withdrawals, post, or message buyers.
 
 ### LGU Admin
@@ -367,7 +367,9 @@ The split is **fixed in code** (not a runtime setting) and happens once, at **LG
 
 The seller and LGU shares are rounded to the centavo first; the platform absorbs any rounding remainder so the three always sum to exactly the gross amount. All three shares are frozen onto the Settlement row.
 
-**Withdrawals carry no fee** — a seller receives the full amount they withdraw. Each withdrawal (seller or LGU) must be at least **₱100**.
+**Withdrawals carry no fee** — a seller receives the full amount they withdraw.
+
+**The seller sees the split.** Order details, the Wallet's Payment History and the "earnings approved" email all show the same breakdown, e.g. order total ₱600 − platform fee 4% (₱24) − LGU share 2% (₱12) = **you receive ₱564** (an estimate until the LGU approves, then the frozen settlement figures). The LGU Wallet's Revenue History shows each order number, seller and "2% of ₱600". Each withdrawal (seller or LGU) must be at least **₱100**.
 
 > **History:** before 9 October 2026 the split was Seller 96% / LGU 4% at settlement, plus a 6% platform payout fee on each seller withdrawal. Settlements and withdrawals made before then keep the figures frozen on them, and Platform Revenue still counts those old fees once the withdrawal is paid.
 

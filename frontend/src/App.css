@@ -1923,6 +1923,30 @@ a.activity-log-item:hover {
 /* Field labels recede: ORDER NUMBER / MUNICIPALITY / DELIVERY STATUS are
    scaffolding, not content. Mist grey at 12px with wider tracking, so the
    value underneath is what the eye lands on. */
+/* Order total -> fees -> what the seller receives (EarningsBreakdown). */
+.earnings-breakdown {
+  display: grid;
+  gap: 0.2rem;
+  max-width: 360px;
+}
+
+.earnings-breakdown-row {
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  font-variant-numeric: tabular-nums;
+}
+
+.earnings-breakdown-row.muted {
+  color: var(--color-text-muted);
+}
+
+.earnings-breakdown-row.total {
+  border-top: 1px solid var(--color-border);
+  font-weight: var(--fw-semibold);
+  padding-top: 0.25rem;
+}
+
 .order-detail-field-label {
   color: var(--neutral-mist-text);
   font-size: 12px;

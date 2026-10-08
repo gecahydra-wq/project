@@ -4,9 +4,9 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AppNotification;
-use App\Models\Dispute;
 use App\Models\FingerlingListing;
 use App\Models\Message;
+use App\Models\ModerationLog;
 use App\Models\MockPayment;
 use App\Models\Order;
 use App\Models\Review;
@@ -17,6 +17,7 @@ use App\Models\WithdrawalRequest;
 use App\Support\AnalyticsPeriod;
 use App\Support\CommissionCalculator;
 use App\Support\ImageUploader;
+use App\Support\OrderTransactionPresenter;
 use App\Support\PayoutAccount;
 use App\Support\SellerSanctions;
 use App\Support\SellerWallet;
@@ -293,10 +294,18 @@ class SellerController extends Controller
     {
         return [
             ...SellerWallet::summary($seller),
+            // Each row carries its earnings breakdown (order total, platform fee,
+            // LGU share, what the seller receives) for payments that earn the
+            // seller anything; refunded, failed and unpaid ones get null.
             'payment_history' => MockPayment::whereHas('order', fn ($q) => $q->where('seller_profile_id', $seller->id))
-                ->with(['order.buyer', 'order.listing'])
+                ->with(['order.buyer', 'order.listing', 'order.settlement'])
                 ->latest()
-                ->get(),
+                ->get()
+                ->each(function (MockPayment $payment) {
+                    $payment->setAttribute('earnings', $payment->order && in_array($payment->status, ['paid_held', 'released'], true)
+                        ? OrderTransactionPresenter::earningsBreakdown($payment->order)
+                        : null);
+                }),
             'withdrawal_requests' => WithdrawalRequest::where('seller_profile_id', $seller->id)->latest()->get(),
         ];
     }
@@ -369,13 +378,23 @@ class SellerController extends Controller
         // Super Admin) without exposing the reviewer's account.
         return response()->json(
             SellerNotice::with('reviewer:id,role')->where('seller_profile_id', $seller->id)->latest()->get()
-                ->map(function (SellerNotice $notice) {
+                ->map(function (SellerNotice $notice) use ($request) {
                     $notice->reviewed_by_label = $notice->reviewed_by ? SellerSanctions::reviewerLabel($notice->reviewer) : null;
-                    // A rejected explanation can be disputed once; the UI shows
-                    // the button, the pending appeal, or where to go next.
-                    $dispute = $notice->morphMany(Dispute::class, 'disputable')->latest()->first(['id', 'status', 'resolution_note', 'created_at', 'resolved_at']);
-                    $notice->dispute = $dispute;
-                    $notice->can_dispute = $notice->status === SellerNotice::STATUS_REJECTED && ! $dispute;
+                    // A rejected explanation suspended the seller. If staff
+                    // later reinstated them (after a message or a ticket), say
+                    // so on the card -- display only, read from the moderation log.
+                    $notice->reinstated_at = null;
+                    $notice->reinstated_by_label = null;
+                    if ($notice->status === SellerNotice::STATUS_REJECTED && $notice->reviewed_at) {
+                        $reinstated = ModerationLog::with('moderator:id,role')
+                            ->where('user_id', $request->user()->id)
+                            ->where('action', 'reinstated')
+                            ->where('created_at', '>=', $notice->reviewed_at)
+                            ->oldest()
+                            ->first();
+                        $notice->reinstated_at = $reinstated?->created_at;
+                        $notice->reinstated_by_label = $reinstated ? SellerSanctions::reviewerLabel($reinstated->moderator) : null;
+                    }
 
                     return $notice->unsetRelation('reviewer');
                 })
@@ -393,6 +412,8 @@ class SellerController extends Controller
 
         abort_if($notice->seller_profile_id !== $seller->id, 403, 'You can only respond to your own notices.');
         abort_if(! in_array($notice->status, SellerNotice::OPEN_STATUSES, true), 422, 'This notice has already been closed by your LGU.');
+        // One explanation per notice: the reviewer decides on what was sent.
+        abort_if(filled($notice->seller_response), 422, 'You have already sent your explanation. Your LGU will review it.');
 
         $data = $request->validate([
             'response' => ['required', 'string', 'min:10', 'max:2000'],
@@ -406,12 +427,17 @@ class SellerController extends Controller
             'status' => $notice->status === 'open' ? 'under_review' : $notice->status,
         ]);
 
-        foreach (User::where('role', 'lgu_admin')->where('municipality_id', $seller->municipality_id)->get() as $admin) {
+        // Both reviewers hear about it: the seller's LGU, and the Super Admin
+        // as the fallback reviewer.
+        $reviewers = User::where('role', 'super_admin')
+            ->orWhere(fn ($q) => $q->where('role', 'lgu_admin')->where('municipality_id', $seller->municipality_id))
+            ->get();
+        foreach ($reviewers as $admin) {
             AppNotification::create([
                 'user_id' => $admin->id,
                 'type' => 'seller_notice_answered',
-                'title' => 'Seller Responded to Notice',
-                'body' => "{$seller->hatchery_name} has responded to their Notice to Explain. Review it under Notices to Explain and decide what action to take.",
+                'title' => 'Seller Sent Their Explanation',
+                'body' => "{$seller->hatchery_name} has sent their explanation for a Notice to Explain. Review it under Notices to Explain and accept or reject it.",
             ]);
         }
 

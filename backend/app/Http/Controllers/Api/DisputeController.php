@@ -44,20 +44,6 @@ class DisputeController extends Controller
     }
 
     /**
-     * Seller: dispute the rejection of their explanation for a Notice to
-     * Explain -- the decision that suspended them. Allowed once.
-     */
-    public function disputeNotice(Request $request, SellerNotice $notice)
-    {
-        $seller = SellerProfile::where('user_id', $request->user()->id)->firstOrFail();
-        abort_if($notice->seller_profile_id !== $seller->id, 403, 'You can only dispute your own notices.');
-
-        $data = $request->validate(['reason' => ['required', 'string', 'max:2000']]);
-
-        return response()->json(DisputeResolution::file($notice, $request->user(), $data['reason']), 201);
-    }
-
-    /**
      * LGU Admin: dispute a rejected withdrawal of their municipality's own
      * earnings. The Super Admin rejected it, so the Super Admin hears this.
      */

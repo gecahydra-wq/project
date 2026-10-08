@@ -91,6 +91,10 @@ class SuperAdminController extends Controller
             // Complaints filed by buyers about sellers, or sellers about
             // buyers, that no admin has closed yet (App\Support\UserReports).
             'open_user_reports' => UserReport::whereNotIn('status', UserReport::CLOSED_STATUSES)->count(),
+            // Sellers who have explained a Notice to Explain and wait on a decision.
+            'notice_explanations_to_review' => SellerNotice::whereIn('status', SellerNotice::OPEN_STATUSES)
+                ->whereNotNull('seller_response')
+                ->count(),
             // Recent Activity -- the platform-wide audit trail's most recent
             // entries, reusing the exact same read path as the Activity Log tab
             // (App\Support\ActivityLog::query) so both stay consistent.

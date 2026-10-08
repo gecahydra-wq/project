@@ -2663,6 +2663,23 @@ class FishMarketApiTest extends TestCase
         $this->assertNotNull($seller->fresh());
     }
 
+    public function test_the_assistant_explains_notices_suspension_and_reinstatement(): void
+    {
+        foreach (['my account is suspended, what do I do?', 'what is a notice to explain', 'my explanation was rejected', 'how do I get reinstated'] as $question) {
+            $topic = \App\Support\AiIntentClassifier::classify($question)['topic'];
+            $this->assertNotNull($topic, $question);
+            $this->assertContains('notice to explain', $topic['keywords'], "'{$question}' must reach the notices topic");
+        }
+        $topic = \App\Support\AiIntentClassifier::classify('what is a notice to explain')['topic'];
+        $seller = \App\Support\AiIntentClassifier::topicContext($topic, 'seller');
+        $this->assertStringContainsString('ONE explanation', $seller);
+        $this->assertStringContainsString('no dispute button', $seller);
+        $this->assertStringContainsString('reinstate', \App\Support\AiIntentClassifier::topicContext($topic, 'lgu_admin'));
+
+        // Profile questions still go to the Account settings answer.
+        $this->assertContains('my profile', \App\Support\AiIntentClassifier::classify('how do I update my profile')['topic']['keywords']);
+    }
+
     public function test_the_assistant_states_the_withdrawal_payout_fee(): void
     {
         $topic = \App\Support\AiIntentClassifier::classify('how do I withdraw my earnings')['topic'];
@@ -6113,11 +6130,15 @@ class FishMarketApiTest extends TestCase
         $this->assertStringContainsString('not a bank or e-wallet payout yet', $plainText);
         $this->assertStringNotContainsString('Withdrawal Has Been Successfully Processed', $html);
 
-        // Must show only the Seller Share -- never the ₱500 gross amount, and
-        // never the LGU Share, which a seller must never be able to infer.
-        $this->assertStringContainsString('470', $html);
-        $this->assertStringNotContainsString('500.00', $html);
-        $this->assertStringNotContainsString('₱10.00', $html); // LGU Share (2% of ₱500).
+        // Since 2026-10-09 the seller sees the whole breakdown (user request),
+        // so they know why they receive less than the order total.
+        $this->assertStringContainsString('500.00', $html); // Order total.
+        $this->assertStringContainsString('Platform Fee (4%)', $html);
+        $this->assertStringContainsString('20.00', $html);
+        $this->assertStringContainsString('LGU Share (2%)', $html);
+        $this->assertStringContainsString('10.00', $html);
+        $this->assertStringContainsString('Your Earnings (94%)', $html);
+        $this->assertStringContainsString('470.00', $html);
     }
 
     public function test_withdrawal_released_email_is_sent_only_after_payout(): void
@@ -7241,6 +7262,60 @@ class FishMarketApiTest extends TestCase
 
         Sanctum::actingAs($otherSeller->user);
         $this->getJson('/api/orders/FG-SELLER01')->assertForbidden();
+    }
+
+    /** ₱600 -> platform 4% ₱24, LGU 2% ₱12, seller receives ₱564 (the user's example). */
+    public function test_seller_sees_why_they_receive_less_than_the_order_total(): void
+    {
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $buyer = $this->makeBuyer();
+        $seller = $this->makeSeller([], ['municipality_id' => $lguAdmin->municipality_id]);
+        $order = $this->makeOrder($buyer, $this->makeListing($seller), ['order_number' => 'FG-SPLIT600', 'status' => 'completed', 'total_amount' => 600]);
+        $payment = $this->makePayment($order, ['status' => 'paid_held', 'amount' => 600]);
+
+        // Before LGU approval: an estimate, in Order Details and Payment History.
+        Sanctum::actingAs($seller->user);
+        $this->getJson('/api/orders/FG-SPLIT600')->assertOk()
+            ->assertJsonPath('revenue_distribution_preview.source', 'preview')
+            ->assertJsonPath('revenue_distribution_preview.gross_amount', 600)
+            ->assertJsonPath('revenue_distribution_preview.platform_share', 24)
+            ->assertJsonPath('revenue_distribution_preview.lgu_share', 12)
+            ->assertJsonPath('revenue_distribution_preview.seller_share', 564)
+            ->assertJsonPath('revenue_distribution_preview.platform_percent', 4)
+            ->assertJsonMissingPath('lgu_verification');
+        $this->getJson('/api/seller/wallet')->assertOk()
+            ->assertJsonPath('payment_history.0.earnings.seller_share', 564)
+            ->assertJsonPath('payment_history.0.earnings.source', 'preview');
+
+        // After approval: the frozen settlement figures, same numbers.
+        Sanctum::actingAs($lguAdmin);
+        $this->patchJson("/api/lgu/payments/{$payment->id}/approve")->assertOk();
+        Sanctum::actingAs($seller->user);
+        $this->getJson('/api/orders/FG-SPLIT600')->assertOk()
+            ->assertJsonPath('revenue_distribution_preview.source', 'settled')
+            ->assertJsonPath('revenue_distribution_preview.seller_share', 564);
+        $this->getJson('/api/seller/wallet')->assertOk()
+            ->assertJsonPath('payment_history.0.earnings.source', 'settled')
+            ->assertJsonPath('payment_history.0.earnings.platform_share', 24)
+            ->assertJsonPath('payment_history.0.earnings.lgu_share', 12);
+
+        // The LGU's Revenue History names the order, the seller and the share.
+        Sanctum::actingAs($lguAdmin);
+        $this->getJson('/api/lgu/wallet')->assertOk()
+            ->assertJsonPath('revenue_history.0.order.order_number', 'FG-SPLIT600')
+            ->assertJsonPath('revenue_history.0.seller_profile_id', $seller->id)
+            ->assertJsonPath('revenue_history.0.lgu_share', '12.00')
+            ->assertJsonPath('revenue_history.0.lgu_percent', '2.00');
+    }
+
+    public function test_a_refunded_payment_shows_no_earnings_split(): void
+    {
+        $seller = $this->makeSeller();
+        $order = $this->makeOrder($this->makeBuyer(), $this->makeListing($seller), ['status' => 'cancelled']);
+        $this->makePayment($order, ['status' => 'refunded', 'amount' => 300]);
+
+        Sanctum::actingAs($seller->user);
+        $this->getJson('/api/seller/wallet')->assertOk()->assertJsonPath('payment_history.0.earnings', null);
     }
 
     public function test_seller_can_set_notes_on_their_own_order(): void
@@ -9059,6 +9134,16 @@ class FishMarketApiTest extends TestCase
         ])->assertOk()->assertJsonPath('status', 'under_review');
 
         $this->assertDatabaseHas('notifications', ['user_id' => $lguAdmin->id, 'type' => 'seller_notice_answered']);
+        // The Super Admin, as fallback reviewer, hears about it too.
+        $this->assertDatabaseHas('notifications', ['user_id' => User::where('role', 'super_admin')->value('id'), 'type' => 'seller_notice_answered']);
+        // One explanation per notice.
+        $this->postJson("/api/seller/notices/{$notice->id}/respond", ['response' => 'Adding a second explanation here.'])
+            ->assertStatus(422)->assertJsonPath('message', 'You have already sent your explanation. Your LGU will review it.');
+        // Both dashboards count it as waiting for review.
+        Sanctum::actingAs($lguAdmin);
+        $this->getJson('/api/lgu/dashboard')->assertOk()->assertJsonPath('notice_explanations_to_review', 1);
+        Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
+        $this->getJson('/api/super-admin/dashboard')->assertOk()->assertJsonPath('notice_explanations_to_review', 1);
 
         // An LGU Admin from another municipality cannot touch it.
         $outsideAdmin = $this->makeLguAdmin(['municipality_id' => $otherMunicipality->id]);
@@ -9186,66 +9271,45 @@ class FishMarketApiTest extends TestCase
     }
 
     /**
-     * Team rule (2026-10-09): a rejected explanation suspends the seller.
-     * They may dispute it ONCE; after a rejected dispute the app points them
-     * to their LGU or Help & Support, like a rejected registration.
+     * Team rule (2026-10-09): a rejected explanation suspends the seller, and
+     * there is no in-app dispute of it. The seller messages their LGU or sends
+     * a support ticket; staff reinstate by hand, and the notice card then says so.
      */
-    public function test_a_rejected_explanation_suspends_the_seller_who_may_dispute_it_once(): void
+    public function test_a_rejected_explanation_suspends_the_seller_with_no_in_app_dispute(): void
     {
         [$seller, $lguAdmin, $notice] = $this->sellerWithRejectedExplanation();
 
         $this->assertSame('suspended', $seller->fresh()->status);
         $this->assertSame(1, SellerSanctions::offenseCount($seller->id));
-        $this->assertStringContainsString('dispute this decision once',
+        $this->assertStringContainsString('message your LGU or send a support ticket',
             AppNotification::where('user_id', $seller->user_id)->where('type', 'account_suspended')->value('body'));
 
-        // The seller sees the one dispute they are allowed, and files it.
+        // No dispute route for notices, and the shared filer refuses one too.
         Sanctum::actingAs($seller->user);
-        $this->getJson('/api/seller/notices')->assertOk()->assertJsonPath('0.can_dispute', true);
-        $disputeId = $this->postJson("/api/seller/notices/{$notice->id}/dispute", ['reason' => 'The buyers who rated us never received the courier refund.'])
-            ->assertCreated()->json('id');
-        $this->getJson('/api/seller/notices')->assertOk()
-            ->assertJsonPath('0.can_dispute', false)
-            ->assertJsonPath('0.dispute.status', 'open');
-        $this->postJson("/api/seller/notices/{$notice->id}/dispute", ['reason' => 'Another try.'])->assertStatus(422);
+        $this->postJson("/api/seller/notices/{$notice->id}/dispute", ['reason' => 'Please look again.'])->assertNotFound();
+        $this->expectsDisputeRefusal($notice, $seller->user);
+        $this->getJson('/api/seller/notices')->assertOk()->assertJsonPath('0.reinstated_at', null);
 
-        // Their LGU hears it, and sees what it is about.
-        Sanctum::actingAs($lguAdmin);
-        $this->getJson('/api/lgu/disputes')->assertOk()
-            ->assertJsonPath('0.id', $disputeId)
-            ->assertJsonPath('0.subject_reference', $seller->hatchery_name);
-        $this->patchJson("/api/lgu/disputes/{$disputeId}/reject", ['note' => 'The ratings are about late replies, not refunds.'])->assertOk();
-
-        // The second rejection is final in the app: still suspended, no more disputes.
-        $this->assertSame('suspended', $seller->fresh()->status);
-        $this->assertStringContainsString('message your LGU or send a support ticket',
-            AppNotification::where('user_id', $seller->user_id)->where('type', "notice_dispute_resolved:{$disputeId}")->value('body'));
-        Sanctum::actingAs($seller->user);
-        $this->postJson("/api/seller/notices/{$notice->id}/dispute", ['reason' => 'Please look again.'])->assertStatus(422);
-
-        // A human can still reinstate them, which lifts any freeze too.
+        // After a message or ticket, the LGU reinstates by hand -- the card shows it.
         AccountModeration::reinstateSeller($seller->fresh(), $lguAdmin, 'Reviewed again after a support ticket.');
         $this->assertNotSame('suspended', $seller->fresh()->status);
         $this->assertNull($seller->fresh()->listings_frozen_at);
+        Sanctum::actingAs($seller->user);
+        $card = $this->getJson('/api/seller/notices')->assertOk()->json('0');
+        $this->assertNotNull($card['reinstated_at']);
+        $this->assertSame('Your LGU', $card['reinstated_by_label']);
+        // The decision itself is history and stays rejected.
+        $this->assertSame('rejected', $card['status']);
     }
 
-    public function test_an_accepted_notice_dispute_reinstates_the_seller_and_clears_the_offense(): void
+    private function expectsDisputeRefusal(SellerNotice $notice, User $filer): void
     {
-        [$seller, , $notice] = $this->sellerWithRejectedExplanation();
-
-        Sanctum::actingAs($seller->user);
-        $disputeId = $this->postJson("/api/seller/notices/{$notice->id}/dispute", ['reason' => 'Here are the courier receipts.'])->json('id');
-
-        // Another municipality's LGU cannot decide it; the Super Admin can.
-        Sanctum::actingAs($this->makeLguAdmin(['municipality_id' => Municipality::where('id', '!=', $seller->municipality_id)->value('id')]));
-        $this->patchJson("/api/lgu/disputes/{$disputeId}/accept")->assertStatus(403);
-
-        Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
-        $this->patchJson("/api/super-admin/disputes/{$disputeId}/accept")->assertOk();
-
-        $this->assertNotSame('suspended', $seller->fresh()->status);
-        $this->assertSame('accepted', $notice->fresh()->status);
-        $this->assertSame(0, SellerSanctions::offenseCount($seller->id));
+        try {
+            \App\Support\DisputeResolution::file($notice, $filer, 'Please look again.');
+            $this->fail('A notice decision must not be disputable.');
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+            $this->assertSame(422, $e->getStatusCode());
+        }
     }
 
     public function test_a_suspended_seller_can_still_message_their_lgu_but_not_buyers(): void

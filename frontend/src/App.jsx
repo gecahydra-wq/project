@@ -4030,6 +4030,11 @@ function SellerDashboard() {
             </PeriodFilteredRows>
           </Section>
           <Section title="Payment History">
+            <p className="helper-text">
+              What each order earned you. From every order total, AbaiMarket keeps a 4% platform fee and your LGU gets a 2% share; the
+              rest (94%) goes to your Available Balance once your LGU approves the order. Orders approved before October 9, 2026 used the
+              old split (96% to you, 4% to the LGU). Withdrawals have no fee.
+            </p>
             <PeriodFilteredRows rows={wallet.data?.payment_history || []} noun="payments received">
               {(shown) => (shown.length ? (
               <div className="table">
@@ -4037,7 +4042,10 @@ function SellerDashboard() {
                   <span>Order ID</span>
                   <span>Buyer</span>
                   <span>Fish Listing</span>
-                  <span>Amount</span>
+                  <span>Order Total</span>
+                  <span>Platform Fee</span>
+                  <span>LGU Share</span>
+                  <span>You Receive</span>
                   <span>Release Date</span>
                   <span>Status</span>
                 </div>
@@ -4047,6 +4055,13 @@ function SellerDashboard() {
                     <span>{payment.order?.buyer?.name || 'Unknown buyer'}</span>
                     <span>{payment.order?.listing?.title || payment.order?.listing?.species || 'Listing'}</span>
                     <span>{currency(payment.amount)}</span>
+                    {/* Refunded, failed and unpaid payments earn nothing, so no split. */}
+                    <span>{!payment.earnings ? '—' : Number(payment.earnings.platform_share) > 0 ? `−${currency(payment.earnings.platform_share)} (${percentLabel(payment.earnings.platform_percent)}%)` : 'None (older order)'}</span>
+                    <span>{payment.earnings ? `−${currency(payment.earnings.lgu_share)} (${percentLabel(payment.earnings.lgu_percent)}%)` : '—'}</span>
+                    <span>
+                      {payment.earnings ? <strong>{currency(payment.earnings.seller_share)}</strong> : '—'}
+                      {payment.earnings?.source === 'preview' && <small className="muted"> estimate</small>}
+                    </span>
                     <span>{payment.released_at ? new Date(payment.released_at).toLocaleDateString() : 'Not released yet'}</span>
                     <span><Badge status={payment.status} /></span>
                   </div>
@@ -5358,6 +5373,7 @@ function LguDashboard() {
             ['Listings', reports.data?.listings ?? 0, false, '/lgu/dashboard?tab=listings'],
             ['Open User Reports', lgu.data?.open_user_reports ?? 0, false, '/lgu/dashboard?tab=user-reports'],
             ['Open Notices to Explain', lgu.data?.open_seller_notices ?? 0, false, '/lgu/dashboard?tab=notices'],
+            ['Explanations to Review', lgu.data?.notice_explanations_to_review ?? 0, false, '/lgu/dashboard?tab=notices'],
           ]} />
           <Section title="Municipality Revenue" actions={<Link className="ghost" to="/lgu/dashboard?tab=wallet">Go to LGU Wallet</Link>}>
             <p className="helper-text">Your municipality&apos;s share of settled orders. Request a withdrawal of your Available Balance any time from the LGU Wallet page.</p>
@@ -5463,7 +5479,7 @@ function LguDashboard() {
       {tab === 'orders' && (
         <Section title="Orders">
           <p className="helper-text">Every order placed with a seller in your municipality. If a buyer never confirms a delivery that is Out for Delivery, you can mark it as received on their behalf once you have confirmed it arrived. It then moves to Seller Earnings for approval.</p>
-          <AdminOrderTable rows={lguOrders.data || []} base="/lgu" invalidateKeys={['lgu-orders', 'lgu-earnings', 'lgu-dashboard']} />
+          <AdminOrderTable rows={lguOrders.data || []} base="/lgu" invalidateKeys={['lgu-orders', 'lgu-earnings', 'lgu-dashboard']} initialExpandedOrderNumber={searchParams.get('order')} />
         </Section>
       )}
       {tab === 'earnings' && <SellerEarningsPanel />}
@@ -5547,22 +5563,32 @@ function LguDashboard() {
             </PeriodFilteredRows>
           </Section>
           <Section title="Revenue History">
+            <p className="helper-text">
+              How your municipality earned each amount: when you approve a seller&apos;s order earnings, the LGU gets 2% of the order total
+              (4% for orders approved before October 9, 2026). Click an order number to see its details.
+            </p>
             <PeriodFilteredRows rows={wallet.data?.revenue_history || []} noun="settlements" dateKey="settled_at">
               {(shown) => (shown.length ? (
               <div className="table">
                 <div className="table-row first">
                   <span>Order</span>
                   <span>Seller</span>
-                  <span>Gross Amount</span>
+                  <span>Order Total</span>
                   <span>LGU Share</span>
+                  <span>Seller Received</span>
                   <span>Settled Date</span>
                 </div>
                 {shown.map((settlement) => (
                   <div className="table-row" key={settlement.id}>
-                    <span>{settlement.order?.order_number ? `#${settlement.order.order_number}` : 'N/A'}</span>
+                    <span>
+                      {settlement.order?.order_number
+                        ? <Link className="seller-name-link" to={`/lgu/dashboard?tab=orders&order=${settlement.order.order_number}`}>#{settlement.order.order_number}</Link>
+                        : 'N/A'}
+                    </span>
                     <span><SellerLink id={settlement.seller_profile_id} name={settlement.sellerProfile?.hatchery_name} /></span>
                     <span>{currency(settlement.gross_amount)}</span>
-                    <span>{currency(settlement.lgu_share)}</span>
+                    <span><strong>{currency(settlement.lgu_share)}</strong> <small className="muted">({percentLabel(settlement.lgu_percent)}% of {currency(settlement.gross_amount)})</small></span>
+                    <span>{currency(settlement.seller_share)}</span>
                     <span>{settlement.settled_at ? new Date(settlement.settled_at).toLocaleDateString() : 'N/A'}</span>
                   </div>
                 ))}
@@ -6462,6 +6488,7 @@ function SuperAdminDashboard() {
               ['Pending LGU Approvals', dashboard.data?.pending_lgu_approvals ?? 0, false, '/admin/dashboard?tab=earnings'],
               ['Pending Listing Approvals', dashboard.data?.pending_listing_approvals ?? 0, false, '/admin/dashboard?tab=listings'],
               ['Open User Reports', dashboard.data?.open_user_reports ?? 0, false, '/admin/dashboard?tab=user-reports'],
+              ['Explanations to Review', dashboard.data?.notice_explanations_to_review ?? 0, false, '/admin/dashboard?tab=notices'],
               ['Pending Seller Withdrawals', dashboard.data?.pending_seller_withdrawals ?? 0, false, '/admin/dashboard?tab=payouts&focus=seller-payouts'],
               ['Pending LGU Withdrawals', dashboard.data?.pending_lgu_withdrawals ?? 0, false, '/admin/dashboard?tab=payouts&focus=lgu-payouts'],
             ]} />
@@ -7095,7 +7122,7 @@ function UserReportsPanel({ endpointBase, queryKey, scopeLabel }) {
                   />
                   {sendsNotice && (
                     <p className="helper-text">
-                      The seller must explain under Notices to Explain. If you later reject the explanation, the seller is suspended and can dispute it once.
+                      The seller must explain under Notices to Explain. If you later reject the explanation, the seller is suspended.
                     </p>
                   )}
                   <div className="row-actions">
@@ -7188,7 +7215,7 @@ const HELP_TOPICS = [
       ['When do I get paid?', 'After the buyer confirms they received the order, your LGU reviews the earnings. Once approved, 94% of the order total goes to your Available Balance. The other 6% is shared: 2% to your LGU and 4% to AbaiMarket.'],
       ['How do I withdraw my money?', 'Open your Wallet and click Request Withdrawal. Choose GCash, Maya or a bank account. There is no payout fee, so you receive the full amount you request. The Super Admin approves the request and marks it paid once the money is sent.'],
       ['My earnings review or withdrawal was rejected.', 'Open the rejected item and click Dispute This Rejection to explain your side. The person who rejected it reviews your dispute. If they accept it, the item is reopened for another review. A rejected withdrawal keeps its amount on hold while you decide: dispute it once within 7 days, or click Accept Rejection to return the amount to your Available Balance right away. If you do nothing for 7 days, or your dispute is rejected, the amount returns to your Available Balance on its own. If you still think a final rejection is wrong, message the Super Admin or send a support ticket under Wallet or withdrawal.'],
-      ['What is a Notice to Explain?', 'If your average rating falls to 3 stars or below, or your LGU finds a buyer\'s report against you valid, AbaiMarket sends you a Notice to Explain. Answer it from the Notices tab. Your first notice is only a warning. From the second notice on, your listings are paused until your LGU accepts your explanation. If your explanation is rejected, your seller account is suspended. You can dispute that decision once from the Notices tab; if the dispute is also rejected, message your LGU or send a support ticket.'],
+      ['What is a Notice to Explain?', 'If your average rating falls to 3 stars or below, or your LGU finds a buyer\'s report against you valid, AbaiMarket sends you a Notice to Explain. Answer it from the Notices tab. Your first notice is only a warning. From the second notice on, your listings are paused until your LGU accepts your explanation. You can send one explanation per notice. If it is rejected, your seller account is suspended; to have it reviewed again, message your LGU or send a support ticket.'],
     ],
   },
 ]
@@ -7320,6 +7347,7 @@ const NOTIFICATION_TABS = {
     ['refund_pending', 'payouts'],
     ['seller_registration_submitted', 'sellers'],
     ['user_report', 'user-reports'],
+    ['seller_notice', 'notices'],
     ['dispute_filed', 'disputes'],
   ],
 }
@@ -8225,7 +8253,7 @@ function SellerNoticesPanel({ scope = 'lgu' }) {
     onSuccess: refreshNotices,
   })
   // Accept and reject are separate endpoints because they carry consequences:
-  // a rejection is an offense and suspends the seller (one dispute allowed).
+  // a rejection is an offense and suspends the seller.
   const acceptNotice = useMutation({
     mutationFn: async ({ id, notes }) => (await api.patch(`${base}/seller-notices/${id}/accept`, { notes: notes || undefined })).data,
     onSuccess: refreshNotices,
@@ -8243,8 +8271,8 @@ function SellerNoticesPanel({ scope = 'lgu' }) {
         A seller&apos;s <strong>first</strong> notice is a warning: their listings stay up while they explain. From their{' '}
         <strong>second</strong> notice onward the listings come off the marketplace until you accept the explanation. Read it and decide:{' '}
         <strong>accept</strong> puts their listings back with no offense recorded; <strong>reject</strong> records an offense and{' '}
-        <strong>suspends the seller</strong>. They can dispute that decision once (it appears under Disputes). If the dispute is rejected too,
-        their only route is to message you or send a support ticket.
+        <strong>suspends the seller</strong>. Sellers send one explanation, and there is no in-app dispute: a suspended seller messages
+        you or sends a support ticket, and you can reinstate them from the Sellers tab.
       </p>
       {periodControls}
       {shownNotices.length ? (
@@ -8280,7 +8308,7 @@ function SellerNoticesPanel({ scope = 'lgu' }) {
               {notice.lgu_notes && <p className="helper-text"><strong>Your notes:</strong> {notice.lgu_notes}</p>}
               {['accepted', 'rejected'].includes(notice.status) ? (
                 <p className="helper-text">
-                  {notice.status === 'accepted' ? 'Explanation accepted.' : 'Explanation rejected -- an offense was recorded and the seller was suspended. They can dispute it once, under Disputes.'}
+                  {notice.status === 'accepted' ? 'Explanation accepted.' : 'Explanation rejected -- an offense was recorded and the seller was suspended. To lift it, reinstate them from the Sellers tab.'}
                   {notice.reviewer?.name ? ` Decided by ${notice.reviewer.name}.` : ''}
                 </p>
               ) : actingId === notice.id ? (
@@ -8305,7 +8333,7 @@ function SellerNoticesPanel({ scope = 'lgu' }) {
                       className="ghost danger"
                       disabled={rejectNotice.isPending || decision.notes.trim().length < 10}
                       onClick={() => {
-                        if (window.confirm('Reject this explanation? The seller will be suspended. They can dispute this decision once.')) {
+                        if (window.confirm('Reject this explanation? The seller will be suspended until someone reinstates them.')) {
                           rejectNotice.mutate({ id: notice.id, reason: decision.notes.trim() })
                         }
                       }}
@@ -8315,7 +8343,7 @@ function SellerNoticesPanel({ scope = 'lgu' }) {
                     <button type="button" className="ghost" onClick={() => setActingId(null)}>Cancel</button>
                   </div>
                   <p className="helper-text">
-                    Rejecting records an offense and suspends this seller. They can dispute it once; an accepted dispute reinstates them.
+                    Rejecting records an offense and suspends this seller. You can reinstate them later from the Sellers tab.
                   </p>
                 </div>
               ) : (
@@ -8342,9 +8370,10 @@ function SellerNoticesPanel({ scope = 'lgu' }) {
 /**
  * The seller's own Notices to Explain -- raised when their average rating falls
  * to 3 stars or below, or when a buyer's report is found valid. The seller
- * answers here and their LGU decides. A rejected explanation suspends them;
- * they can dispute it once here, and after that the next step is their LGU or
- * Help & Support (FinalRejectionHelp), like a rejected registration.
+ * sends ONE explanation here and their LGU decides. A rejected explanation
+ * suspends them; the next step is their LGU or Help & Support
+ * (FinalRejectionHelp), like a rejected registration. If staff reinstate them
+ * later, the card says so (reinstated_at, from the moderation log).
  */
 function SellerNoticesSection({ lguContact = null }) {
   const [drafts, setDrafts] = useState({})
@@ -8372,9 +8401,9 @@ function SellerNoticesSection({ lguContact = null }) {
       <p className="helper-text">
         You get a Notice to Explain if your average buyer rating falls to 3 stars or below, or if your LGU finds a buyer&apos;s report against you
         valid. Your <strong>first</strong> notice is a warning -- your listings stay on the marketplace while you explain. From your second notice
-        onward your listings come off the marketplace until your LGU accepts your explanation. If your explanation is{' '}
-        <strong>rejected, your seller account is suspended</strong>. You can dispute that decision once from here; if the dispute is also
-        rejected, message your LGU or send a support ticket.
+        onward your listings come off the marketplace until your LGU accepts your explanation. You can send{' '}
+        <strong>one</strong> explanation per notice. If it is <strong>rejected, your seller account is suspended</strong>; to have it
+        reviewed again, message your LGU or send a support ticket.
       </p>
       {periodControls}
       {shownNotices.length ? (
@@ -8406,35 +8435,30 @@ function SellerNoticesSection({ lguContact = null }) {
                 {notice.status === 'rejected' && (
                   <>
                     <p className="error">{reviewer} rejected this explanation, so an offense was recorded and your seller account was suspended.</p>
-                    {notice.can_dispute && (
-                      <div className="row-actions">
-                        <p className="helper-text">You can dispute this decision once. Explain why it should be reconsidered.</p>
-                        <DisputeAction endpoint={`/seller/notices/${notice.id}/dispute`} invalidateKeys={['seller-notices', 'seller-dashboard']} label="Dispute This Decision" />
-                      </div>
-                    )}
-                    {notice.dispute?.status === 'open' && (
-                      <p className="helper-text">Your dispute is waiting for a decision. Your account stays suspended until then.</p>
-                    )}
-                    {notice.dispute?.status === 'rejected' && (
-                      <>
-                        <p className="error">Your dispute was rejected{notice.dispute.resolution_note ? `: ${notice.dispute.resolution_note}` : '.'}</p>
-                        <FinalRejectionHelp base="/seller/dashboard" contact={lguContact} contactLabel="your LGU" topic="Account or login" />
-                      </>
+                    {notice.reinstated_at ? (
+                      <p className="helper-text">
+                        {notice.reinstated_by_label || 'Your LGU'} reinstated your account on {new Date(notice.reinstated_at).toLocaleDateString()}. You can sell again; the offense stays on record.
+                      </p>
+                    ) : (
+                      <FinalRejectionHelp base="/seller/dashboard" contact={lguContact} contactLabel="your LGU" topic="Account or login" />
                     )}
                   </>
                 )}
-                {open ? (
+                {open && notice.seller_response ? (
+                  <p className="helper-text">Your explanation was sent. {reviewer === 'Your LGU' ? 'Your LGU' : 'The Super Admin'} will review it and let you know.</p>
+                ) : open ? (
                   <div className="form grid-form">
+                    <p className="helper-text">You can send one explanation, so make it complete.</p>
                     <textarea
                       value={draft}
                       onChange={(e) => setDrafts((current) => ({ ...current, [notice.id]: e.target.value }))}
-                      placeholder={notice.seller_response ? 'Add to your explanation (at least 10 characters)' : 'Explain what happened and what you are doing about it (at least 10 characters)'}
+                      placeholder="Explain what happened and what you are doing about it (at least 10 characters)"
                       rows={4}
                     />
                     <button
                       type="button"
                       disabled={draft.trim().length < 10 || respond.isPending}
-                      onClick={() => respond.mutate({ id: notice.id, response: draft.trim() })}
+                      onClick={() => { if (window.confirm('Send this explanation? You cannot change or add to it afterwards.')) respond.mutate({ id: notice.id, response: draft.trim() }) }}
                     >
                       {respond.isPending ? 'Sending...' : 'Send Explanation'}
                     </button>
@@ -8807,7 +8831,7 @@ function SuspendedAccountNotice({ role }) {
       </div>
       <p className="helper-text">
         {role === 'seller'
-          ? 'Your listings are off the marketplace, and you cannot add or edit listings, update orders, request withdrawals, post or message buyers until you are reinstated. You can still sign in, see your account, answer Notices to Explain and dispute rejected decisions -- a rejected Notice to Explain can be disputed once from the Notices tab.'
+          ? 'Your listings are off the marketplace, and you cannot add or edit listings, update orders, request withdrawals, post or message buyers until you are reinstated. You can still sign in, see your account, answer Notices to Explain, dispute rejected earnings or withdrawals, and message your LGU or the Super Admin.'
           : 'You cannot place orders, pay, message sellers or leave reviews until you are reinstated. You can still sign in, browse and see your orders.'}
         {' '}The reason is in your <Link to={`${base}?tab=notifications`}>Notifications</Link> and in the email we sent. If you think this is a mistake,{' '}
         <Link to={`${base}?tab=messages`}>message your LGU</Link> or <Link to={`${base}?tab=support`}>send a support ticket</Link>.
@@ -8975,6 +8999,46 @@ function OrderTableDetailRow({ orderNumber, detailsEndpoint, paymentView = 'escr
  * a paid order stuck Out for Delivery because the buyer never confirmed it.
  * See AdminOrderTable.
  */
+/** 94.00 -> "94", 2.5 -> "2.5". */
+function percentLabel(value) {
+  return String(Math.round(Number(value || 0) * 100) / 100)
+}
+
+/**
+ * Why the seller receives less than the order total: order total, minus the
+ * platform fee, minus the LGU share, equals what the seller gets. Fed by
+ * OrderTransactionPresenter::earningsBreakdown on the backend -- the same
+ * numbers Order Details, the seller's Payment History and the earnings email
+ * show. `source: 'preview'` means the LGU has not approved the order yet.
+ */
+function EarningsBreakdown({ breakdown, viewerIsSeller = false }) {
+  if (!breakdown) return null
+  const platformShare = Number(breakdown.platform_share || 0)
+  return (
+    <div className="earnings-breakdown">
+      <div className="earnings-breakdown-row"><span>Order total</span><span>{currency(breakdown.gross_amount)}</span></div>
+      <div className="earnings-breakdown-row muted">
+        {/* Orders approved before 2026-10-09 had no platform share (the fee was taken on withdrawal then). */}
+        <span>{platformShare > 0 ? `Platform fee (${percentLabel(breakdown.platform_percent)}%)` : 'Platform fee'}</span>
+        <span>{platformShare > 0 ? `−${currency(platformShare)}` : 'None (older order)'}</span>
+      </div>
+      <div className="earnings-breakdown-row muted">
+        <span>LGU share ({percentLabel(breakdown.lgu_percent)}%)</span>
+        <span>−{currency(breakdown.lgu_share)}</span>
+      </div>
+      <div className="earnings-breakdown-row total">
+        <span>{viewerIsSeller ? 'You receive' : 'Seller receives'} ({percentLabel(breakdown.seller_percent)}%)</span>
+        <span>{currency(breakdown.seller_share)}</span>
+      </div>
+      <p className="helper-text">
+        {breakdown.source === 'preview'
+          ? 'Estimate -- the amounts are fixed when the LGU approves the earnings for this order.'
+          : 'Fixed when the LGU approved the earnings for this order.'}
+      </p>
+    </div>
+  )
+}
+
 function OrderTable({ rows, onReview, onConfirmReceived, confirmPendingOrderId, onMarkReceived, markReceivedPendingOrderId, onPay, payPendingOrderId, detailsEndpoint, initialExpandedOrderNumber, showPaymentStatus = true, paymentView = 'escrow', counterparty = 'seller', showOrderDate = false }) {
   const [expandedOrderNumber, setExpandedOrderNumber] = useState(initialExpandedOrderNumber || null)
 
@@ -9178,7 +9242,7 @@ function PeriodFilteredRows({ rows, children, noun = 'orders placed', dateKey })
   )
 }
 
-function AdminOrderTable({ rows, base, invalidateKeys }) {
+function AdminOrderTable({ rows, base, invalidateKeys, initialExpandedOrderNumber = null }) {
   const queryClient = useQueryClient()
   const markReceived = useMutation({
     mutationFn: async (orderId) => (await api.patch(`${base}/orders/${orderId}/mark-delivered`)).data,
@@ -9197,6 +9261,7 @@ function AdminOrderTable({ rows, base, invalidateKeys }) {
           <OrderTable
             rows={shown}
             detailsEndpoint={(orderNumber) => `${base}/orders/${orderNumber}`}
+            initialExpandedOrderNumber={initialExpandedOrderNumber}
             onMarkReceived={handleMarkReceived}
             markReceivedPendingOrderId={markReceived.isPending ? markReceived.variables : null}
             showOrderDate
@@ -9312,18 +9377,18 @@ function OrderDetailPanel({ detail, paymentView = 'escrow' }) {
       {detail.revenue_distribution_preview && (
         <div className="order-detail-grid">
           <div className="order-detail-field">
-            <span className="order-detail-field-label">Revenue Distribution{detail.revenue_distribution_preview.source === 'preview' ? ' (Preview)' : ''}</span>
-            <span>
-              Seller {currency(detail.revenue_distribution_preview.seller_share)} · LGU {currency(detail.revenue_distribution_preview.lgu_share)} · Platform {currency(detail.revenue_distribution_preview.platform_share)}
-            </span>
+            <span className="order-detail-field-label">{getSession()?.role === 'seller' ? 'Your Earnings' : 'Earnings Breakdown'}</span>
+            <EarningsBreakdown breakdown={detail.revenue_distribution_preview} viewerIsSeller={getSession()?.role === 'seller'} />
           </div>
-          <div className="order-detail-field">
-            <span className="order-detail-field-label">LGU Verification Status</span>
-            <span>
-              <Badge status={detail.lgu_verification?.status}>{statusChartLabel(detail.lgu_verification?.status)}</Badge>
-              {detail.lgu_verification?.review_reason ? ` — ${detail.lgu_verification.review_reason}` : ''}
-            </span>
-          </div>
+          {detail.lgu_verification && (
+            <div className="order-detail-field">
+              <span className="order-detail-field-label">LGU Verification Status</span>
+              <span>
+                <Badge status={detail.lgu_verification?.status}>{statusChartLabel(detail.lgu_verification?.status)}</Badge>
+                {detail.lgu_verification?.review_reason ? ` — ${detail.lgu_verification.review_reason}` : ''}
+              </span>
+            </div>
+          )}
         </div>
       )}
       {detail.seller_payout_status && (
@@ -9460,7 +9525,8 @@ function RejectedWithdrawalActions({ request, disputeEndpoint, acceptEndpoint, i
 }
 
 /**
- * Shown once a rejection is final in the app (its one dispute is used up or
+ * Shown once a rejection is final in the app (a rejected Notice to Explain, or
+ * a withdrawal whose one dispute is used up or
  * it was accepted). Like a rejected registration, the next step is a person:
  * a direct message or a support ticket. LGU Admins have no ticket form of
  * their own, so only the message link is offered without a `topic`.
