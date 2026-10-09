@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\EmailVerificationController;
 use App\Http\Controllers\Api\GoogleAuthController;
 use App\Http\Controllers\Api\LguController;
 use App\Http\Controllers\Api\ListingController;
+use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\PlatformController;
 use App\Http\Controllers\Api\OrderController;
@@ -167,6 +168,8 @@ Route::middleware(['auth:sanctum', 'verified', 'role:buyer,seller'])->group(func
 });
 
 Route::middleware(['auth:sanctum', 'verified', 'role:buyer,seller,lgu_admin,super_admin'])->group(function () {
+    // Notifications already read, for every role (NotificationController).
+    Route::get('notifications/history', [NotificationController::class, 'history']);
     Route::get('messages/threads', [MessageController::class, 'threads']);
     Route::get('messages/unread-count', [MessageController::class, 'unreadCount']);
     Route::get('messages/thread/{user}', [MessageController::class, 'thread']);

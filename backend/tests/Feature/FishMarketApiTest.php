@@ -2573,6 +2573,60 @@ class FishMarketApiTest extends TestCase
         $this->assertSame($seller->user->name, $orders[0]['sellerProfile']['user']['name']);
     }
 
+    /** The reported seller learns the reason at once, before any decision, without the buyer's name. */
+    public function test_a_reported_seller_is_notified_of_the_reason_right_away(): void
+    {
+        $seller = $this->makeSeller();
+        $buyer = $this->makeBuyer();
+        Sanctum::actingAs($buyer);
+
+        // A reason is mandatory, and must be one from the list.
+        $this->postJson('/api/reports', ['reported_user_id' => $seller->user_id, 'description' => 'No response to any of my messages.'])
+            ->assertStatus(422)->assertJsonValidationErrors('reason');
+        $this->postJson('/api/reports', ['reported_user_id' => $seller->user_id, 'reason' => 'I just do not like them', 'description' => 'No response to any of my messages.'])
+            ->assertStatus(422)->assertJsonValidationErrors('reason');
+
+        $this->postJson('/api/reports', [
+            'reported_user_id' => $seller->user_id,
+            'reason' => 'Seller unresponsive',
+            'description' => 'No response to any of my messages about this order.',
+        ])->assertCreated();
+
+        $notification = AppNotification::where('user_id', $seller->user_id)->where('type', 'user_report_received')->firstOrFail();
+        $this->assertSame('You Were Reported', $notification->title);
+        $this->assertStringContainsString('A buyer filed a report about you. Reason: Seller unresponsive.', $notification->body);
+        $this->assertStringContainsString('nothing has been decided yet', $notification->body);
+        $this->assertStringNotContainsString($buyer->name, $notification->body);
+
+        Sanctum::actingAs($seller->user);
+        $this->getJson('/api/seller/notifications')->assertOk()->assertJsonFragment(['type' => 'user_report_received']);
+    }
+
+    /** A read notification is not lost: it moves to the history. */
+    public function test_read_notifications_stay_in_the_notification_history(): void
+    {
+        $buyer = $this->makeBuyer();
+        $other = $this->makeBuyer();
+        $read = AppNotification::create(['user_id' => $buyer->id, 'type' => 'order_paid', 'title' => 'Paid', 'body' => 'Your order was paid.']);
+        AppNotification::create(['user_id' => $buyer->id, 'type' => 'order_confirmed', 'title' => 'Confirmed', 'body' => 'Still unread.']);
+        AppNotification::create(['user_id' => $other->id, 'type' => 'order_paid', 'title' => 'Not yours', 'body' => 'Someone else.', 'read_at' => now()]);
+
+        Sanctum::actingAs($buyer);
+        $this->getJson('/api/notifications/history')->assertOk()->assertJsonCount(0);
+
+        $this->patchJson("/api/buyer/notifications/{$read->id}/read")->assertOk();
+        $this->getJson('/api/buyer/notifications')->assertOk()->assertJsonCount(1);
+        $this->getJson('/api/notifications/history')->assertOk()
+            ->assertJsonCount(1)
+            ->assertJsonPath('0.title', 'Paid');
+
+        // Every role has it.
+        foreach (['seller' => $this->makeSeller()->user, 'lgu_admin' => User::where('role', 'lgu_admin')->firstOrFail(), 'super_admin' => User::where('role', 'super_admin')->firstOrFail()] as $user) {
+            Sanctum::actingAs($user);
+            $this->getJson('/api/notifications/history')->assertOk();
+        }
+    }
+
     public function test_dismissing_a_user_report_requires_a_reason(): void
     {
         $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();

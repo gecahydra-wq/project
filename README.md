@@ -57,7 +57,8 @@ The system emphasizes correctness of money movement, strict role permissions, a 
 - Seller profiles with a "Farm Posts" social feed (likes + comments), ratings and reviews
 - Buyer ↔ Seller two-way feedback (buyers review sellers; sellers rate buyers)
 - Direct messaging between all roles
-- In-app notifications, with a bell pop-up in the top bar (open one to jump to the right page, or mark one or all as read). Every new request notifies whoever has to act on it: withdrawal requests reach the Super Admin, new seller registrations reach the municipality's LGU, and so on
+- In-app notifications, with a bell pop-up in the top bar (open one to jump to the right page, or mark one or all as read). Every new request notifies whoever has to act on it: withdrawal requests reach the Super Admin, new seller registrations reach the municipality's LGU, and so on. Read notifications are not lost: every role's Notifications page has a **Notification History** (newest first, date-filterable, the latest 200) under the unread list
+- **User reports:** the reporter must choose a reason from a fixed list (nothing is pre-selected) and describe what happened. The reported person is notified **right away** -- "You Were Reported", with the reason -- before any decision, without the reporter's name
 
 **Orders & Payments**
 - Unified Order Numbers (`ORD-####` presentation; `FG-XXXXXX` internal reference)

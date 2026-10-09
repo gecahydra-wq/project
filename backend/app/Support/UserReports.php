@@ -46,6 +46,7 @@ class UserReports
         ]);
 
         self::notifyReviewers($report, $reporter, $reported, $municipalityId);
+        self::notifyReported($report, $reporter, $order);
 
         ActivityLog::record([
             'actor_id' => $reporter->id,
@@ -124,6 +125,32 @@ class UserReports
         return UserReport::with(['reporter.sellerProfile:id,user_id', 'reportedUser.sellerProfile:id,user_id', 'municipality', 'order:id,order_number', 'reviewer'])
             ->when($municipalityId, fn ($q) => $q->where('municipality_id', $municipalityId))
             ->latest();
+    }
+
+    /**
+     * Tell the reported person right away -- before anyone has decided
+     * whether the report is valid -- what they were reported for, so they are
+     * never the last to know. The reporter is named only by role: an order
+     * number already identifies the buyer to the seller, and naming them
+     * otherwise would invite retaliation (the reason buyer ratings were
+     * removed).
+     */
+    private static function notifyReported(UserReport $report, User $reporter, ?Order $order): void
+    {
+        $reviewer = $report->reported_role === 'seller' ? 'Your LGU' : 'The LGU or the Super Admin';
+
+        AppNotification::create([
+            'user_id' => $report->reported_user_id,
+            'type' => 'user_report_received',
+            'title' => 'You Were Reported',
+            'body' => sprintf(
+                'A %s filed a report about you%s. Reason: %s. %s will review it and decide whether it is valid -- nothing has been decided yet, and no action has been taken against your account.',
+                $reporter->role,
+                $order?->order_number ? " for order #{$order->order_number}" : '',
+                rtrim($report->reason, '.'),
+                $reviewer
+            ),
+        ]);
     }
 
     /**

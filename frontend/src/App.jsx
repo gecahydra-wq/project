@@ -3150,12 +3150,15 @@ function BuyerDashboard() {
       )}
       {tab === 'messages' && <Section title="Messages"><MessagesPanel initialUserId={searchParams.get('with') ? Number(searchParams.get('with')) : null} /></Section>}
       {tab === 'notifications' && (
-        <Section
-          title="Notifications"
-          actions={<MarkAllReadButton unreadCount={notifications.length} loading={markAllRead.isPending} onClick={() => markAllRead.mutate()} />}
-        >
-          <NotificationStack notifications={notifications} onMarkRead={handleMarkRead} getLink={notificationLinkFor('buyer')} />
-        </Section>
+        <>
+          <Section
+            title="Notifications"
+            actions={<MarkAllReadButton unreadCount={notifications.length} loading={markAllRead.isPending} onClick={() => markAllRead.mutate()} />}
+          >
+            <NotificationStack notifications={notifications} onMarkRead={handleMarkRead} getLink={notificationLinkFor('buyer')} emptyMessage="No unread notifications." />
+          </Section>
+          <NotificationHistory getLink={notificationLinkFor('buyer')} unreadCount={data?.notifications?.length ?? 0} />
+        </>
       )}
       {tab === 'analytics' && (
         <Section title="Analytics" actions={<PeriodFilter period={analyticsPeriod} onChange={setAnalyticsPeriod} />}>
@@ -4073,12 +4076,15 @@ function SellerDashboard() {
         </>
       )}
       {tab === 'notifications' && (
-        <Section
-          title="Notifications"
-          actions={<MarkAllReadButton unreadCount={notifications.length} loading={markAllRead.isPending} onClick={() => markAllRead.mutate()} />}
-        >
-          <NotificationStack notifications={notifications} onMarkRead={handleMarkRead} getLink={notificationLinkFor('seller')} />
-        </Section>
+        <>
+          <Section
+            title="Notifications"
+            actions={<MarkAllReadButton unreadCount={notifications.length} loading={markAllRead.isPending} onClick={() => markAllRead.mutate()} />}
+          >
+            <NotificationStack notifications={notifications} onMarkRead={handleMarkRead} getLink={notificationLinkFor('seller')} emptyMessage="No unread notifications." />
+          </Section>
+          <NotificationHistory getLink={notificationLinkFor('seller')} unreadCount={dashboard.data?.notifications?.length ?? 0} />
+        </>
       )}
       {tab === 'analytics' && (
         <Section title="Analytics" actions={<PeriodFilter period={analyticsPeriod} onChange={setAnalyticsPeriod} />}>
@@ -5666,12 +5672,15 @@ function LguDashboard() {
       {tab === 'activity-log' && <ActivityLogPanel scope="lgu" />}
       {tab === 'reviews' && <ReviewsAndRatingsSection data={reviews.data} scope="lgu" scopeLabel="in your municipality" />}
       {tab === 'notifications' && (
-        <Section
-          title="Notifications"
-          actions={<MarkAllReadButton unreadCount={notifications.length} loading={markAllRead.isPending} onClick={() => markAllRead.mutate()} />}
-        >
-          <NotificationStack notifications={notifications} onMarkRead={handleMarkRead} getLink={notificationLink} />
-        </Section>
+        <>
+          <Section
+            title="Notifications"
+            actions={<MarkAllReadButton unreadCount={notifications.length} loading={markAllRead.isPending} onClick={() => markAllRead.mutate()} />}
+          >
+            <NotificationStack notifications={notifications} onMarkRead={handleMarkRead} getLink={notificationLink} emptyMessage="No unread notifications." />
+          </Section>
+          <NotificationHistory getLink={notificationLink} unreadCount={lgu.data?.notifications?.length ?? 0} />
+        </>
       )}
       {tab === 'profile' && <AdminProfilePanel endpointBase="/lgu" />}
     </Dashboard>
@@ -6653,12 +6662,15 @@ function SuperAdminDashboard() {
       )}
       {tab === 'messages' && <Section title="Messages"><MessagesPanel initialUserId={searchParams.get('with') ? Number(searchParams.get('with')) : null} /></Section>}
       {tab === 'notifications' && (
-        <Section
-          title="Notifications"
-          actions={<MarkAllReadButton unreadCount={notifications.length} loading={markAllNotificationsRead.isPending} onClick={() => markAllNotificationsRead.mutate()} />}
-        >
-          <NotificationStack notifications={notifications} onMarkRead={handleMarkRead} getLink={notificationLinkFor('super_admin')} />
-        </Section>
+        <>
+          <Section
+            title="Notifications"
+            actions={<MarkAllReadButton unreadCount={notifications.length} loading={markAllNotificationsRead.isPending} onClick={() => markAllNotificationsRead.mutate()} />}
+          >
+            <NotificationStack notifications={notifications} onMarkRead={handleMarkRead} getLink={notificationLinkFor('super_admin')} emptyMessage="No unread notifications." />
+          </Section>
+          <NotificationHistory getLink={notificationLinkFor('super_admin')} unreadCount={notificationsQuery.data?.length ?? 0} />
+        </>
       )}
       {tab === 'moderation' && (
         <Section title="Moderation Log">
@@ -7005,7 +7017,7 @@ function ReportUserAction({ userId, userName, label = 'Report User' }) {
   const submit = useMutation({
     mutationFn: async () => (await api.post('/reports', {
       reported_user_id: userId,
-      reason: form.reason || reasons.data?.[0],
+      reason: form.reason,
       description: form.description,
     })).data,
     onSuccess: () => {
@@ -7015,7 +7027,8 @@ function ReportUserAction({ userId, userName, label = 'Report User' }) {
     },
   })
 
-  const reason = form.reason || reasons.data?.[0] || ''
+  // No reason is pre-selected: the reporter must choose one themselves.
+  const reason = form.reason
   const canSubmit = Boolean(reason) && form.description.trim().length >= 10
 
   return (
@@ -7039,11 +7052,13 @@ function ReportUserAction({ userId, userName, label = 'Report User' }) {
         >
           <p className="helper-text">
             Reports go to the LGU Admin for this municipality and to the Super Admin. Describe what happened as clearly as you can --
-            they will review it and decide what action to take. Filing a report does not suspend anyone by itself.
+            they will review it and decide what action to take. Filing a report does not suspend anyone by itself. The person you
+            report is notified of the reason right away, but not of your name.
           </p>
           <label className="filter-label">
-            Reason
+            Reason (required)
             <select value={reason} onChange={(e) => setForm({ ...form, reason: e.target.value })}>
+              <option value="" disabled>Choose a reason</option>
               {(reasons.data || []).map((option) => <option key={option} value={option}>{option}</option>)}
             </select>
           </label>
@@ -9879,21 +9894,54 @@ function ReviewCell({ row, onReview, onConfirmReceived, confirmPendingOrderId })
   )
 }
 
-function NotificationStack({ notifications, onMarkRead, getLink }) {
-  if (!notifications?.length) return <EmptyState message="No notifications yet." />
+function NotificationStack({ notifications, onMarkRead = null, getLink, emptyMessage = 'No notifications yet.' }) {
+  if (!notifications?.length) return <EmptyState message={emptyMessage} />
   return (
     <div className="notification-stack">
       {notifications.map((item) => {
         const link = getLink?.(item)
-        const body = <div><strong>{item.title}</strong><p>{item.body}</p></div>
+        const body = (
+          <div>
+            <strong>{item.title}</strong>
+            <p>{item.body}</p>
+            <small className="notification-time">
+              {new Date(item.created_at).toLocaleString()}
+              {item.read_at && ` · Read ${new Date(item.read_at).toLocaleDateString()}`}
+            </small>
+          </div>
+        )
         return (
           <div className={`card notification ${item.read_at ? 'read' : 'unread'}`} key={item.id}>
             {link ? <Link className="notification-link" to={link}>{body}</Link> : body}
-            <button type="button" onClick={() => onMarkRead(item.id)}>Mark Read</button>
+            {!item.read_at && onMarkRead && <button type="button" onClick={() => onMarkRead(item.id)}>Mark Read</button>}
           </div>
         )
       })}
     </div>
+  )
+}
+
+/**
+ * Notifications already marked read, for every role (GET /notifications/history).
+ * The list above it only holds unread ones, so without this a notification
+ * was gone for good once read. `unreadCount` is the SERVER's unread count
+ * (not the on-screen list, which hides an item the instant Mark Read is
+ * clicked, before the server has saved it). It is part of the query key, so
+ * the history refreshes once the read is actually stored.
+ */
+function NotificationHistory({ getLink, unreadCount }) {
+  const history = useQuery({
+    queryKey: ['notification-history', unreadCount],
+    queryFn: async () => (await api.get('/notifications/history')).data,
+    placeholderData: (previous) => previous,
+  })
+  return (
+    <Section title="Notification History">
+      <p className="helper-text">Notifications you have already read, newest first (the latest 200).</p>
+      <PeriodFilteredRows rows={history.data || []} noun="notifications received" dateKey="created_at">
+        {(shown) => <NotificationStack notifications={shown} getLink={getLink} emptyMessage="No read notifications yet." />}
+      </PeriodFilteredRows>
+    </Section>
   )
 }
 

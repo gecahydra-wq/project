@@ -1717,6 +1717,14 @@ body,
   gap: 0.75rem;
 }
 
+/* When a notification arrived (and, in the history, when it was read). */
+.notification-time {
+  color: var(--color-text-muted);
+  display: block;
+  font-size: 0.8rem;
+  margin-top: 0.25rem;
+}
+
 .buyer-browse {
   display: grid;
   gap: 1rem;
