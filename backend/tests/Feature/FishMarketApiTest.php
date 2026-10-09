@@ -1755,6 +1755,25 @@ class FishMarketApiTest extends TestCase
         }
     }
 
+    /** The AI explains the 2026-10-09 notice rules, to every role and in every language. */
+    public function test_the_ai_explains_the_notice_to_explain_rules(): void
+    {
+        $topic = \App\Support\AiIntentClassifier::classify('why did I get a notice to explain?')['topic'];
+        $seller = \App\Support\AiIntentClassifier::topicFallback($topic, 'seller');
+        $this->assertStringContainsString('3 stars or fewer brings their average rating below 3', $seller['English']);
+        $this->assertStringContainsString('A 4 or 5 star review never causes one', $seller['English']);
+        $this->assertStringContainsString('lists the low reviews', $seller['English']);
+        $this->assertStringContainsString('cannot explain in the app or get new notices', $seller['English']);
+        $this->assertStringContainsString('hindi na makakapagpaliwanag', $seller['Tagalog']);
+        $this->assertStringContainsString('dili na makapasabot', $seller['Bisaya']);
+        $this->assertStringNotContainsString('or below', $seller['English']);
+        foreach (['lgu_admin', 'super_admin'] as $role) {
+            $text = \App\Support\AiIntentClassifier::topicFallback($topic, $role)['English'];
+            $this->assertStringContainsString('below 3', $text, $role);
+            $this->assertStringContainsString('gets no new notices', $text, $role);
+        }
+    }
+
     /** "My withdrawal was rejected" gets the hold / dispute-once rules, with no Accept Rejection. */
     public function test_the_ai_explains_what_happens_to_a_rejected_withdrawal(): void
     {
@@ -9318,49 +9337,106 @@ class FishMarketApiTest extends TestCase
         $this->assertNotSame('suspended', $seller->fresh()->status);
     }
 
-    public function test_a_second_notice_freezes_the_listings_until_the_explanation_is_accepted(): void
+    /** Post one review per new completed order, in order, as fresh buyers. */
+    private function reviewSeller(SellerProfile $seller, array $ratings): void
+    {
+        $listing = $this->makeListing($seller);
+        foreach ($ratings as $rating) {
+            $buyer = $this->makeBuyer();
+            $order = $this->makeOrder($buyer, $listing, ['status' => 'completed']);
+            Sanctum::actingAs($buyer);
+            $this->postJson("/api/orders/{$order->id}/review", ['rating' => $rating])->assertCreated();
+        }
+    }
+
+    private function lowRatingNotices(SellerProfile $seller)
+    {
+        return SellerNotice::where('seller_profile_id', $seller->id)->where('type', 'low_rating')->orderBy('id')->get();
+    }
+
+    /** The user's worked examples: only a bad review (3 stars or fewer) that leaves the average BELOW 3 raises a notice. */
+    public function test_a_notice_needs_a_bad_review_and_an_average_below_three(): void
+    {
+        $seller = $this->makeSeller();
+
+        $this->reviewSeller($seller, [1]);                 // 1.00 -> first notice
+        $this->assertCount(1, $this->lowRatingNotices($seller));
+        $this->lowRatingNotices($seller)->first()->update(['status' => SellerNotice::STATUS_ACCEPTED]);
+
+        $this->reviewSeller($seller, [4]);                 // 2.50, but a 4-star review -> none
+        $this->assertCount(1, $this->lowRatingNotices($seller));
+
+        $this->reviewSeller($seller, [5, 5]);              // 3.75 -> none
+        $this->reviewSeller($seller, [1]);                 // 3.20, still not below 3 -> none
+        $this->assertCount(1, $this->lowRatingNotices($seller));
+
+        $this->reviewSeller($seller, [1]);                 // 2.83, a 1-star -> second notice
+        $this->assertCount(2, $this->lowRatingNotices($seller));
+        $this->assertNull($seller->fresh()->listings_frozen_at, 'Listings stay up on every notice now.');
+        $this->assertNotSame('suspended', $seller->fresh()->status);
+
+        // Exactly 3.00 is not below 3: 1 then 5 is 3.00, then a 3-star keeps it 3.00.
+        $other = $this->makeSeller();
+        $this->reviewSeller($other, [1]);
+        $this->lowRatingNotices($other)->first()->update(['status' => SellerNotice::STATUS_ACCEPTED]);
+        $this->reviewSeller($other, [5, 3]);
+        $this->assertCount(1, $this->lowRatingNotices($other));
+    }
+
+    /** One open notice at a time, no new notice for a suspended seller, and none from a removed review. */
+    public function test_no_new_notice_while_one_is_open_or_the_seller_is_suspended(): void
+    {
+        $seller = $this->makeSeller();
+        $this->reviewSeller($seller, [1, 2]);              // second bad review while the first notice is open
+        $this->assertCount(1, $this->lowRatingNotices($seller));
+
+        $this->lowRatingNotices($seller)->first()->update(['status' => SellerNotice::STATUS_REJECTED]);
+        $seller->update(['status' => 'suspended']);
+        $this->reviewSeller($seller, [1]);
+        $this->assertCount(1, $this->lowRatingNotices($seller));
+
+        // Removing a review recomputes the average but never raises a notice.
+        $seller->update(['status' => 'verified']);
+        $review = Review::where('seller_profile_id', $seller->id)->latest('id')->first();
+        Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
+        $this->deleteJson("/api/super-admin/reviews/{$review->id}", ['reason' => 'Spam or fake review'])->assertSuccessful();
+        $this->assertCount(1, $this->lowRatingNotices($seller));
+    }
+
+    /** The notice shows the seller (and the reviewers) the reviews of 3 stars or fewer behind it. */
+    public function test_a_low_rating_notice_lists_the_low_reviews_behind_it(): void
     {
         $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
-        $seller = $this->makeSeller(
-            ['municipality_id' => $lguAdmin->municipality_id],
-            ['municipality_id' => $lguAdmin->municipality_id]
-        );
-        $listing = $this->makeListing($seller);
-        $buyer = $this->makeBuyer();
+        $seller = $this->makeSeller(['municipality_id' => $lguAdmin->municipality_id], ['municipality_id' => $lguAdmin->municipality_id]);
+        $this->reviewSeller($seller, [5, 2, 1]);           // 2.67 after the 1-star
 
-        // First notice, closed by the LGU so a second one can be raised.
-        $first = SellerReputation::raiseLowRatingNotice($seller, 2.5, 4);
         Sanctum::actingAs($seller->user);
-        $this->postJson("/api/seller/notices/{$first->id}/respond", ['response' => 'A courier failed us for two weeks.'])->assertOk();
+        $notice = $this->getJson('/api/seller/notices')->assertOk()->json('0');
+        $this->assertSame('low_rating', $notice['type']);
+        $this->assertSame([1, 2], array_column($notice['low_reviews'], 'rating'), 'Newest first, and the 5-star is left out.');
+        $this->assertNotEmpty($notice['low_reviews'][0]['order_number']);
+
         Sanctum::actingAs($lguAdmin);
-        $this->patchJson("/api/lgu/seller-notices/{$first->id}/accept", [])->assertOk();
-        $this->assertNull($seller->fresh()->listings_frozen_at);
+        $this->assertCount(2, collect($this->getJson('/api/lgu/seller-notices')->assertOk()->json())->firstWhere('id', $notice['id'])['low_reviews']);
+    }
 
-        // Second notice -- now the shop comes down.
-        $second = SellerReputation::raiseLowRatingNotice($seller->fresh(), 2.2, 6);
-        $this->assertNotNull($second);
-        $this->assertNotNull($seller->fresh()->listings_frozen_at);
+    /** However they were suspended, a suspended seller cannot explain and cannot be sent a new notice. */
+    public function test_a_suspended_seller_cannot_explain_or_be_sent_a_report_notice(): void
+    {
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $seller = $this->makeSeller(['municipality_id' => $lguAdmin->municipality_id], ['municipality_id' => $lguAdmin->municipality_id]);
+        $notice = SellerReputation::raiseLowRatingNotice($seller, 2.5, 2);
 
-        $this->assertFalse(collect($this->getJson('/api/listings')->assertOk()->json())->contains('id', $listing->id));
-        $this->getJson("/api/listings/{$listing->id}")->assertStatus(404);
+        // Suspended directly by an admin while the notice is still open.
+        Sanctum::actingAs($lguAdmin);
+        $this->patchJson("/api/lgu/sellers/{$seller->id}/suspend", ['reason' => 'Repeated complaints'])->assertOk();
 
-        // A buyer holding the id from a cart or an open tab still cannot order.
-        Sanctum::actingAs($buyer);
-        $this->postJson('/api/orders', ['fingerling_listing_id' => $listing->id, 'quantity' => 10])->assertStatus(422);
-
-        // The seller can still sign in and answer, but cannot post around it.
         Sanctum::actingAs($seller->user);
-        $this->postListing(['species' => 'Tilapia', 'title' => 'Blocked', 'quantity' => 10, 'price_per_piece' => 5])
-            ->assertStatus(403);
-        $this->postJson("/api/seller/notices/{$second->id}/respond", ['response' => 'We have replaced the courier entirely.'])->assertOk();
+        $this->postJson("/api/seller/notices/{$notice->id}/respond", ['response' => 'Please let me explain this one.'])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Your seller account is suspended, so you cannot send an explanation. Message your LGU or send a support ticket from Help & Support.');
 
-        // Accepting reopens the shop, and no offense is recorded.
-        Sanctum::actingAs($lguAdmin);
-        $this->patchJson("/api/lgu/seller-notices/{$second->id}/accept", [])->assertOk()->assertJsonPath('status', 'accepted');
-
-        $this->assertNull($seller->fresh()->listings_frozen_at);
-        $this->assertSame(0, SellerSanctions::offenseCount($seller->id));
-        $this->assertTrue(collect($this->getJson('/api/listings')->assertOk()->json())->contains('id', $listing->id));
+        $this->assertNull(SellerReputation::raiseLowRatingNotice($seller->fresh(), 2.0, 3));
     }
 
     /** A seller with a Notice to Explain whose explanation the LGU has just rejected. */

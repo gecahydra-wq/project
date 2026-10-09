@@ -28,8 +28,8 @@ class ReviewModeration
 
         // Recompute the seller's average from the reviews that remain (0 when
         // none are left), through the same path ReviewController uses on
-        // create -- which also re-runs the low-rating check, since removing an
-        // unfair review can move a seller back above or below the threshold.
+        // create. No new rating is passed, so a removal never raises a Notice
+        // to Explain -- only a newly posted bad review can.
         SellerReputation::refreshAverage($sellerProfileId, $actor);
 
         ActivityLog::record([

@@ -305,7 +305,7 @@ Fish farmers who purchase fingerlings.
 - Rate buyers after completed orders (so other sellers can gauge legitimacy)
 - View the marketplace read-only (cannot purchase from other sellers)
 - Analytics, messaging, notifications
-- Answer **Notices to Explain** (raised by a low rating or a buyer report the LGU finds valid) with **one** explanation; their LGU and the Super Admin are notified. A **rejected explanation suspends the seller**. There is no in-app dispute of that: they message their LGU or send a support ticket, and staff can reinstate them (the notice card then shows the reinstatement date).
+- Answer **Notices to Explain** with **one** explanation; their LGU and the Super Admin are notified. A notice comes from a review of **3 stars or fewer** that brings the average **below 3.0** (a 4 or 5 star review never does; exactly 3.00 is fine; removing a review never does), or from a buyer report the LGU finds valid. A low-rating notice lists the low reviews behind it, each opening that review. **Every notice works the same**: not suspended, listings stay up while they explain. A **rejected explanation suspends the seller**; a suspended seller (however it happened) cannot explain or receive new notices -- they message their LGU or send a support ticket, and staff can reinstate them (the notice card then shows the reinstatement date).
 - A suspended seller can still log in (to read why, dispute, message their LGU or the Super Admin, and send a support ticket), but their listings leave the marketplace and they **cannot** add or edit listings, update orders, request withdrawals, post, or message buyers.
 
 ### LGU Admin

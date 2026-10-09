@@ -13,29 +13,36 @@ use App\Models\UserReport;
  * Automatic low-rating detection.
  *
  * Every time a seller's cached average changes -- a new buyer review, or an
- * admin removing one -- refreshAverage() recomputes it and, if it has fallen
- * to LOW_RATING_THRESHOLD or below, raises a Notice to Explain: the seller and
- * every LGU Admin in their municipality are notified, and the notice appears
- * on the LGU's Notices to Explain dashboard.
+ * admin removing one -- refreshAverage() recomputes it. A Notice to Explain is
+ * raised only when a NEW review of LOW_REVIEW_MAX stars or fewer leaves the
+ * average BELOW LOW_RATING_THRESHOLD: a good review never triggers one (even
+ * while older bad reviews keep the average low), an average of exactly 3.00
+ * is fine, and removing a review never raises one. The seller and every LGU
+ * Admin in their municipality are notified, and the notice appears on the
+ * LGU's Notices to Explain dashboard, listing the low reviews behind it.
  *
  * A notice is also raised when an LGU Admin or the Super Admin finds a
  * buyer's User Report against the seller valid (raiseReportNotice()).
  *
  * This class DETECTS; App\Support\SellerSanctions carries the consequences.
- * A seller's FIRST notice is a warning only -- their listings stay up while
- * they explain. From the second notice onward the listings are frozen until
- * the LGU accepts the explanation. Raising a notice never suspends anyone:
- * only a REJECTED explanation does (SellerSanctions::rejectExplanation), and
- * the seller can always sign in, answer, and finish orders already placed.
+ * Every notice works the same, first or tenth (user decision, 2026-10-09):
+ * the seller is not suspended and their listings stay up while they send one
+ * explanation. Only a REJECTED explanation has a consequence -- suspension
+ * (SellerSanctions::rejectExplanation).
  *
  * Only one open notice exists per seller at a time, so a bad week produces one
  * case for the LGU to work rather than one per review. Once the LGU closes it,
- * a later drop can raise a fresh notice.
+ * a later bad review can raise a fresh notice. A suspended seller gets no new
+ * notices: they are already past the point of explaining, and talk to their
+ * LGU or support instead.
  */
 class SellerReputation
 {
-    /** At or below this average, a Notice to Explain is raised. */
+    /** Below this average (strictly), a bad review raises a Notice to Explain. */
     public const LOW_RATING_THRESHOLD = 3.0;
+
+    /** A review of this many stars or fewer counts as a bad review. */
+    public const LOW_REVIEW_MAX = 3;
 
     /**
      * Recompute a seller's cached average from their reviews and run the
@@ -44,9 +51,11 @@ class SellerReputation
      * ReviewModeration (on removal) both come through here.
      *
      * @param  ?User  $actor  Whoever caused the change, for the audit trail.
+     * @param  ?int  $newRating  The stars of the review just posted; null when
+     *                           the average changed because a review was removed.
      * @return float  The seller's new average (0 when they have no reviews).
      */
-    public static function refreshAverage(int $sellerProfileId, ?User $actor = null): float
+    public static function refreshAverage(int $sellerProfileId, ?User $actor = null, ?int $newRating = null): float
     {
         $reviews = Review::where('seller_profile_id', $sellerProfileId);
         $count = $reviews->count();
@@ -54,9 +63,9 @@ class SellerReputation
 
         SellerProfile::where('id', $sellerProfileId)->update(['rating' => $average]);
 
-        // A seller with no reviews yet has an average of 0, which is not a bad
-        // rating -- it is no rating. Only judge sellers who have been rated.
-        if ($count > 0 && $average <= self::LOW_RATING_THRESHOLD) {
+        // Only a new bad review that leaves the average below the threshold
+        // counts. A seller with no reviews (average 0) has no rating at all.
+        if ($count > 0 && $newRating !== null && $newRating <= self::LOW_REVIEW_MAX && $average < self::LOW_RATING_THRESHOLD) {
             $seller = SellerProfile::with('user')->find($sellerProfileId);
             if ($seller) {
                 self::raiseLowRatingNotice($seller, $average, $count, $actor);
@@ -67,12 +76,17 @@ class SellerReputation
     }
 
     /**
-     * Issue a Notice to Explain, unless one is already open for this seller.
+     * Issue a Notice to Explain, unless one is already open for this seller
+     * or they are already suspended.
      *
-     * @return ?SellerNotice  The new notice, or null when one was already open.
+     * @return ?SellerNotice  The new notice, or null when none was raised.
      */
     public static function raiseLowRatingNotice(SellerProfile $seller, float $average, int $count, ?User $actor = null): ?SellerNotice
     {
+        if ($seller->status === 'suspended') {
+            return null;
+        }
+
         $alreadyOpen = SellerNotice::where('seller_profile_id', $seller->id)
             ->where('type', 'low_rating')
             ->whereIn('status', SellerNotice::OPEN_STATUSES)
@@ -89,7 +103,7 @@ class SellerReputation
             'average_rating' => $average,
             'ratings_count' => $count,
             'details' => sprintf(
-                'Average buyer rating has fallen to %.2f/5 across %d review%s, at or below the %.1f-star threshold. The seller has been asked to explain.',
+                'Average buyer rating has fallen to %.2f/5 across %d review%s, below the %.1f-star threshold. The seller has been asked to explain.',
                 $average,
                 $count,
                 $count === 1 ? '' : 's',
@@ -98,23 +112,14 @@ class SellerReputation
             'status' => 'open',
         ]);
 
-        // The FIRST notice is a warning: the seller keeps selling while they
-        // explain. From the second onward the shop comes down until the LGU
-        // accepts. See SellerSanctions::FREEZE_FROM_NOTICE.
-        $noticeNumber = SellerSanctions::noticeCount($seller->id);
-        $frozen = $noticeNumber >= SellerSanctions::FREEZE_FROM_NOTICE;
-
-        if ($frozen) {
-            SellerSanctions::freezeListings($seller);
-        }
-
         self::notifySeller($seller, sprintf(
-            'Your average buyer rating is now %.2f/5 across %d review%s, which is at or below the %.1f-star threshold. Your LGU has been notified and has asked you to explain.',
+            'Your average buyer rating is now %.2f/5 across %d review%s, which is below the %.1f-star threshold. The notice lists the reviews of %d stars or fewer behind it. Your LGU has been notified and has asked you to explain.',
             $average,
             $count,
             $count === 1 ? '' : 's',
-            self::LOW_RATING_THRESHOLD
-        ), 'Notice to Explain -- Low Rating', $frozen);
+            self::LOW_RATING_THRESHOLD,
+            self::LOW_REVIEW_MAX
+        ), 'Notice to Explain -- Low Rating');
         self::notifyLguAdmins($seller, 'seller_low_rating', 'Seller Flagged for Low Rating', sprintf(
             '%s now averages %.2f/5 across %d review%s. A Notice to Explain has been issued -- review it under Notices to Explain and decide what action, if any, to take.',
             $seller->hatchery_name,
@@ -150,6 +155,11 @@ class SellerReputation
     public static function raiseReportNotice(SellerProfile $seller, UserReport $report, User $actor, string $findings): SellerNotice
     {
         abort_if(
+            $seller->status === 'suspended',
+            422,
+            'This seller is already suspended, so a Notice to Explain cannot be sent. Resolve the report without one.'
+        );
+        abort_if(
             SellerNotice::where('seller_profile_id', $seller->id)->whereIn('status', SellerNotice::OPEN_STATUSES)->exists(),
             422,
             'This seller already has an open Notice to Explain. Decide that one first, or mention this report in it.'
@@ -165,17 +175,12 @@ class SellerReputation
             'status' => 'open',
         ]);
 
-        $frozen = SellerSanctions::noticeCount($seller->id) >= SellerSanctions::FREEZE_FROM_NOTICE;
-        if ($frozen) {
-            SellerSanctions::freezeListings($seller);
-        }
-
         self::notifySeller($seller, sprintf(
             '%s reviewed a buyer\'s report against you ("%s") and found it valid: %s You have been asked to explain.',
             SellerSanctions::reviewerLabel($actor),
             $report->reason,
             $findings
-        ), 'Notice to Explain -- Buyer Report', $frozen);
+        ), 'Notice to Explain -- Buyer Report');
         self::notifyLguAdmins($seller, 'seller_report_notice', 'Notice to Explain Issued', sprintf(
             '%s issued %s a Notice to Explain after finding a buyer\'s report valid. Review the answer under Notices to Explain.',
             $actor->name,
@@ -194,7 +199,37 @@ class SellerReputation
         return $notice;
     }
 
-    private static function notifySeller(SellerProfile $seller, string $why, string $title, bool $frozen = false): void
+    /**
+     * The seller's reviews of LOW_REVIEW_MAX stars or fewer up to when a
+     * low-rating notice was raised, newest first -- the "why" behind it, so
+     * the seller knows what to explain and the reviewer what to judge.
+     */
+    public static function lowReviewsFor(SellerNotice $notice): array
+    {
+        if ($notice->type !== 'low_rating') {
+            return [];
+        }
+
+        return Review::with('order:id,order_number', 'buyer:id,name')
+            ->where('seller_profile_id', $notice->seller_profile_id)
+            ->where('rating', '<=', self::LOW_REVIEW_MAX)
+            ->where('created_at', '<=', $notice->created_at)
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->get()
+            ->map(fn (Review $review) => [
+                'id' => $review->id,
+                'rating' => (int) $review->rating,
+                'title' => $review->title,
+                'comment' => $review->comment,
+                'created_at' => $review->created_at,
+                'order_number' => $review->order?->order_number,
+                'buyer_name' => $review->buyer?->name,
+            ])
+            ->all();
+    }
+
+    private static function notifySeller(SellerProfile $seller, string $why, string $title): void
     {
         if (! $seller->user_id) {
             return;
@@ -205,11 +240,8 @@ class SellerReputation
             'type' => 'seller_notice_to_explain',
             'title' => $title,
             'body' => sprintf(
-                '%s Open the Notices tab on your dashboard to respond. %s Your account has not been suspended, but it will be if your explanation is rejected. You can send one explanation, so make it complete.',
-                $why,
-                $frozen
-                    ? 'Because this is not your first notice, your listings have been taken off the marketplace until your LGU accepts your explanation. You can still sign in, reply to buyers and complete orders already placed.'
-                    : 'This is your first notice, so your listings stay on the marketplace while you explain.'
+                '%s Open the Notices tab on your dashboard to respond. Your listings stay on the marketplace while you explain. Your account has not been suspended, but it will be if your explanation is rejected. You can send one explanation, so make it complete.',
+                $why
             ),
         ]);
     }

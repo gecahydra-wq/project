@@ -56,11 +56,11 @@ class ReviewController extends Controller
             'comment' => $data['comment'] ?? null,
         ]);
 
-        // Refreshes seller_profiles.rating and, if the new average has fallen
-        // to 3 stars or below, automatically raises a Notice to Explain and
+        // Refreshes seller_profiles.rating and, if this review is 3 stars or
+        // fewer and the average is now below 3, raises a Notice to Explain and
         // notifies the seller's LGU. It never suspends anyone -- see
         // App\Support\SellerReputation.
-        SellerReputation::refreshAverage($order->seller_profile_id, $request->user());
+        SellerReputation::refreshAverage($order->seller_profile_id, $request->user(), (int) $review->rating);
 
         return response()->json($review, 201);
     }

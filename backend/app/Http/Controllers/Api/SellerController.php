@@ -19,6 +19,7 @@ use App\Support\CommissionCalculator;
 use App\Support\ImageUploader;
 use App\Support\OrderTransactionPresenter;
 use App\Support\PayoutAccount;
+use App\Support\SellerReputation;
 use App\Support\SellerSanctions;
 use App\Support\SellerWallet;
 use App\Support\WithdrawalNotifications;
@@ -353,8 +354,9 @@ class SellerController extends Controller
      * mirroring how a Review refreshes seller_profiles.rating.
      */
     /**
-     * The seller's own Notices to Explain -- raised automatically when their
-     * average rating falls to 3 stars or below (App\Support\SellerReputation).
+     * The seller's own Notices to Explain -- raised automatically when a review
+     * of 3 stars or fewer brings their average below 3, or from a valid buyer
+     * report (App\Support\SellerReputation).
      */
     public function notices(Request $request)
     {
@@ -366,6 +368,9 @@ class SellerController extends Controller
             SellerNotice::with('reviewer:id,role')->where('seller_profile_id', $seller->id)->latest()->get()
                 ->map(function (SellerNotice $notice) use ($request) {
                     $notice->reviewed_by_label = $notice->reviewed_by ? SellerSanctions::reviewerLabel($notice->reviewer) : null;
+                    // The reviews of 3 stars or fewer behind a low-rating
+                    // notice, so the seller can see exactly what to explain.
+                    $notice->low_reviews = SellerReputation::lowReviewsFor($notice);
                     // A rejected explanation suspended the seller. If staff
                     // later reinstated them (after a message or a ticket), say
                     // so on the card -- display only, read from the moderation log.
@@ -397,6 +402,9 @@ class SellerController extends Controller
         $seller = SellerProfile::where('user_id', $request->user()->id)->firstOrFail();
 
         abort_if($notice->seller_profile_id !== $seller->id, 403, 'You can only respond to your own notices.');
+        // However the suspension came about, a suspended seller is past the
+        // point of explaining in the app: they talk to their LGU or support.
+        abort_if($seller->status === 'suspended', 422, 'Your seller account is suspended, so you cannot send an explanation. Message your LGU or send a support ticket from Help & Support.');
         abort_if(! in_array($notice->status, SellerNotice::OPEN_STATUSES, true), 422, 'This notice has already been closed by your LGU.');
         // One explanation per notice: the reviewer decides on what was sent.
         abort_if(filled($notice->seller_response), 422, 'You have already sent your explanation. Your LGU will review it.');

@@ -3844,7 +3844,7 @@ function SellerDashboard() {
               <p className="helper-text">
                 {dashboard.data.open_notices[0].type === 'user_report'
                   ? "Your LGU found a buyer's report against you valid and has asked you to explain."
-                  : 'Your average buyer rating has fallen to 3 stars or below and your LGU has asked you to explain.'}
+                  : 'A low review has brought your average buyer rating below 3 stars, and your LGU has asked you to explain.'}
                 {' '}Your account has not been suspended, but it will be if your explanation is rejected.{' '}
                 <Link to="/seller/dashboard?tab=notices">Open Notices</Link> to respond.
               </p>
@@ -7271,7 +7271,7 @@ const HELP_TOPICS = [
       ['When do I get paid?', 'After the buyer confirms they received the order, your LGU reviews the earnings. Once approved, 94% of the order total goes to your Available Balance. The other 6% is shared: 2% to your LGU and 4% to AbaiMarket.'],
       ['How do I withdraw my money?', 'Open your Wallet and click Request Withdrawal. Choose GCash, Maya or a bank account. There is no payout fee, so you receive the full amount you request. The Super Admin approves the request and marks it paid once the money is sent.'],
       ['My earnings review or withdrawal was rejected.', 'Open the rejected item and click Dispute This Rejection to explain your side. The person who rejected it reviews your dispute. If they accept it, the item is reopened for another review. A rejected withdrawal keeps its amount on hold for 7 days so you can dispute it once. If you do not dispute it within 7 days, or your dispute is rejected, the amount returns to your Available Balance on its own. If you still think a final rejection is wrong, message the Super Admin or send a support ticket under Wallet or withdrawal.'],
-      ['What is a Notice to Explain?', 'If your average rating falls to 3 stars or below, or your LGU finds a buyer\'s report against you valid, AbaiMarket sends you a Notice to Explain. Answer it from the Notices tab. Your first notice is only a warning. From the second notice on, your listings are paused until your LGU accepts your explanation. You can send one explanation per notice. If it is rejected, your seller account is suspended; to have it reviewed again, message your LGU or send a support ticket.'],
+      ['What is a Notice to Explain?', 'If a review of 3 stars or fewer brings your average rating below 3, or your LGU finds a buyer\'s report against you valid, AbaiMarket sends you a Notice to Explain. The notice lists the low reviews behind it, and you can open each one. Every notice works the same way: you are not suspended and your listings stay up while you send one explanation from the Notices tab. If it is rejected, your seller account is suspended and you can no longer explain in the app; to have it reviewed again, message your LGU or send a support ticket. A 4 or 5 star review never causes a notice.'],
     ],
   },
 ]
@@ -8322,13 +8322,12 @@ function SellerNoticesPanel({ scope = 'lgu' }) {
   return (
     <Section title="Notices to Explain">
       <p className="helper-text">
-        Sellers {scope === 'super_admin' ? 'across every municipality' : 'in your municipality'} get a Notice to Explain when their average buyer
-        rating falls to 3 stars or below, or when a buyer&apos;s report against them is found valid under User Reports.
-        A seller&apos;s <strong>first</strong> notice is a warning: their listings stay up while they explain. From their{' '}
-        <strong>second</strong> notice onward the listings come off the marketplace until you accept the explanation. Read it and decide:{' '}
-        <strong>accept</strong> puts their listings back with no offense recorded; <strong>reject</strong> records an offense and{' '}
-        <strong>suspends the seller</strong>. Sellers send one explanation, and there is no in-app dispute: a suspended seller messages
-        you or sends a support ticket, and you can reinstate them from the Sellers tab.
+        Sellers {scope === 'super_admin' ? 'across every municipality' : 'in your municipality'} get a Notice to Explain when a review of 3 stars
+        or fewer drops their average buyer rating <strong>below 3</strong>, or when a buyer&apos;s report against them is found valid under User
+        Reports. Every notice works the same way: the seller is not suspended and their listings stay up while they send{' '}
+        <strong>one</strong> explanation. Read it and decide: <strong>accept</strong> closes the notice with no offense recorded;{' '}
+        <strong>reject</strong> records an offense and <strong>suspends the seller</strong>. There is no in-app dispute: a suspended seller
+        messages you or sends a support ticket, and you can reinstate them from the Sellers tab. A suspended seller gets no new notices.
       </p>
       {periodControls}
       {shownNotices.length ? (
@@ -8349,9 +8348,9 @@ function SellerNoticesPanel({ scope = 'lgu' }) {
               </p>
               <p className="muted">
                 Offenses on record: {notice.seller_offense_count ?? 0}
-                {notice.sellerProfile?.listings_frozen_at ? ' · Listings are frozen' : ' · Listings are live'}
                 {notice.sellerProfile?.status === 'suspended' ? ' · Account suspended' : ''}
               </p>
+              <LowReviewsList notice={notice} sellerProfileId={notice.sellerProfile?.id ?? notice.seller_profile_id} />
               {notice.seller_response ? (
                 <div className="notice-response">
                   <strong>Seller&apos;s explanation</strong>
@@ -8364,7 +8363,7 @@ function SellerNoticesPanel({ scope = 'lgu' }) {
               {notice.lgu_notes && <p className="helper-text"><strong>Your notes:</strong> {notice.lgu_notes}</p>}
               {['accepted', 'rejected'].includes(notice.status) ? (
                 <p className="helper-text">
-                  {notice.status === 'accepted' ? 'Explanation accepted.' : 'Explanation rejected -- an offense was recorded and the seller was suspended. To lift it, reinstate them from the Sellers tab.'}
+                  {notice.status === 'accepted' ? 'Explanation accepted. No offense was recorded.' : 'Explanation rejected -- an offense was recorded and the seller was suspended. To lift it, reinstate them from the Sellers tab.'}
                   {notice.reviewer?.name ? ` Decided by ${notice.reviewer.name}.` : ''}
                 </p>
               ) : actingId === notice.id ? (
@@ -8425,14 +8424,46 @@ function SellerNoticesPanel({ scope = 'lgu' }) {
 
 /**
  * The seller's own Notices to Explain -- raised when their average rating falls
- * to 3 stars or below, or when a buyer's report is found valid. The seller
+ * below 3 after a review of 3 stars or fewer, or when a buyer's report is found valid. The seller
  * sends ONE explanation here and their LGU decides. A rejected explanation
  * suspends them; the next step is their LGU or Help & Support
  * (FinalRejectionHelp), like a rejected registration. If staff reinstate them
  * later, the card says so (reinstated_at, from the moderation log).
  */
+/**
+ * The reviews of 3 stars or fewer behind a low-rating notice (low_reviews from
+ * SellerReputation::lowReviewsFor), newest first. Each opens the seller's
+ * profile scrolled to that review, so the seller sees exactly what to explain
+ * and the LGU what to judge.
+ */
+function LowReviewsList({ notice, sellerProfileId }) {
+  const reviews = notice.low_reviews || []
+  if (notice.type !== 'low_rating' || !reviews.length) return null
+  return (
+    <div className="low-reviews">
+      <strong>Reviews behind this notice (3 stars or fewer)</strong>
+      <ul>
+        {reviews.map((review) => (
+          <li key={review.id}>
+            <Link to={`${sellerProfilePath(sellerProfileId)}?review=${review.id}`}>
+              <span className="low-reviews-stars">{'★'.repeat(review.rating)}{'☆'.repeat(5 - review.rating)}</span>
+              {' '}{review.rating}/5
+              {review.order_number ? ` · Order #${review.order_number}` : ''}
+              {review.created_at ? ` · ${new Date(review.created_at).toLocaleDateString()}` : ''}
+              {' — '}{(review.comment || review.title || 'No comment left.').slice(0, 120)}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 function SellerNoticesSection({ lguContact = null }) {
   const [drafts, setDrafts] = useState({})
+  // However the suspension came about, a suspended seller cannot explain in
+  // the app any more: they message their LGU or send a support ticket.
+  const suspended = useAccountSuspended()
 
   const notices = useQuery({
     queryKey: ['seller-notices'],
@@ -8455,11 +8486,10 @@ function SellerNoticesSection({ lguContact = null }) {
   return (
     <Section title="Notices to Explain">
       <p className="helper-text">
-        You get a Notice to Explain if your average buyer rating falls to 3 stars or below, or if your LGU finds a buyer&apos;s report against you
-        valid. Your <strong>first</strong> notice is a warning -- your listings stay on the marketplace while you explain. From your second notice
-        onward your listings come off the marketplace until your LGU accepts your explanation. You can send{' '}
-        <strong>one</strong> explanation per notice. If it is <strong>rejected, your seller account is suspended</strong>; to have it
-        reviewed again, message your LGU or send a support ticket.
+        You get a Notice to Explain if a review of 3 stars or fewer drops your average buyer rating <strong>below 3</strong>, or if your LGU
+        finds a buyer&apos;s report against you valid. Every notice works the same way: you are not suspended and your listings stay on the
+        marketplace while you send <strong>one</strong> explanation. If it is <strong>rejected, your seller account is suspended</strong>,
+        and you can no longer explain in the app -- message your LGU or send a support ticket.
       </p>
       {periodControls}
       {shownNotices.length ? (
@@ -8478,6 +8508,7 @@ function SellerNoticesSection({ lguContact = null }) {
                 </div>
                 <p className="report-description">{notice.details}</p>
                 <p className="muted">Issued {new Date(notice.created_at).toLocaleString()}</p>
+                <LowReviewsList notice={notice} sellerProfileId={notice.seller_profile_id} />
                 {notice.seller_response && (
                   <div className="notice-response">
                     <strong>Your explanation</strong>
@@ -8486,7 +8517,7 @@ function SellerNoticesSection({ lguContact = null }) {
                 )}
                 {notice.lgu_notes && <p className="helper-text"><strong>{reviewer === 'Your LGU' ? 'LGU' : 'Super Admin'} notes:</strong> {notice.lgu_notes}</p>}
                 {notice.status === 'accepted' && (
-                  <p className="helper-text">{reviewer} accepted this explanation. Your listings are back on the marketplace and no offense was recorded.</p>
+                  <p className="helper-text">{reviewer} accepted this explanation. No offense was recorded.</p>
                 )}
                 {notice.status === 'rejected' && (
                   <>
@@ -8500,7 +8531,12 @@ function SellerNoticesSection({ lguContact = null }) {
                     )}
                   </>
                 )}
-                {open && notice.seller_response ? (
+                {open && suspended ? (
+                  <>
+                    <p className="error">Your seller account is suspended, so you can no longer send an explanation here.</p>
+                    <FinalRejectionHelp base="/seller/dashboard" contact={lguContact} contactLabel="your LGU" topic="Account or login" />
+                  </>
+                ) : open && notice.seller_response ? (
                   <p className="helper-text">Your explanation was sent. {reviewer === 'Your LGU' ? 'Your LGU' : 'The Super Admin'} will review it and let you know.</p>
                 ) : open ? (
                   <div className="form grid-form">
@@ -8526,7 +8562,7 @@ function SellerNoticesSection({ lguContact = null }) {
             )
           })}
         </div>
-      ) : periodEmpty || <EmptyState message="You have no notices. Keep your ratings above 3 stars and none will be raised." />}
+      ) : periodEmpty || <EmptyState message="You have no notices. Keep your average rating at 3 stars or above and none will be raised." />}
       {respond.error && <p className="error">{respond.error.response?.data?.message || 'Could not send your explanation.'}</p>}
     </Section>
   )
@@ -8936,12 +8972,12 @@ function StatsRow({ items }) {
   return <div className="stats-grid">{items.map(([label, value, highlight, to]) => <Stat key={label} label={label} value={value} highlight={highlight} to={to} />)}</div>
 }
 
-function Stat({ value, label, highlight = false, to }) {
+function Stat({ value, label, highlight = false, to, onClick }) {
   const className = `stat-card${highlight ? ' stat-card-highlight' : ''}${to ? ' stat-card-link' : ''}`
   const body = <><strong>{value}</strong><span>{label}</span></>
 
   return to
-    ? <Link className={className} to={to}>{body}</Link>
+    ? <Link className={className} to={to} onClick={onClick}>{body}</Link>
     : <div className={className}>{body}</div>
 }
 
@@ -10972,7 +11008,16 @@ function SellerProfilePage() {
               {seller.verified && <Badge tone="success">Verified Seller</Badge>}
             </div>
             <div className="stats-inline">
-              <Stat value={renderStars(seller.rating)} label={`${seller.rating}/5 · ${reviews.length} review${reviews.length === 1 ? '' : 's'}`} />
+              {/* Jumps to the Buyer Reviews section further down this page. */}
+              <Stat
+                value={renderStars(seller.rating)}
+                label={`${seller.rating}/5 · ${reviews.length} review${reviews.length === 1 ? '' : 's'}`}
+                to="#buyer-reviews"
+                onClick={(event) => {
+                  event.preventDefault()
+                  document.getElementById('buyer-reviews')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }}
+              />
               <Stat value={sellerListings.length} label="Active listings" />
               <Stat value={data.completed_sales ?? 0} label="Completed sales" />
             </div>
@@ -11057,6 +11102,13 @@ const REVIEW_STARS = [5, 4, 3, 2, 1]
  * fact rather than decoration.
  */
 function SellerReviewsSection({ reviews = [], fallbackAverage }) {
+  // Opened from a Notice to Explain (LowReviewsList): land on that review.
+  const [searchParams] = useSearchParams()
+  const focusReviewId = searchParams.get('review')
+  useEffect(() => {
+    if (!focusReviewId || !reviews.length) return
+    document.getElementById(`review-${focusReviewId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [focusReviewId, reviews.length])
   const { shown: shownReviews, controls: periodControls, periodEmpty } = usePeriodFilter(reviews, { noun: 'reviews posted' })
   const total = reviews.length
   const average = total
@@ -11069,7 +11121,7 @@ function SellerReviewsSection({ reviews = [], fallbackAverage }) {
   }))
 
   return (
-    <Section title="Buyer Reviews">
+    <Section title="Buyer Reviews" id="buyer-reviews">
       {total ? (
         <>
           <div className="card review-summary">
@@ -11100,7 +11152,7 @@ function SellerReviewsSection({ reviews = [], fallbackAverage }) {
           {shownReviews.length ? (
           <div className="review-list">
             {shownReviews.map((review) => (
-              <article className="card review-item" key={review.id}>
+              <article className={`card review-item${String(review.id) === focusReviewId ? ' is-focused' : ''}`} id={`review-${review.id}`} key={review.id}>
                 <div className="review-card-head">
                   <p className="review-author">
                     <Avatar src={review.buyer?.profile_picture} alt={review.buyer?.name} className="review-avatar" />

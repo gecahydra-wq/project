@@ -13,25 +13,23 @@ use App\Models\User;
  * SellerReputation raises the notice; this class carries the consequences, so
  * the "detect" and "punish" halves stay separable and each has one owner.
  *
- * Two distinct sanctions, deliberately not the same thing:
+ * One process for every notice, first or tenth, from a low rating or a valid
+ * report (user decision, 2026-10-09):
  *
- *  1. LISTING FREEZE -- applied the moment a notice is raised. The seller's
- *     listings leave the marketplace and cannot be ordered, but the seller can
- *     still sign in, answer the notice, message buyers and fulfil orders
- *     already placed. It is reversible the moment the LGU accepts their
- *     explanation. This is the "your shop is closed while we talk" state.
+ *  1. Notice raised -- the seller is NOT suspended and their listings stay on
+ *     the marketplace. They send one explanation.
+ *  2. Accepted -- the notice closes; nothing happens to the seller.
+ *  3. Rejected -- SUSPENSION, automatically (the team's rule since
+ *     2026-10-09; it replaced the adviser's earlier "never auto-suspend").
+ *     Only a reviewer who has read the explanation can trigger it.
+ *  4. Suspended -- by a rejected explanation or by an admin directly, the
+ *     seller ends up in the same place: no explanation, no in-app dispute, no
+ *     new notices. They message their LGU or send a support ticket, and staff
+ *     reinstate by hand (AccountModeration::reinstateSeller).
  *
- *  2. SUSPENSION -- automatic when an explanation is REJECTED (the team's
- *     rule since 2026-10-09; it replaced the adviser's earlier "never
- *     auto-suspend"). Raising a notice still never suspends: only a reviewer
- *     who has read the explanation and found it wanting can trigger it. There
- *     is no in-app dispute of that decision: the seller messages their LGU or
- *     sends a support ticket, the same path a rejected registration has, and
- *     staff reinstate by hand (AccountModeration::reinstateSeller).
- *
- * THE FIRST NOTICE IS A WARNING ONLY. A seller hitting the threshold for the
- * first time keeps their listings up while they explain -- one bad run is not
- * evidence of anything. The freeze starts from their SECOND notice onward.
+ * The old "listings frozen from the second notice" rule was removed on
+ * 2026-10-09; liftFreeze() stays so any seller frozen before then is cleared
+ * on their next accept or reinstatement.
  *
  * An "offense" is a REJECTED explanation, never merely a notice raised. A
  * seller who is asked to explain and explains acceptably has not offended, and
@@ -41,12 +39,6 @@ use App\Models\User;
  */
 class SellerSanctions
 {
-    /**
-     * Which notice starts freezing the listings. The first is a warning the
-     * seller can answer with their shop still open.
-     */
-    public const FREEZE_FROM_NOTICE = 2;
-
     /**
      * How many explanations this seller has had rejected. Derived from the
      * notices themselves rather than a counter column, so it can never drift
@@ -84,16 +76,11 @@ class SellerSanctions
             ->all();
     }
 
-    /** How many Notices to Explain this seller has ever received. */
-    public static function noticeCount(int $sellerProfileId): int
-    {
-        return SellerNotice::where('seller_profile_id', $sellerProfileId)->count();
-    }
-
     /**
      * Stamp each notice with its seller's running offense count, so the LGU
      * and Super Admin dashboards can show "offense 2 of 3" without the
-     * frontend having to derive it.
+     * frontend having to derive it -- and, for a low-rating notice, the low
+     * reviews behind it (SellerReputation::lowReviewsFor).
      */
     public static function attachOffenseCounts($notices)
     {
@@ -101,25 +88,17 @@ class SellerSanctions
 
         return $notices->map(function ($notice) use ($counts) {
             $notice->seller_offense_count = $counts[$notice->seller_profile_id] ?? 0;
+            $notice->low_reviews = SellerReputation::lowReviewsFor($notice);
 
             return $notice;
         });
     }
 
-    /** Take the seller's listings off the marketplace. Idempotent. */
-    public static function freezeListings(SellerProfile $seller): void
-    {
-        if ($seller->listings_frozen_at) {
-            return;
-        }
-
-        $seller->update(['listings_frozen_at' => now()]);
-    }
-
     /**
-     * Put the listings back. Called when the LGU accepts or dismisses a
-     * notice, and when a suspended seller is reinstated -- a reinstatement
-     * that left the shop frozen would not be a reinstatement.
+     * Put the listings back for a seller frozen under the old (pre-2026-10-09)
+     * rule. Called when the LGU accepts or dismisses a notice, and when a
+     * suspended seller is reinstated -- a reinstatement that left the shop
+     * frozen would not be a reinstatement.
      */
     public static function liftFreeze(SellerProfile $seller): void
     {
