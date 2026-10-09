@@ -79,13 +79,18 @@ class AccountModeration
         // so they can read why, send a support ticket or file a dispute. What
         // they cannot do is sell -- see the active-seller middleware.
 
+        // A suspended seller cannot fulfil an order, so none is left waiting:
+        // each one still on its way is cancelled and its buyer refunded.
+        $cancelled = OrderCancellation::cancelOpenOrdersOfSuspendedSeller($seller, $moderator);
+
         if ($seller->user) {
             self::log($seller->user, 'seller', $moderator, 'suspended', $reason, $notes, 'suspended');
             SafeMailer::send($seller->user->email, new AccountSuspendedMail($seller->user, 'seller', $moderator, $reason, $notes));
             self::notify($seller->user, 'account_suspended', 'Account Suspended', sprintf(
-                '%s suspended your seller account.%s Your listings are off the marketplace. You can still sign in, but you cannot add or edit listings, update orders, request withdrawals, post or message buyers. %s',
+                '%s suspended your seller account.%s Your listings are off the marketplace.%s You can still sign in, but you cannot add or edit listings, update orders, request withdrawals, post or message buyers. %s',
                 $moderator ? SellerSanctions::reviewerLabel($moderator) : 'AbaiMarket automatically',
                 self::reasonSentence($reason, $notes),
+                $cancelled ? sprintf(' Your %d unfinished order%s %s cancelled and the buyers refunded.', $cancelled, $cancelled === 1 ? '' : 's', $cancelled === 1 ? 'was' : 'were') : '',
                 $nextSteps ?? 'If you think this is a mistake, message your LGU or send a support ticket from Help & Support.'
             ));
         }

@@ -6904,7 +6904,7 @@ function SuperAdminDashboard() {
           </PeriodFilteredRows>
         </Section>
         <Section title="Refunds">
-          <p className="helper-text">Paid orders that were cancelled or expired. Refund the buyer in the PayMongo dashboard, then mark it refunded here.</p>
+          <p className="helper-text">Paid orders that were cancelled or expired, including every unfinished order of a seller who was suspended. Refund the buyer in the PayMongo dashboard, then mark it refunded here.</p>
           <PeriodFilteredRows rows={refunds.data || []} noun="refunds updated" dateKey="updated_at">
             {(shown) => (shown.length ? (
             <div className="item-list">
@@ -7303,8 +7303,8 @@ const HELP_TOPICS = [
     items: [
       ['What do the order statuses mean?', 'Placed: waiting for payment or for the seller. Confirmed: the seller accepted it. Out for Delivery: the fingerlings are on the way. Completed: you confirmed you received them. Cancelled: the order was stopped.'],
       ['How do I confirm my delivery?', 'When your fingerlings arrive, open My Orders and click Confirm Received. Only do this after they have actually arrived, because it starts the seller\'s payment.'],
-      ['Can I cancel my order?', 'An unpaid order is cancelled automatically if you do not pay. For a paid order, message the seller. They can cancel it, with a reason, any time before it is out for delivery.'],
-      ['How do refunds work?', 'If a paid order is cancelled or expires, its payment shows Refund Pending. The AbaiMarket support team sends the refund, and the payment then shows Refunded. If it takes too long, send a support ticket under "Payment or refund".'],
+      ['Can I cancel my order?', 'An unpaid order is cancelled automatically if you do not pay. For a paid order, message the seller. They can cancel it, with a reason, any time before it is out for delivery. If the seller\'s account is suspended, your unfinished order is cancelled and refunded automatically.'],
+      ['How do refunds work?', 'If a paid order is cancelled or expires (including when the seller is suspended), its payment shows Refund Pending. The AbaiMarket support team sends the refund, and the payment then shows Refunded. If it takes too long, send a support ticket under "Payment or refund".'],
       ['How do I rate a seller?', 'After an order is completed, use Rate Seller in My Orders. Your review appears on the seller\'s profile.'],
       ['A seller treated me unfairly. What do I do?', 'Use Report User on the seller\'s profile. Reports go to the seller\'s LGU and the Super Admin for review. Use a support ticket for problems with AbaiMarket itself, and a report for problems with a person.'],
     ],
@@ -7318,7 +7318,7 @@ const HELP_TOPICS = [
       ['Do my listings need approval?', 'No. A listing goes live as soon as you post it. Your LGU can still review it and remove it if it breaks the rules.'],
       ['How do prices, bulks and minimum orders work?', 'You set a price per fish and say how many fish make up one bulk. Buyers can order by the fish or by the bulk. You can also set a minimum order so you never receive orders that are too small.'],
       ['Why can\'t I post a listing?', 'Your registration may still be waiting for LGU approval, your account may be suspended, or your listings may be paused because of an open Notice to Explain. Check your Notifications and Notices tab. If none of these apply, send a support ticket.'],
-      ['How do I handle an order?', 'In the Orders tab, move a paid order to Confirmed and then Out for Delivery. The buyer confirms when it arrives. You can cancel an order, with a reason, until it is out for delivery. Unpaid orders cannot be moved forward.'],
+      ['How do I handle an order?', 'In the Orders tab, move a paid order to Confirmed and then Out for Delivery. The buyer confirms when it arrives. You can cancel an order, with a reason, until it is out for delivery. Unpaid orders cannot be moved forward. If your account is suspended, all your unfinished orders are cancelled and the buyers refunded.'],
     ],
   },
   {
@@ -8992,7 +8992,7 @@ function SuspendedAccountNotice({ role }) {
       </div>
       <p className="helper-text">
         {role === 'seller'
-          ? 'Your listings are off the marketplace, and you cannot add or edit listings, update orders, request withdrawals, post or message buyers until you are reinstated. You can still sign in, see your account, dispute rejected earnings or withdrawals, and message your LGU or the Super Admin. You cannot answer a Notice to Explain while suspended.'
+          ? 'Your listings are off the marketplace, your unfinished orders were cancelled and the buyers refunded, and you cannot add or edit listings, update orders, request withdrawals, post or message buyers until you are reinstated. You can still sign in, see your account, dispute rejected earnings or withdrawals, and message your LGU or the Super Admin. You cannot answer a Notice to Explain while suspended.'
           : 'You cannot place orders, pay, message sellers or leave reviews until you are reinstated. You can still sign in, browse and see your orders.'}
         {' '}The reason is in your <Link to={`${base}?tab=notifications`}>Notifications</Link> and in the email we sent. If you think this is a mistake,{' '}
         <Link to={`${base}?tab=messages`}>message your LGU</Link> or <Link to={`${base}?tab=support`}>send a support ticket</Link>.

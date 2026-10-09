@@ -6,6 +6,7 @@ use App\Models\AppNotification;
 use App\Models\MockPayment;
 use App\Models\Order;
 use App\Models\PaymentLog;
+use App\Models\SellerProfile;
 use App\Models\User;
 use App\Services\PayMongoService;
 
@@ -31,16 +32,47 @@ class OrderCancellation
 
     public const REFUNDED = 'refunded';
 
+    /** Orders still on their way to the buyer: not completed, cancelled or failed. */
+    public const OPEN_ORDER_STATUSES = ['placed', 'paid', 'confirmed', 'in_transit'];
+
+    public const SELLER_SUSPENDED_REASON = 'The seller\'s account was suspended, so this order will not be fulfilled.';
+
+    /**
+     * A suspended seller cannot fulfil anything (they cannot even update an
+     * order), so every order still on its way is cancelled exactly as if the
+     * seller had cancelled it: stock back (unless it was already out for
+     * delivery -- those fingerlings have left the farm), unpaid links closed,
+     * paid money to the refund queue. Completed orders are left alone -- the buyer already
+     * received the fish. Called on suspension (AccountModeration::suspendSeller)
+     * and by the orders:cancel-suspended-seller-orders backstop.
+     */
+    public static function cancelOpenOrdersOfSuspendedSeller(SellerProfile $seller, ?User $actor = null): int
+    {
+        $orders = Order::with('payment')
+            ->where('seller_profile_id', $seller->id)
+            ->whereIn('status', self::OPEN_ORDER_STATUSES)
+            ->get();
+
+        foreach ($orders as $order) {
+            self::cancel($order, self::SELLER_SUSPENDED_REASON, $actor, true);
+        }
+
+        return $orders->count();
+    }
+
     /** Seller cancels an order (OrderController::updateStatus). */
     /**
      * $reason is why the SELLER cancelled. It is null for expiry and for any
      * automated cancellation -- the order's own status already distinguishes
      * those -- and is passed straight through to the buyer, who otherwise
-     * learned only that their order had vanished.
+     * learned only that their order had vanished. $sellerSuspended marks the
+     * cancellation that follows a suspension, so the buyer is not told the
+     * seller chose to cancel.
      */
-    public static function cancel(Order $order, ?string $reason = null, ?User $actor = null): void
+    public static function cancel(Order $order, ?string $reason = null, ?User $actor = null, bool $sellerSuspended = false): void
     {
         $payment = $order->payment;
+        $leftTheFarm = $order->status === 'in_transit';
 
         $order->update(array_filter([
             'status' => 'cancelled',
@@ -64,14 +96,23 @@ class OrderCancellation
                 ? sprintf('Cancelled order %s. Reason: %s', $order->order_number, $reason)
                 : sprintf('Order %s was cancelled.', $order->order_number),
         ]);
-        self::restock($order);
+        if (! $leftTheFarm) {
+            self::restock($order);
+        }
 
         if ($payment?->status === 'paid_held') {
+            if ($sellerSuspended) {
+                self::notify($order->buyer_id, "order_cancelled:{$order->id}", 'Order cancelled',
+                    "Order #{$order->order_number} was cancelled because the seller's account was suspended. Your payment is being refunded.");
+            }
+
             self::queueRefund(
                 $payment,
                 $order,
                 'order.cancelled',
-                'The seller cancelled the order after it was paid.'.($reason ? " Reason: {$reason}" : '')
+                $sellerSuspended
+                    ? 'The seller\'s account was suspended after the order was paid.'
+                    : 'The seller cancelled the order after it was paid.'.($reason ? " Reason: {$reason}" : '')
             );
 
             return;
@@ -80,6 +121,13 @@ class OrderCancellation
         if ($payment && in_array($payment->status, self::UNPAID_PAYMENT_STATUSES, true)) {
             self::closeCheckoutPage($payment);
             $payment->update(['status' => 'cancelled']);
+        }
+
+        if ($sellerSuspended) {
+            self::notify($order->buyer_id, "order_cancelled:{$order->id}", 'Order cancelled',
+                "Order #{$order->order_number} was cancelled because the seller's account was suspended. No payment was captured.");
+
+            return;
         }
 
         self::notify($order->buyer_id, 'order_cancelled', 'Order cancelled',

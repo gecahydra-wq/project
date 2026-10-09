@@ -4793,6 +4793,106 @@ class FishMarketApiTest extends TestCase
         $this->assertSame('refund_pending', $payment->fresh()->status);
     }
 
+    /**
+     * A suspended seller cannot fulfil anything, so suspending them cancels
+     * every unfinished order the way a seller cancellation would: paid ones go
+     * to the refund queue, unpaid ones close. Completed orders stay untouched.
+     */
+    public function test_suspending_a_seller_cancels_and_refunds_their_unfinished_orders(): void
+    {
+        config()->set('services.paymongo.auto_refund', false);
+
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $seller = $this->makeSeller(
+            ['municipality_id' => $lguAdmin->municipality_id],
+            ['municipality_id' => $lguAdmin->municipality_id]
+        );
+        $listing = $this->makeListing($seller, ['quantity' => 1000]);
+        $buyer = $this->makeBuyer();
+
+        $paid = $this->makeOrder($buyer, $listing, ['status' => 'paid']);
+        $paidPayment = $this->makePayment($paid, ['status' => 'paid_held']);
+        $confirmed = $this->makeOrder($buyer, $listing, ['status' => 'confirmed']);
+        $confirmedPayment = $this->makePayment($confirmed, ['status' => 'paid_held']);
+        $outForDelivery = $this->makeOrder($buyer, $listing, ['status' => 'in_transit']);
+        $outPayment = $this->makePayment($outForDelivery, ['status' => 'paid_held']);
+        $unpaid = $this->makeOrder($buyer, $listing, ['status' => 'placed']);
+        $unpaidPayment = $this->makePayment($unpaid, ['status' => 'pending']);
+        $completed = $this->makeOrder($buyer, $listing, ['status' => 'completed']);
+        $completedPayment = $this->makePayment($completed, ['status' => 'paid_held']);
+
+        Sanctum::actingAs($lguAdmin);
+        $this->patchJson("/api/lgu/sellers/{$seller->id}/suspend", ['reason' => 'Repeated policy violations.'])->assertOk();
+
+        foreach ([$paid, $confirmed, $outForDelivery, $unpaid] as $order) {
+            $this->assertSame('cancelled', $order->fresh()->status);
+            $this->assertSame(\App\Support\OrderCancellation::SELLER_SUSPENDED_REASON, $order->fresh()->cancellation_reason);
+            $this->assertDatabaseHas('notifications', ['user_id' => $buyer->id, 'type' => "order_cancelled:{$order->id}"]);
+        }
+        foreach ([$paidPayment, $confirmedPayment, $outPayment] as $payment) {
+            $this->assertSame('refund_pending', $payment->fresh()->status);
+        }
+        $this->assertSame('cancelled', $unpaidPayment->fresh()->status);
+
+        // The buyer already has the completed order's fish: nothing changes.
+        $this->assertSame('completed', $completed->fresh()->status);
+        $this->assertSame('paid_held', $completedPayment->fresh()->status);
+
+        // Stock comes back for the three that never left the farm; the one
+        // out for delivery had already gone.
+        $this->assertSame(1000 + 3 * (int) $paid->quantity, (int) $listing->fresh()->quantity);
+
+        $this->assertStringContainsString('Your 4 unfinished orders were cancelled and the buyers refunded.',
+            AppNotification::where('user_id', $seller->user_id)->where('type', 'account_suspended')->value('body'));
+        $superAdmin = User::where('role', 'super_admin')->firstOrFail();
+        $this->assertDatabaseHas('notifications', ['user_id' => $superAdmin->id, 'type' => "refund_pending:{$paidPayment->id}"]);
+    }
+
+    /** On test keys the refund finishes outright, the same as a seller cancellation. */
+    public function test_a_suspended_sellers_paid_order_is_refunded_outright_on_test_keys(): void
+    {
+        config()->set('services.paymongo.auto_refund', true);
+
+        $seller = $this->makeSeller();
+        $buyer = $this->makeBuyer();
+        $order = $this->makeOrder($buyer, $this->makeListing($seller), ['status' => 'confirmed']);
+        $payment = $this->makePayment($order, ['status' => 'paid_held']);
+
+        \App\Support\AccountModeration::suspendSeller($seller, null, 'Repeat offense');
+
+        $this->assertSame('cancelled', $order->fresh()->status);
+        $this->assertSame('refunded', $payment->fresh()->status);
+        $this->assertDatabaseHas('notifications', ['user_id' => $buyer->id, 'title' => 'Refund sent']);
+    }
+
+    /**
+     * Sellers suspended before the rule existed (or an order paid in the
+     * instant around a suspension) are caught by the scheduled backstop.
+     */
+    public function test_the_scheduler_cancels_orders_left_open_for_an_already_suspended_seller(): void
+    {
+        config()->set('services.paymongo.auto_refund', false);
+
+        $seller = $this->makeSeller([], ['status' => 'suspended']);
+        $other = $this->makeSeller();
+        $buyer = $this->makeBuyer();
+        $stuck = $this->makeOrder($buyer, $this->makeListing($seller), ['status' => 'confirmed']);
+        $stuckPayment = $this->makePayment($stuck, ['status' => 'paid_held']);
+        $fine = $this->makeOrder($buyer, $this->makeListing($other), ['status' => 'confirmed']);
+        $this->makePayment($fine, ['status' => 'paid_held']);
+
+        $this->artisan('orders:cancel-suspended-seller-orders')
+            ->expectsOutput('Cancelled 1 order(s) of suspended sellers.')
+            ->assertSuccessful();
+
+        $this->assertSame('cancelled', $stuck->fresh()->status);
+        $this->assertSame('refund_pending', $stuckPayment->fresh()->status);
+        $this->assertSame('confirmed', $fine->fresh()->status);
+
+        // Running it again finds nothing more to do.
+        $this->artisan('orders:cancel-suspended-seller-orders')->expectsOutput('Cancelled 0 order(s) of suspended sellers.');
+    }
+
     public function test_the_buyer_is_notified_when_an_order_ships_and_when_it_is_delivered(): void
     {
         $sellerProfile = $this->makeSeller();
