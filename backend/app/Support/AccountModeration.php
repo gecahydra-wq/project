@@ -72,7 +72,7 @@ class AccountModeration
      *                              e.g. the one dispute a rejected Notice to
      *                              Explain allows (SellerSanctions).
      */
-    public static function suspendSeller(SellerProfile $seller, User $moderator, ?string $reason = null, ?string $notes = null, ?string $nextSteps = null): SellerProfile
+    public static function suspendSeller(SellerProfile $seller, ?User $moderator, ?string $reason = null, ?string $notes = null, ?string $nextSteps = null): SellerProfile
     {
         $seller->update(['status' => 'suspended']);
         // Deliberately NOT revoking tokens: a suspended seller stays signed in
@@ -84,7 +84,7 @@ class AccountModeration
             SafeMailer::send($seller->user->email, new AccountSuspendedMail($seller->user, 'seller', $moderator, $reason, $notes));
             self::notify($seller->user, 'account_suspended', 'Account Suspended', sprintf(
                 '%s suspended your seller account.%s Your listings are off the marketplace. You can still sign in, but you cannot add or edit listings, update orders, request withdrawals, post or message buyers. %s',
-                SellerSanctions::reviewerLabel($moderator),
+                $moderator ? SellerSanctions::reviewerLabel($moderator) : 'AbaiMarket automatically',
                 self::reasonSentence($reason, $notes),
                 $nextSteps ?? 'If you think this is a mistake, message your LGU or send a support ticket from Help & Support.'
             ));
@@ -224,12 +224,12 @@ class AccountModeration
         return ($reason ? " Reason: {$reason}." : '').($notes ? " Notes: {$notes}" : '');
     }
 
-    private static function log(User $subject, string $role, User $moderator, string $action, ?string $reason, ?string $notes, string $resultingStatus): void
+    private static function log(User $subject, string $role, ?User $moderator, string $action, ?string $reason, ?string $notes, string $resultingStatus): void
     {
         ModerationLog::create([
             'user_id' => $subject->id,
             'role' => $role,
-            'moderator_id' => $moderator->id,
+            'moderator_id' => $moderator?->id,
             'action' => $action,
             'reason' => $reason,
             'notes' => $notes,

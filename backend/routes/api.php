@@ -299,7 +299,6 @@ Route::prefix('super-admin')->middleware(['auth:sanctum', 'verified', 'role:supe
     Route::patch('buyers/{user}/suspend', [SuperAdminController::class, 'suspendBuyer']);
     Route::patch('buyers/{user}/reinstate', [SuperAdminController::class, 'reinstateBuyer']);
     Route::delete('buyers/{user}', [SuperAdminController::class, 'destroyBuyer']);
-    Route::get('moderation-log', [SuperAdminController::class, 'moderationLog']);
     Route::get('reviews', [PlatformController::class, 'superReviews']);
     Route::delete('reviews/{review}', [SuperAdminController::class, 'destroyReview']);
     Route::get('reports', [PlatformController::class, 'superReports']);

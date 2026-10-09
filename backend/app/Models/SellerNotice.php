@@ -39,12 +39,22 @@ class SellerNotice extends Model
     public const STATUS_REJECTED = 'rejected';
 
     /**
+     * Raised for a seller who already had an explanation rejected: it
+     * suspends them on arrival and takes no explanation -- they message
+     * their LGU or send a support ticket (SellerSanctions::suspendForRepeatOffense).
+     */
+    public const STATUS_REPEAT_OFFENSE = 'repeat_offense';
+
+    /** Statuses that count as an offense on the seller's record. */
+    public const OFFENSE_STATUSES = [self::STATUS_REJECTED, self::STATUS_REPEAT_OFFENSE];
+
+    /**
      * 'resolved' and 'dismissed' predate the accept/reject decision and are
      * kept so existing rows stay valid. New decisions use 'accepted' (the
      * explanation was satisfactory) or 'rejected' (it was not -- the only
      * status that counts as an offense, see App\Support\SellerSanctions).
      */
-    public const STATUSES = ['open', 'under_review', 'resolved', 'dismissed', self::STATUS_ACCEPTED, self::STATUS_REJECTED];
+    public const STATUSES = ['open', 'under_review', 'resolved', 'dismissed', self::STATUS_ACCEPTED, self::STATUS_REJECTED, self::STATUS_REPEAT_OFFENSE];
 
     /** Statuses that still count as an active notice against the seller. */
     public const OPEN_STATUSES = ['open', 'under_review'];

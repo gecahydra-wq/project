@@ -53,7 +53,7 @@ class AccountSuspendedMail extends Mailable
     public function __construct(
         public User $account,
         public string $role,
-        public User $moderator,
+        public ?User $moderator,
         public ?string $reason = null,
         public ?string $notes = null,
     ) {}
@@ -73,7 +73,7 @@ class AccountSuspendedMail extends Mailable
             ['Role', $roleLabel],
             ['Reason', $this->reason ?? 'Not specified'],
             ['Date', now()->format('M d, Y g:i A')],
-            ['Administrator', $this->moderator->name],
+            ['Administrator', $this->moderator?->name ?? 'AbaiMarket (automatic)'],
         ];
 
         if ($this->notes) {

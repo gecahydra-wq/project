@@ -689,7 +689,7 @@ function AppShell({ user, children }) {
     buyer: [['Dashboard', '/buyer/dashboard?tab=overview', LayoutDashboard], ['Browse', '/buyer/dashboard?tab=browse', Search], ['Cart', '/buyer/dashboard?tab=cart', ShoppingBag], ['Orders', '/buyer/dashboard?tab=orders', ShoppingCart], ['Messages', '/buyer/dashboard?tab=messages', MessageCircle], ['Notifications', '/buyer/dashboard?tab=notifications', Bell], ['Analytics', '/buyer/dashboard?tab=analytics', BarChart3], ['AI Assistant', '/buyer/dashboard?tab=ai', Bot], ['Help & Support', '/buyer/dashboard?tab=support', LifeBuoy], ['Profile', '/buyer/dashboard?tab=settings', ShieldCheck]],
     seller: [['Dashboard', '/seller/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/seller/dashboard?tab=marketplace', Search], ['Listings', '/seller/dashboard?tab=listings', Store], ['Orders', '/seller/dashboard?tab=orders', ShoppingCart], ['Messages', '/seller/dashboard?tab=messages', MessageCircle], ['Wallet', '/seller/dashboard?tab=wallet', Wallet], ['Notifications', '/seller/dashboard?tab=notifications', Bell], ['Notices', '/seller/dashboard?tab=notices', ShieldAlert], ['Analytics', '/seller/dashboard?tab=analytics', BarChart3], ['Help & Support', '/seller/dashboard?tab=support', LifeBuoy], ['Profile', '/seller/dashboard?tab=profile', ShieldCheck]],
     lgu_admin: [['Dashboard', '/lgu/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/lgu/dashboard?tab=marketplace', Search], ['Listing Management', '/lgu/dashboard?tab=listings', Store], ['Sellers', '/lgu/dashboard?tab=sellers', ShieldCheck], ['User Reports', '/lgu/dashboard?tab=user-reports', Flag], ['Notices to Explain', '/lgu/dashboard?tab=notices', ShieldAlert], ['Disputes', '/lgu/dashboard?tab=disputes', Scale], ['Support Tickets', '/lgu/dashboard?tab=support', LifeBuoy], ['Orders', '/lgu/dashboard?tab=orders', ShoppingCart], ['Seller Earnings', '/lgu/dashboard?tab=earnings', Wallet], ['LGU Wallet', '/lgu/dashboard?tab=wallet', Wallet], ['Messages', '/lgu/dashboard?tab=messages', MessageCircle], ['Notifications', '/lgu/dashboard?tab=notifications', Bell], ['Analytics', '/lgu/dashboard?tab=reports', BarChart3], ['Activity Log', '/lgu/dashboard?tab=activity-log', History], ['Reviews & Ratings', '/lgu/dashboard?tab=reviews', Star], ['Users', '/lgu/dashboard?tab=users', UsersIcon], ['Profile', '/lgu/dashboard?tab=profile', CircleUserRound]],
-    super_admin: [['Dashboard', '/admin/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/admin/dashboard?tab=marketplace', Search], ['Listing Management', '/admin/dashboard?tab=listings', Store], ['LGU Admins', '/admin/dashboard?tab=lgu-admins', ShieldCheck], ['Sellers', '/admin/dashboard?tab=sellers', Store], ['Users', '/admin/dashboard?tab=users', UsersIcon], ['User Reports', '/admin/dashboard?tab=user-reports', Flag], ['Notices to Explain', '/admin/dashboard?tab=notices', ShieldAlert], ['Disputes', '/admin/dashboard?tab=disputes', Scale], ['Support Tickets', '/admin/dashboard?tab=support', LifeBuoy], ['Seller Earnings', '/admin/dashboard?tab=earnings', Wallet], ['Reviews & Ratings', '/admin/dashboard?tab=reviews', Star], ['Orders', '/admin/dashboard?tab=transactions', ShoppingCart], ['Payout Management', '/admin/dashboard?tab=payouts', Wallet], ['Municipalities', '/admin/dashboard?tab=municipalities', MapPin], ['Announcements', '/admin/dashboard?tab=announcements', Megaphone], ['Messages', '/admin/dashboard?tab=messages', MessageCircle], ['Notifications', '/admin/dashboard?tab=notifications', Bell], ['Moderation Log', '/admin/dashboard?tab=moderation', ShieldAlert], ['Activity Log', '/admin/dashboard?tab=activity-log', History], ['Analytics', '/admin/dashboard?tab=reports', BarChart3], ['Profile', '/admin/dashboard?tab=profile', CircleUserRound]],
+    super_admin: [['Dashboard', '/admin/dashboard?tab=overview', LayoutDashboard], ['Marketplace', '/admin/dashboard?tab=marketplace', Search], ['Listing Management', '/admin/dashboard?tab=listings', Store], ['LGU Admins', '/admin/dashboard?tab=lgu-admins', ShieldCheck], ['Sellers', '/admin/dashboard?tab=sellers', Store], ['Users', '/admin/dashboard?tab=users', UsersIcon], ['User Reports', '/admin/dashboard?tab=user-reports', Flag], ['Notices to Explain', '/admin/dashboard?tab=notices', ShieldAlert], ['Disputes', '/admin/dashboard?tab=disputes', Scale], ['Support Tickets', '/admin/dashboard?tab=support', LifeBuoy], ['Seller Earnings', '/admin/dashboard?tab=earnings', Wallet], ['Reviews & Ratings', '/admin/dashboard?tab=reviews', Star], ['Orders', '/admin/dashboard?tab=transactions', ShoppingCart], ['Payout Management', '/admin/dashboard?tab=payouts', Wallet], ['Municipalities', '/admin/dashboard?tab=municipalities', MapPin], ['Announcements', '/admin/dashboard?tab=announcements', Megaphone], ['Messages', '/admin/dashboard?tab=messages', MessageCircle], ['Notifications', '/admin/dashboard?tab=notifications', Bell], ['Activity Log', '/admin/dashboard?tab=activity-log', History], ['Analytics', '/admin/dashboard?tab=reports', BarChart3], ['Profile', '/admin/dashboard?tab=profile', CircleUserRound]],
   }[user.role]
   const unreadMessages = useUnreadMessages()
 
@@ -766,7 +766,7 @@ const ROLE_NAV_LAYOUT = {
       'Dashboard',
       'Marketplace',
       { label: 'People', items: ['LGU Admins', 'Sellers', 'Users'] },
-      { label: 'Moderation', items: ['Listing Management', 'User Reports', 'Notices to Explain', 'Disputes', 'Reviews & Ratings', 'Moderation Log'] },
+      { label: 'Moderation', items: ['Listing Management', 'User Reports', 'Notices to Explain', 'Disputes', 'Reviews & Ratings'] },
       { label: 'Money', items: ['Orders', 'Seller Earnings', 'Payout Management'] },
       ['Support Tickets', 'Support'],
       { label: 'System', items: ['Municipalities', 'Announcements', 'Analytics', 'Activity Log'] },
@@ -4897,50 +4897,97 @@ function ReviewsAndRatingsSection({ data, scope, scopeLabel = 'on the platform' 
  * backend.
  */
 const ACTIVITY_ACTION_META = {
-  user_registered: { label: 'New Account Registered', icon: UserPlus, tone: 'info', category: 'accounts' },
-  lgu_admin_created: { label: 'LGU Admin Added', icon: UserPlus, tone: 'info', category: 'accounts' },
-  lgu_admin_updated: { label: 'LGU Admin Updated', icon: UsersIcon, tone: 'info', category: 'accounts' },
-  municipality_created: { label: 'Municipality Added', icon: MapPin, tone: 'info', category: 'accounts' },
+  // Orders
+  order_placed: { label: 'Order Placed', icon: ShoppingCart, tone: 'info', category: 'orders' },
+  order_paid: { label: 'Order Paid', icon: Wallet, tone: 'success', category: 'orders' },
+  order_confirmed: { label: 'Order Confirmed by Seller', icon: CheckCircle, tone: 'info', category: 'orders' },
+  order_out_for_delivery: { label: 'Out for Delivery', icon: Send, tone: 'info', category: 'orders' },
+  order_confirmed_received: { label: 'Order Received by Buyer', icon: CheckCircle, tone: 'success', category: 'orders' },
+  order_marked_received_by_admin: { label: 'Order Marked Received by Admin', icon: CheckCircle, tone: 'warning', category: 'orders' },
+  order_cancelled: { label: 'Order Cancelled', icon: XCircle, tone: 'danger', category: 'orders' },
+  // Payments & Payouts
+  seller_earnings_approved: { label: 'Seller Earnings Approved', icon: Wallet, tone: 'success', category: 'payments' },
+  seller_earnings_held: { label: 'Seller Earnings Put on Hold', icon: ShieldAlert, tone: 'warning', category: 'payments' },
+  seller_earnings_hold_cleared: { label: 'Earnings Hold Cleared', icon: ShieldCheck, tone: 'info', category: 'payments' },
+  seller_earnings_rejected: { label: 'Seller Earnings Rejected', icon: XCircle, tone: 'danger', category: 'payments' },
+  seller_earnings_reopened: { label: 'Rejected Earnings Reopened', icon: ShieldCheck, tone: 'info', category: 'payments' },
+  seller_payout_requested: { label: 'Seller Payout Requested', icon: Wallet, tone: 'warning', category: 'payments' },
+  seller_payout_approved: { label: 'Seller Payout Approved', icon: Wallet, tone: 'info', category: 'payments' },
+  seller_payout_rejected: { label: 'Seller Payout Rejected', icon: XCircle, tone: 'danger', category: 'payments' },
+  seller_payout_completed: { label: 'Seller Payout Completed', icon: Wallet, tone: 'success', category: 'payments' },
+  lgu_payout_requested: { label: 'Municipality Payout Requested', icon: Wallet, tone: 'warning', category: 'payments' },
+  lgu_payout_approved: { label: 'Municipality Payout Approved', icon: Wallet, tone: 'info', category: 'payments' },
+  lgu_payout_rejected: { label: 'Municipality Payout Rejected', icon: XCircle, tone: 'danger', category: 'payments' },
+  lgu_payout_completed: { label: 'Municipality Payout Completed', icon: Wallet, tone: 'success', category: 'payments' },
+  withdrawal_rejection_final: { label: 'Rejected Payout Returned to Balance', icon: Wallet, tone: 'neutral', category: 'payments' },
+  order_refunded: { label: 'Order Refunded', icon: Wallet, tone: 'warning', category: 'payments' },
+  // Listings & Sellers
+  listing_created: { label: 'Listing Created', icon: Store, tone: 'info', category: 'listings_sellers' },
+  listing_updated: { label: 'Listing Edited', icon: Store, tone: 'neutral', category: 'listings_sellers' },
+  listing_deleted: { label: 'Listing Deleted', icon: Trash2, tone: 'danger', category: 'listings_sellers' },
   listing_approved: { label: 'Listing Approved', icon: CheckCircle, tone: 'success', category: 'listings_sellers' },
   listing_rejected: { label: 'Listing Rejected', icon: XCircle, tone: 'danger', category: 'listings_sellers' },
   listing_archived: { label: 'Listing Archived', icon: Archive, tone: 'neutral', category: 'listings_sellers' },
   seller_verified: { label: 'Seller Verified', icon: ShieldCheck, tone: 'success', category: 'listings_sellers' },
+  seller_registration_submitted: { label: 'Seller Registration Submitted', icon: UserPlus, tone: 'warning', category: 'listings_sellers' },
   seller_registration_approved: { label: 'Seller Registration Approved', icon: ShieldCheck, tone: 'success', category: 'listings_sellers' },
   seller_registration_rejected: { label: 'Seller Registration Rejected', icon: XCircle, tone: 'danger', category: 'listings_sellers' },
-  buyer_suspended: { label: 'Buyer Suspended', icon: ShieldAlert, tone: 'danger', category: 'moderation' },
-  buyer_reinstated: { label: 'Buyer Reinstated', icon: ShieldCheck, tone: 'success', category: 'moderation' },
-  seller_suspended: { label: 'Seller Suspended', icon: ShieldAlert, tone: 'danger', category: 'moderation' },
-  seller_reinstated: { label: 'Seller Reinstated', icon: ShieldCheck, tone: 'success', category: 'moderation' },
-  lgu_admin_suspended: { label: 'LGU Admin Suspended', icon: ShieldAlert, tone: 'danger', category: 'moderation' },
-  lgu_admin_reinstated: { label: 'LGU Admin Reinstated', icon: ShieldCheck, tone: 'success', category: 'moderation' },
-  seller_earnings_approved: { label: 'Seller Earnings Approved', icon: Wallet, tone: 'success', category: 'payments' },
-  seller_payout_requested: { label: 'Seller Payout Requested', icon: Wallet, tone: 'warning', category: 'payments' },
-  seller_payout_approved: { label: 'Seller Payout Approved', icon: Wallet, tone: 'info', category: 'payments' },
-  seller_payout_completed: { label: 'Seller Payout Completed', icon: Wallet, tone: 'success', category: 'payments' },
-  lgu_payout_requested: { label: 'Municipality Payout Requested', icon: Wallet, tone: 'warning', category: 'payments' },
-  lgu_payout_approved: { label: 'Municipality Payout Approved', icon: Wallet, tone: 'info', category: 'payments' },
-  lgu_payout_completed: { label: 'Municipality Payout Completed', icon: Wallet, tone: 'success', category: 'payments' },
-  review_submitted: { label: 'Review Submitted', icon: Star, tone: 'info', category: 'reviews' },
-  buyer_rating_submitted: { label: 'Buyer Rated', icon: Star, tone: 'info', category: 'reviews' },
-  review_removed: { label: 'Review Removed', icon: Trash2, tone: 'danger', category: 'reviews' },
-  buyer_rating_removed: { label: 'Buyer Rating Removed', icon: Trash2, tone: 'danger', category: 'reviews' },
+  // Reports & Notices
   user_report_filed: { label: 'User Report Filed', icon: Flag, tone: 'warning', category: 'reports' },
   user_report_reviewed: { label: 'User Report Under Review', icon: Flag, tone: 'info', category: 'reports' },
   user_report_resolved: { label: 'User Report Resolved', icon: CheckCircle, tone: 'success', category: 'reports' },
   user_report_dismissed: { label: 'User Report Dismissed', icon: XCircle, tone: 'neutral', category: 'reports' },
   seller_notice_issued: { label: 'Notice to Explain Issued', icon: ShieldAlert, tone: 'danger', category: 'reports' },
+  seller_notice_answered: { label: 'Seller Sent Explanation', icon: MessageCircle, tone: 'info', category: 'reports' },
   seller_notice_updated: { label: 'Notice to Explain Updated', icon: ShieldCheck, tone: 'info', category: 'reports' },
+  seller_notice_accepted: { label: 'Explanation Accepted', icon: CheckCircle, tone: 'success', category: 'reports' },
+  seller_notice_rejected: { label: 'Explanation Rejected', icon: XCircle, tone: 'danger', category: 'reports' },
+  seller_notice_repeat_offense: { label: 'Repeat Offense — Suspended', icon: ShieldAlert, tone: 'danger', category: 'reports' },
+  // Disputes
+  dispute_filed: { label: 'Dispute Filed', icon: Scale, tone: 'warning', category: 'disputes' },
+  dispute_accepted: { label: 'Dispute Accepted', icon: Scale, tone: 'success', category: 'disputes' },
+  dispute_rejected: { label: 'Dispute Rejected', icon: Scale, tone: 'danger', category: 'disputes' },
+  // Moderation
+  buyer_suspended: { label: 'Buyer Suspended', icon: ShieldAlert, tone: 'danger', category: 'moderation' },
+  buyer_reinstated: { label: 'Buyer Reinstated', icon: ShieldCheck, tone: 'success', category: 'moderation' },
+  seller_suspended: { label: 'Seller Suspended', icon: ShieldAlert, tone: 'danger', category: 'moderation' },
+  seller_reinstated: { label: 'Seller Reinstated', icon: ShieldCheck, tone: 'success', category: 'moderation' },
+  lgu_admin_suspended: { label: 'LGU Admin Disabled', icon: ShieldAlert, tone: 'danger', category: 'moderation' },
+  lgu_admin_reinstated: { label: 'LGU Admin Re-enabled', icon: ShieldCheck, tone: 'success', category: 'moderation' },
+  buyer_removed: { label: 'Buyer Account Removed', icon: Trash2, tone: 'danger', category: 'moderation' },
+  seller_removed: { label: 'Seller Account Removed', icon: Trash2, tone: 'danger', category: 'moderation' },
+  // Help & Support
+  support_ticket_opened: { label: 'Support Ticket Opened', icon: LifeBuoy, tone: 'warning', category: 'support' },
+  support_ticket_replied: { label: 'Support Ticket Reply', icon: MessageCircle, tone: 'info', category: 'support' },
+  support_ticket_note_added: { label: 'Internal Note Added', icon: LifeBuoy, tone: 'neutral', category: 'support' },
+  support_ticket_resolved: { label: 'Support Ticket Closed', icon: CheckCircle, tone: 'success', category: 'support' },
+  // Reviews & Ratings
+  review_submitted: { label: 'Review Submitted', icon: Star, tone: 'info', category: 'reviews' },
+  buyer_rating_submitted: { label: 'Buyer Rated', icon: Star, tone: 'info', category: 'reviews' },
+  review_removed: { label: 'Review Removed', icon: Trash2, tone: 'danger', category: 'reviews' },
+  buyer_rating_removed: { label: 'Buyer Rating Removed', icon: Trash2, tone: 'danger', category: 'reviews' },
+  // Accounts
+  user_registered: { label: 'New Account Registered', icon: UserPlus, tone: 'info', category: 'accounts' },
+  lgu_admin_created: { label: 'LGU Admin Added', icon: UserPlus, tone: 'info', category: 'accounts' },
+  lgu_admin_updated: { label: 'LGU Admin Updated', icon: UsersIcon, tone: 'info', category: 'accounts' },
+  municipality_created: { label: 'Municipality Added', icon: MapPin, tone: 'info', category: 'accounts' },
+  announcement_posted: { label: 'Announcement Posted', icon: Megaphone, tone: 'info', category: 'accounts' },
+  announcement_updated: { label: 'Announcement Edited', icon: Megaphone, tone: 'neutral', category: 'accounts' },
+  announcement_deleted: { label: 'Announcement Deleted', icon: Megaphone, tone: 'danger', category: 'accounts' },
 }
 
-// Matches App\Support\ActivityLog::CATEGORIES on the backend -- this is the
-// primary, one-click filter ("show me everything about Payments") that
-// replaces having to hunt through 20+ individual action names.
+// The category tabs, in this order, for the LGU and the Super Admin alike.
+// Matches App\Support\ActivityLog::CATEGORIES / CATEGORY_ORDER on the backend.
 const ACTIVITY_CATEGORIES = [
-  ['accounts', 'Accounts'],
+  ['orders', 'Orders'],
+  ['payments', 'Payments & Payouts'],
   ['listings_sellers', 'Listings & Sellers'],
+  ['reports', 'Reports & Notices'],
+  ['disputes', 'Disputes'],
   ['moderation', 'Moderation'],
-  ['payments', 'Payments'],
+  ['support', 'Help & Support'],
   ['reviews', 'Reviews & Ratings'],
+  ['accounts', 'Accounts'],
 ]
 
 function activityActionMeta(action) {
@@ -4957,26 +5004,33 @@ function activityActionMeta(action) {
 function activityLogLink(scope, entry) {
   const base = scope === 'lgu' ? '/lgu/dashboard' : '/admin/dashboard'
   const action = entry.action
+  const category = ACTIVITY_ACTION_META[action]?.category
+  const ticket = entry.reference_type === 'SUP' && entry.reference_number ? `&ticket=${entry.reference_number}` : ''
 
-  if (['listing_approved', 'listing_rejected', 'listing_archived'].includes(action)) return `${base}?tab=listings`
-  if (action === 'seller_verified') return `${base}?tab=sellers`
+  if (action?.startsWith('listing_')) return `${base}?tab=listings`
+  if (action === 'seller_verified' || action?.startsWith('seller_registration_')) return `${base}?tab=sellers`
   if (action === 'user_registered') return `${base}?tab=users`
-  if (action === 'review_submitted') return `${base}?tab=reviews`
-  if (action === 'buyer_rating_submitted') return `${base}?tab=users`
+  if (category === 'reviews') return `${base}?tab=reviews`
+  if (category === 'reports') return `${base}?tab=${action?.startsWith('user_report_') ? 'user-reports' : 'notices'}`
+  if (category === 'disputes') return `${base}?tab=disputes`
+  if (category === 'support') return `${base}?tab=support${ticket}`
+  if (category === 'orders') return `${base}?tab=${scope === 'lgu' ? 'orders' : 'transactions'}`
 
   if (scope === 'super-admin') {
     if (['lgu_admin_created', 'lgu_admin_updated', 'lgu_admin_suspended', 'lgu_admin_reinstated'].includes(action)) return `${base}?tab=lgu-admins`
     if (action === 'municipality_created') return `${base}?tab=municipalities`
-    if (['buyer_suspended', 'buyer_reinstated', 'seller_suspended', 'seller_reinstated'].includes(action)) return `${base}?tab=moderation`
-    if (action === 'seller_earnings_approved') return `${base}?tab=transactions`
-    if (['seller_payout_requested', 'seller_payout_approved', 'seller_payout_completed', 'lgu_payout_requested', 'lgu_payout_approved', 'lgu_payout_completed'].includes(action)) return `${base}?tab=payouts`
+    if (action?.startsWith('announcement_')) return `${base}?tab=announcements`
+    if (['buyer_suspended', 'buyer_reinstated', 'buyer_removed'].includes(action)) return `${base}?tab=users`
+    if (['seller_suspended', 'seller_reinstated', 'seller_removed'].includes(action)) return `${base}?tab=sellers`
+    if (action?.startsWith('seller_earnings_')) return `${base}?tab=earnings`
+    if (category === 'payments') return `${base}?tab=payouts`
   } else {
-    if (['buyer_suspended', 'buyer_reinstated'].includes(action)) return `${base}?tab=users`
-    if (['seller_suspended', 'seller_reinstated'].includes(action)) return `${base}?tab=sellers`
-    // Earnings approval is exactly the Seller Earnings Approval queue --
-    // already scoped server-side to this LGU's own municipality.
-    if (action === 'seller_earnings_approved') return `${base}?tab=earnings`
-    if (['lgu_payout_requested', 'lgu_payout_approved', 'lgu_payout_completed'].includes(action)) return `${base}?tab=wallet`
+    if (['buyer_suspended', 'buyer_reinstated', 'buyer_removed'].includes(action)) return `${base}?tab=users`
+    if (['seller_suspended', 'seller_reinstated', 'seller_removed'].includes(action)) return `${base}?tab=sellers`
+    // Earnings decisions are the Seller Earnings Approval queue -- already
+    // scoped server-side to this LGU's own municipality.
+    if (action?.startsWith('seller_earnings_') || action === 'order_refunded') return `${base}?tab=earnings`
+    if (action?.startsWith('lgu_payout_')) return `${base}?tab=wallet`
     // seller_payout_* has no LGU-facing page -- Super Admin owns seller payouts.
   }
 
@@ -5027,8 +5081,26 @@ function ActivityLogEntryCard({ scope, entry }) {
  */
 const ACTIVITY_LOG_DEFAULT_FILTERS = { category: '', action: '', date_from: '', date_to: '', municipality_id: '' }
 
+/** YYYY-MM-DD in local time, for the date inputs. */
+function localDateInput(date) {
+  if (!date) return ''
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
+/**
+ * The one audit trail for the LGU (own municipality) and the Super Admin
+ * (everything): every important event on the platform, filtered by category
+ * tabs, search, action type, the same All / Today / This Week / This Month /
+ * This Year chips as every other history list (or a custom date range), and
+ * municipality for the Super Admin. ?category= opens a tab directly (e.g.
+ * Moderation, which replaced the separate Moderation Log page).
+ */
 function ActivityLogPanel({ scope }) {
-  const [filters, setFilters] = useState(ACTIVITY_LOG_DEFAULT_FILTERS)
+  const [searchParams] = useSearchParams()
+  const initialCategory = ACTIVITY_CATEGORIES.some(([value]) => value === searchParams.get('category')) ? searchParams.get('category') : ''
+  const [filters, setFilters] = useState({ ...ACTIVITY_LOG_DEFAULT_FILTERS, category: initialCategory })
+  const [period, setPeriod] = useState('all')
   const [searchDraft, setSearchDraft] = useState('')
   const [appliedSearch, setAppliedSearch] = useState('')
   const [page, setPage] = useState(1)
@@ -5050,7 +5122,15 @@ function ActivityLogPanel({ scope }) {
 
   const updateFilter = (key, value) => {
     setPage(1)
+    // Typing a date by hand replaces the quick chip.
+    if (key === 'date_from' || key === 'date_to') setPeriod('custom')
     setFilters((current) => (key === 'category' ? { ...current, category: value, action: '' } : { ...current, [key]: value }))
+  }
+
+  const choosePeriod = (value) => {
+    setPage(1)
+    setPeriod(value)
+    setFilters((current) => ({ ...current, date_from: localDateInput(orderPeriodStart(value)), date_to: '' }))
   }
 
   const submitSearch = (e) => {
@@ -5060,6 +5140,7 @@ function ActivityLogPanel({ scope }) {
   }
 
   const clearFilters = () => {
+    setPeriod('all')
     setFilters(ACTIVITY_LOG_DEFAULT_FILTERS)
     setSearchDraft('')
     setAppliedSearch('')
@@ -5080,7 +5161,11 @@ function ActivityLogPanel({ scope }) {
 
   return (
     <Section title="Activity Log">
-      <p className="helper-text">Unified audit trail across registrations, approvals, moderation, earnings, and payouts{scope === 'lgu' ? ' in your municipality' : ''}. Click an entry to jump to where it's managed.</p>
+      <p className="helper-text">
+        Everything important that happens on AbaiMarket{scope === 'lgu' ? ' in your municipality' : ''}: orders, payments and payouts, listings,
+        reports and notices, disputes, suspensions, support tickets and reviews, newest first. Pick a tab or filter, and click an entry to jump to
+        where it&apos;s managed.
+      </p>
 
       <div className="tab-bar activity-log-category-bar">
         <button type="button" className={filters.category === '' ? 'tab active' : 'tab'} onClick={() => updateFilter('category', '')}>All</button>
@@ -5088,6 +5173,12 @@ function ActivityLogPanel({ scope }) {
           <button key={value} type="button" className={filters.category === value ? 'tab active' : 'tab'} onClick={() => updateFilter('category', value)}>
             {label}
           </button>
+        ))}
+      </div>
+
+      <div className="tab-bar" role="group" aria-label="Show activity from">
+        {ORDER_PERIODS.map(([value, label]) => (
+          <button key={value} type="button" className={period === value ? 'tab active' : 'tab'} onClick={() => choosePeriod(value)}>{label}</button>
         ))}
       </div>
 
@@ -6433,13 +6524,6 @@ function SuperAdminDashboard() {
       queryClient.invalidateQueries({ queryKey: ['super-admin-activity-log'] })
     },
   })
-  const [moderationFilters, setModerationFilters] = useState({ role: '', action: '' })
-  const moderationLog = useQuery({
-    queryKey: ['super-admin-moderation-log', moderationFilters],
-    queryFn: async () => (await api.get('/super-admin/moderation-log', { params: moderationFilters })).data,
-    retry: false,
-    placeholderData: [],
-  })
   const listingManagement = useQuery({
     queryKey: ['super-admin-listings'],
     queryFn: async () => (await api.get('/super-admin/listings')).data,
@@ -6560,7 +6644,7 @@ function SuperAdminDashboard() {
               <TopPerformerCard eyebrow="Top Fish Species" icon={Fish} performer={dashboard.data?.executive?.top_species} />
             </div>
           </Section>
-          <Section title="Account Moderation" actions={<Link className="ghost" to="/admin/dashboard?tab=moderation">View Moderation Log</Link>}>
+          <Section title="Account Moderation" actions={<Link className="ghost" to="/admin/dashboard?tab=activity-log&category=moderation">View Moderation History</Link>}>
             <StatsRow items={[
               ['Active Buyers', dashboard.data?.active_buyers ?? 0, false, '/admin/dashboard?tab=users'],
               ['Suspended Buyers', dashboard.data?.suspended_buyers ?? 0, false, '/admin/dashboard?tab=users'],
@@ -6672,39 +6756,8 @@ function SuperAdminDashboard() {
           <NotificationHistory getLink={notificationLinkFor('super_admin')} unreadCount={notificationsQuery.data?.length ?? 0} />
         </>
       )}
-      {tab === 'moderation' && (
-        <Section title="Moderation Log">
-          <p className="helper-text">Complete audit trail of every account suspension and reinstatement across Buyers, Sellers, and LGU Admins.</p>
-          <div className="form grid-form">
-            <select value={moderationFilters.role} onChange={(e) => setModerationFilters({ ...moderationFilters, role: e.target.value })}>
-              <option value="">All roles</option>
-              <option value="buyer">Buyers</option>
-              <option value="seller">Sellers</option>
-              <option value="lgu_admin">LGU Admins</option>
-            </select>
-            <select value={moderationFilters.action} onChange={(e) => setModerationFilters({ ...moderationFilters, action: e.target.value })}>
-              <option value="">All actions</option>
-              <option value="suspended">Suspended</option>
-              <option value="reinstated">Reinstated</option>
-            </select>
-          </div>
-          <PeriodFilteredRows rows={moderationLog.data || []} noun="moderation actions">
-            {(shown) => (shown.length ? (
-            <div className="item-list">
-              {shown.map((log) => (
-                <div className="card" key={log.id}>
-                  <div className="card-row"><strong>{log.user?.name || 'Unknown account'}</strong><Badge status={log.action === 'suspended' ? 'suspended' : 'active'} /></div>
-                  <p>{roleLabel(log.role)} · {log.action === 'suspended' ? 'Suspended' : 'Reinstated'} by {log.moderator?.name || 'Unknown'}</p>
-                  {log.reason && <p>Reason: {log.reason}</p>}
-                  {log.notes && <p className="muted">Notes: {log.notes}</p>}
-                  <p className="muted">{log.created_at ? new Date(log.created_at).toLocaleString() : ''}</p>
-                </div>
-              ))}
-            </div>
-          ) : <EmptyState message="No moderation actions match these filters." />)}
-          </PeriodFilteredRows>
-        </Section>
-      )}
+      {/* The old Moderation Log page is now the Activity Log's Moderation tab. */}
+      {tab === 'moderation' && <Navigate to="/admin/dashboard?tab=activity-log&category=moderation" replace />}
       {tab === 'reviews' && <ReviewsAndRatingsSection data={reviews.data} scope="super-admin" scopeLabel="on the platform" />}
       {tab === 'activity-log' && <ActivityLogPanel scope="super-admin" />}
       {tab === 'profile' && <AdminProfilePanel endpointBase="/super-admin" />}
@@ -6989,6 +7042,11 @@ const REPORT_STATUS_META = {
   under_review: { label: 'Under Review', tone: 'info' },
   resolved: { label: 'Resolved', tone: 'success' },
   dismissed: { label: 'Dismissed', tone: 'neutral' },
+  accepted: { label: 'Accepted', tone: 'success' },
+  rejected: { label: 'Rejected', tone: 'danger' },
+  // A notice for a seller who already had an explanation rejected: it
+  // suspended them on arrival, with nothing to explain.
+  repeat_offense: { label: 'Repeat Offense', tone: 'danger' },
 }
 
 function ReportStatusBadge({ status }) {
@@ -7053,7 +7111,7 @@ function ReportUserAction({ userId, userName, label = 'Report User' }) {
           <p className="helper-text">
             Reports go to the LGU Admin for this municipality and to the Super Admin. Describe what happened as clearly as you can --
             they will review it and decide what action to take. Filing a report does not suspend anyone by itself. The person you
-            report is notified of the reason right away, but not of your name.
+            report is notified right away of the reason and what you write below, but not of your name.
           </p>
           <label className="filter-label">
             Reason (required)
@@ -7271,7 +7329,7 @@ const HELP_TOPICS = [
       ['When do I get paid?', 'After the buyer confirms they received the order, your LGU reviews the earnings. Once approved, 94% of the order total goes to your Available Balance. The other 6% is shared: 2% to your LGU and 4% to AbaiMarket.'],
       ['How do I withdraw my money?', 'Open your Wallet and click Request Withdrawal. Choose GCash, Maya or a bank account. There is no payout fee, so you receive the full amount you request. The Super Admin approves the request and marks it paid once the money is sent.'],
       ['My earnings review or withdrawal was rejected.', 'Open the rejected item and click Dispute This Rejection to explain your side. The person who rejected it reviews your dispute. If they accept it, the item is reopened for another review. A rejected withdrawal keeps its amount on hold for 7 days so you can dispute it once. If you do not dispute it within 7 days, or your dispute is rejected, the amount returns to your Available Balance on its own. If you still think a final rejection is wrong, message the Super Admin or send a support ticket under Wallet or withdrawal.'],
-      ['What is a Notice to Explain?', 'If a review of 3 stars or fewer brings your average rating below 3, or your LGU finds a buyer\'s report against you valid, AbaiMarket sends you a Notice to Explain. The notice lists the low reviews behind it, and you can open each one. Every notice works the same way: you are not suspended and your listings stay up while you send one explanation from the Notices tab. If it is rejected, your seller account is suspended and you can no longer explain in the app; to have it reviewed again, message your LGU or send a support ticket. A 4 or 5 star review never causes a notice.'],
+      ['What is a Notice to Explain?', 'If a review of 3 stars or fewer brings your average rating below 3, or your LGU finds a buyer\'s report against you valid, AbaiMarket sends you a Notice to Explain. The notice lists the low reviews behind it, and you can open each one. You are not suspended and your listings stay up while you send one explanation from the Notices tab. If it is rejected, your seller account is suspended and you can no longer explain in the app; to have it reviewed again, message your LGU or send a support ticket. After a rejected explanation, your next notice (from a rating or a report) suspends you right away with nothing to explain -- message your LGU or send a support ticket. An accepted explanation does not count against you. A 4 or 5 star review never causes a notice.'],
     ],
   },
 ]
@@ -7416,6 +7474,9 @@ function notificationLinkFor(role) {
   return (notification) => {
     const supportLink = support(notification)
     if (supportLink) return supportLink
+    // "review_received:<seller profile id>:<review id>" opens that review on the profile.
+    const review = /^review_received:(\d+):(\d+)$/.exec(notification.type || '')
+    if (review) return `${sellerProfilePath(review[1])}?review=${review[2]}`
     const match = tabs.find(([prefix]) => notification.type?.startsWith(prefix))
     return match ? `${base}?tab=${match[1]}` : null
   }
@@ -8324,10 +8385,11 @@ function SellerNoticesPanel({ scope = 'lgu' }) {
       <p className="helper-text">
         Sellers {scope === 'super_admin' ? 'across every municipality' : 'in your municipality'} get a Notice to Explain when a review of 3 stars
         or fewer drops their average buyer rating <strong>below 3</strong>, or when a buyer&apos;s report against them is found valid under User
-        Reports. Every notice works the same way: the seller is not suspended and their listings stay up while they send{' '}
+        Reports. On a seller&apos;s notice they are not suspended and their listings stay up while they send{' '}
         <strong>one</strong> explanation. Read it and decide: <strong>accept</strong> closes the notice with no offense recorded;{' '}
-        <strong>reject</strong> records an offense and <strong>suspends the seller</strong>. There is no in-app dispute: a suspended seller
-        messages you or sends a support ticket, and you can reinstate them from the Sellers tab. A suspended seller gets no new notices.
+        <strong>reject</strong> records an offense and <strong>suspends the seller</strong>. A seller who <strong>already had an explanation
+        rejected</strong> is suspended automatically on their next notice, with nothing to explain (<strong>Repeat Offense</strong>). There is
+        no in-app dispute: a suspended seller messages you or sends a support ticket, and you can reinstate them from the Sellers tab.
       </p>
       {periodControls}
       {shownNotices.length ? (
@@ -8361,9 +8423,11 @@ function SellerNoticesPanel({ scope = 'lgu' }) {
                 <p className="helper-text">The seller has not responded yet.</p>
               )}
               {notice.lgu_notes && <p className="helper-text"><strong>Your notes:</strong> {notice.lgu_notes}</p>}
-              {['accepted', 'rejected'].includes(notice.status) ? (
+              {['accepted', 'rejected', 'repeat_offense'].includes(notice.status) ? (
                 <p className="helper-text">
-                  {notice.status === 'accepted' ? 'Explanation accepted. No offense was recorded.' : 'Explanation rejected -- an offense was recorded and the seller was suspended. To lift it, reinstate them from the Sellers tab.'}
+                  {notice.status === 'accepted' && 'Explanation accepted. No offense was recorded.'}
+                  {notice.status === 'rejected' && 'Explanation rejected -- an offense was recorded and the seller was suspended. To lift it, reinstate them from the Sellers tab.'}
+                  {notice.status === 'repeat_offense' && 'Repeat offense -- this seller already had an explanation rejected, so this notice suspended them automatically and they cannot explain it. They will message you or send a support ticket; to lift it, reinstate them from the Sellers tab.'}
                   {notice.reviewer?.name ? ` Decided by ${notice.reviewer.name}.` : ''}
                 </p>
               ) : actingId === notice.id ? (
@@ -8487,9 +8551,10 @@ function SellerNoticesSection({ lguContact = null }) {
     <Section title="Notices to Explain">
       <p className="helper-text">
         You get a Notice to Explain if a review of 3 stars or fewer drops your average buyer rating <strong>below 3</strong>, or if your LGU
-        finds a buyer&apos;s report against you valid. Every notice works the same way: you are not suspended and your listings stay on the
-        marketplace while you send <strong>one</strong> explanation. If it is <strong>rejected, your seller account is suspended</strong>,
-        and you can no longer explain in the app -- message your LGU or send a support ticket.
+        finds a buyer&apos;s report against you valid. You are not suspended and your listings stay on the marketplace while you send{' '}
+        <strong>one</strong> explanation. If it is <strong>rejected, your seller account is suspended</strong>, and you can no longer explain
+        in the app -- message your LGU or send a support ticket. After a rejected explanation, your <strong>next</strong> notice suspends
+        you right away with nothing to explain, so contact your LGU or support straight away.
       </p>
       {periodControls}
       {shownNotices.length ? (
@@ -8519,9 +8584,13 @@ function SellerNoticesSection({ lguContact = null }) {
                 {notice.status === 'accepted' && (
                   <p className="helper-text">{reviewer} accepted this explanation. No offense was recorded.</p>
                 )}
-                {notice.status === 'rejected' && (
+                {['rejected', 'repeat_offense'].includes(notice.status) && (
                   <>
-                    <p className="error">{reviewer} rejected this explanation, so an offense was recorded and your seller account was suspended.</p>
+                    <p className="error">
+                      {notice.status === 'rejected'
+                        ? `${reviewer} rejected this explanation, so an offense was recorded and your seller account was suspended.`
+                        : 'You already had an explanation rejected before, so this notice is a repeat offense: your seller account was suspended and this notice cannot be answered in the app.'}
+                    </p>
                     {notice.reinstated_at ? (
                       <p className="helper-text">
                         {notice.reinstated_by_label || 'Your LGU'} reinstated your account on {new Date(notice.reinstated_at).toLocaleDateString()}. You can sell again; the offense stays on record.
@@ -8555,9 +8624,9 @@ function SellerNoticesSection({ lguContact = null }) {
                       {respond.isPending ? 'Sending...' : 'Send Explanation'}
                     </button>
                   </div>
-                ) : (
+                ) : ['resolved', 'dismissed'].includes(notice.status) ? (
                   <p className="helper-text">This notice has been closed by {reviewer === 'Your LGU' ? 'your LGU' : 'the Super Admin'}.</p>
-                )}
+                ) : null}
               </div>
             )
           })}
@@ -8923,7 +8992,7 @@ function SuspendedAccountNotice({ role }) {
       </div>
       <p className="helper-text">
         {role === 'seller'
-          ? 'Your listings are off the marketplace, and you cannot add or edit listings, update orders, request withdrawals, post or message buyers until you are reinstated. You can still sign in, see your account, answer Notices to Explain, dispute rejected earnings or withdrawals, and message your LGU or the Super Admin.'
+          ? 'Your listings are off the marketplace, and you cannot add or edit listings, update orders, request withdrawals, post or message buyers until you are reinstated. You can still sign in, see your account, dispute rejected earnings or withdrawals, and message your LGU or the Super Admin. You cannot answer a Notice to Explain while suspended.'
           : 'You cannot place orders, pay, message sellers or leave reviews until you are reinstated. You can still sign in, browse and see your orders.'}
         {' '}The reason is in your <Link to={`${base}?tab=notifications`}>Notifications</Link> and in the email we sent. If you think this is a mistake,{' '}
         <Link to={`${base}?tab=messages`}>message your LGU</Link> or <Link to={`${base}?tab=support`}>send a support ticket</Link>.

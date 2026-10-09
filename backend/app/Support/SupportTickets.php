@@ -90,6 +90,16 @@ class SupportTickets
 
         if ($internal) {
             $ticket->update(['last_activity_at' => now()]);
+        ActivityLog::record([
+            'actor_id' => $staff->id,
+            'actor_role' => $staff->role,
+            'action' => 'support_ticket_note_added',
+            'target_user_id' => $ticket->user_id,
+            'municipality_id' => $ticket->municipality_id,
+            'reference_type' => 'SUP',
+            'reference_number' => $ticket->ticket_number,
+            'description' => sprintf('Internal note added to %s.', $ticket->ticket_number),
+        ]);
 
             return $message;
         }
@@ -108,6 +118,16 @@ class SupportTickets
             $ticket->subject
         ));
         SafeMailer::send($ticket->contact_email ?: $ticket->user?->email, new SupportTicketUpdatedMail($ticket, $message, 'reply'));
+        ActivityLog::record([
+            'actor_id' => $staff->id,
+            'actor_role' => $staff->role,
+            'action' => 'support_ticket_replied',
+            'target_user_id' => $ticket->user_id,
+            'municipality_id' => $ticket->municipality_id,
+            'reference_type' => 'SUP',
+            'reference_number' => $ticket->ticket_number,
+            'description' => sprintf('Support replied on %s.', $ticket->ticket_number),
+        ]);
 
         return $message;
     }
@@ -166,6 +186,16 @@ class SupportTickets
         foreach (self::staffRecipients($ticket) as $staff) {
             SafeMailer::send($staff->email, new SupportTicketUserRepliedMail($ticket, $message, $staff));
         }
+        ActivityLog::record([
+            'actor_id' => $owner->id,
+            'actor_role' => $owner->role,
+            'action' => 'support_ticket_replied',
+            'target_user_id' => $ticket->user_id,
+            'municipality_id' => $ticket->municipality_id,
+            'reference_type' => 'SUP',
+            'reference_number' => $ticket->ticket_number,
+            'description' => sprintf('The ticket owner replied on %s.', $ticket->ticket_number),
+        ]);
 
         return $message;
     }

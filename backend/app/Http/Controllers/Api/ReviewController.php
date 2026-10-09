@@ -60,7 +60,11 @@ class ReviewController extends Controller
         // fewer and the average is now below 3, raises a Notice to Explain and
         // notifies the seller's LGU. It never suspends anyone -- see
         // App\Support\SellerReputation.
-        SellerReputation::refreshAverage($order->seller_profile_id, $request->user(), (int) $review->rating);
+        $average = SellerReputation::refreshAverage($order->seller_profile_id, $request->user(), (int) $review->rating);
+
+        // Every review, good or bad, reaches the seller -- not only the ones
+        // that end in a Notice to Explain.
+        SellerReputation::notifyNewReview($review, $order, $request->user(), $average);
 
         return response()->json($review, 201);
     }

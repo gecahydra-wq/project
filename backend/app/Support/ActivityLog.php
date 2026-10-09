@@ -5,8 +5,10 @@ namespace App\Support;
 use App\Models\ActivityLogEntry;
 use App\Models\LguWithdrawalRequest;
 use App\Models\ModerationLog;
+use App\Models\Order;
 use App\Models\Review;
 use App\Models\Settlement;
+use App\Models\User;
 use App\Models\WithdrawalRequest;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -40,14 +42,26 @@ class ActivityLog
     public const CATEGORIES = [
         'accounts' => [
             'label' => 'Accounts',
-            'actions' => ['user_registered', 'lgu_admin_created', 'lgu_admin_updated', 'municipality_created'],
+            'actions' => [
+                'user_registered', 'lgu_admin_created', 'lgu_admin_updated', 'municipality_created',
+                'announcement_posted', 'announcement_updated', 'announcement_deleted',
+            ],
         ],
         'listings_sellers' => [
             'label' => 'Listings & Sellers',
             'actions' => [
+                'listing_created', 'listing_updated', 'listing_deleted',
                 'listing_approved', 'listing_rejected', 'listing_archived', 'seller_verified',
                 // Seller Registration Approval -- see App\Support\SellerApproval.
-                'seller_registration_approved', 'seller_registration_rejected',
+                'seller_registration_submitted', 'seller_registration_approved', 'seller_registration_rejected',
+            ],
+        ],
+        // An order from placement to delivery -- see ActivityLog::orderEvent.
+        'orders' => [
+            'label' => 'Orders',
+            'actions' => [
+                'order_placed', 'order_paid', 'order_confirmed', 'order_out_for_delivery',
+                'order_confirmed_received', 'order_marked_received_by_admin', 'order_cancelled',
             ],
         ],
         'moderation' => [
@@ -64,11 +78,13 @@ class ActivityLog
             ],
         ],
         'payments' => [
-            'label' => 'Payments',
+            'label' => 'Payments & Payouts',
             'actions' => [
-                'seller_earnings_approved', 'seller_payout_requested', 'seller_payout_approved',
-                'seller_payout_completed', 'lgu_payout_requested', 'lgu_payout_approved', 'lgu_payout_completed',
-                'order_refunded', 'order_cancelled',
+                'seller_earnings_approved', 'seller_earnings_held', 'seller_earnings_hold_cleared',
+                'seller_earnings_rejected', 'seller_earnings_reopened',
+                'seller_payout_requested', 'seller_payout_approved', 'seller_payout_rejected', 'seller_payout_completed',
+                'lgu_payout_requested', 'lgu_payout_approved', 'lgu_payout_rejected', 'lgu_payout_completed',
+                'order_refunded',
                 // A rejected withdrawal's held amount released -- see App\Support\WithdrawalRejection.
                 'withdrawal_rejection_final',
             ],
@@ -86,19 +102,52 @@ class ActivityLog
             'label' => 'Reports & Notices',
             'actions' => [
                 'user_report_filed', 'user_report_reviewed', 'user_report_resolved', 'user_report_dismissed',
-                'seller_notice_issued', 'seller_notice_updated',
+                'seller_notice_issued', 'seller_notice_answered', 'seller_notice_updated',
+                'seller_notice_accepted', 'seller_notice_rejected', 'seller_notice_repeat_offense',
             ],
+        ],
+        // Appeals against a rejection -- see App\Support\DisputeResolution.
+        'disputes' => [
+            'label' => 'Disputes',
+            'actions' => ['dispute_filed', 'dispute_accepted', 'dispute_rejected'],
         ],
         // Help & Support tickets -- see App\Support\SupportTickets.
         'support' => [
             'label' => 'Help & Support',
-            'actions' => ['support_ticket_opened', 'support_ticket_resolved'],
+            'actions' => ['support_ticket_opened', 'support_ticket_replied', 'support_ticket_note_added', 'support_ticket_resolved'],
         ],
     ];
+
+    /**
+     * The display order of the category tabs: the busiest, most-asked-about
+     * groups first, the same for the LGU and the Super Admin.
+     */
+    private const CATEGORY_ORDER = ['orders', 'payments', 'listings_sellers', 'reports', 'disputes', 'moderation', 'support', 'reviews', 'accounts'];
 
     public static function record(array $data): void
     {
         ActivityLogEntry::create($data);
+    }
+
+    /**
+     * One step in an order's life, logged against the seller's municipality
+     * (so their LGU sees it) with the order number as the reference. $actor
+     * is null for a system step such as a payment confirmed by PayMongo.
+     */
+    public static function orderEvent(Order $order, string $action, ?User $actor, string $description): void
+    {
+        $order->loadMissing('sellerProfile');
+
+        self::record([
+            'actor_id' => $actor?->id,
+            'actor_role' => $actor?->role ?? 'system',
+            'action' => $action,
+            'target_user_id' => $order->sellerProfile?->user_id,
+            'municipality_id' => $order->sellerProfile?->municipality_id,
+            'reference_type' => 'ORD',
+            'reference_number' => $order->order_number,
+            'description' => $description,
+        ]);
     }
 
     /**
@@ -171,8 +220,8 @@ class ActivityLog
      */
     public static function categoryOptions(): array
     {
-        return collect(self::CATEGORIES)
-            ->map(fn ($category, $key) => ['value' => $key, 'label' => $category['label']])
+        return collect(self::CATEGORY_ORDER)
+            ->map(fn ($key) => ['value' => $key, 'label' => self::CATEGORIES[$key]['label']])
             ->values()
             ->all();
     }
@@ -211,8 +260,10 @@ class ActivityLog
 
     private static function fromModerationLogs(?int $municipalityId, ?Carbon $from, ?Carbon $to): Collection
     {
-        $query = ModerationLog::with(['user', 'moderator'])
-            ->when($municipalityId, fn ($q) => $q->whereHas('user', fn ($q2) => $q2->where('municipality_id', $municipalityId)))
+        $query = ModerationLog::with(['user.sellerProfile.municipality', 'user.municipality', 'moderator'])
+            ->when($municipalityId, fn ($q) => $q->whereHas('user', fn ($q2) => $q2
+                ->where('municipality_id', $municipalityId)
+                ->orWhereHas('sellerProfile', fn ($q3) => $q3->where('municipality_id', $municipalityId))))
             ->when($from, fn ($q) => $q->where('created_at', '>=', $from))
             ->when($to, fn ($q) => $q->where('created_at', '<=', $to));
 
@@ -225,10 +276,10 @@ class ActivityLog
             'action' => "{$row->role}_{$row->action}",
             'target_user' => $row->user?->name,
             'target_user_id' => $row->user_id,
-            'municipality' => $row->user?->municipality?->name,
+            'municipality' => $row->user?->municipality?->name ?? $row->user?->sellerProfile?->municipality?->name,
             'reference_type' => null,
             'reference_number' => null,
-            'description' => $row->reason ? "{$row->action} -- {$row->reason}" : ucfirst($row->action),
+            'description' => ucfirst($row->action).($row->reason ? " -- {$row->reason}" : '').($row->notes ? " (Notes: {$row->notes})" : ''),
         ]);
     }
 
@@ -301,7 +352,7 @@ class ActivityLog
 
     private static function fromSellerWithdrawals(?int $municipalityId, ?Carbon $from, ?Carbon $to): Collection
     {
-        $query = WithdrawalRequest::with('sellerProfile.user')
+        $query = WithdrawalRequest::with(['sellerProfile.user', 'sellerProfile.municipality'])
             ->when($municipalityId, fn ($q) => $q->whereHas('sellerProfile', fn ($q2) => $q2->where('municipality_id', $municipalityId)));
 
         $entries = collect();
@@ -315,6 +366,9 @@ class ActivityLog
             }
             if ($row->reviewed_at && ! in_array($row->status, [WithdrawalRejection::ON_HOLD, WithdrawalRejection::FINAL], true) && self::withinRange($row->reviewed_at, $from, $to)) {
                 $entries->push(self::sellerPayoutEntry($row, 'seller_payout_approved', $row->reviewed_at, $sellerName, $municipalityName, $ref, "Payout of ₱{$row->amount} approved."));
+            }
+            if ($row->reviewed_at && in_array($row->status, [WithdrawalRejection::ON_HOLD, WithdrawalRejection::FINAL], true) && self::withinRange($row->reviewed_at, $from, $to)) {
+                $entries->push(self::sellerPayoutEntry($row, 'seller_payout_rejected', $row->reviewed_at, $sellerName, $municipalityName, $ref, "Payout of ₱{$row->amount} rejected. Reason: {$row->rejection_reason}"));
             }
             if ($row->paid_at && self::withinRange($row->paid_at, $from, $to)) {
                 $entries->push(self::sellerPayoutEntry($row, 'seller_payout_completed', $row->paid_at, $sellerName, $municipalityName, $ref, "Payout of ₱{$row->amount} paid out (net ₱{$row->net_amount})."));
@@ -356,6 +410,9 @@ class ActivityLog
             }
             if ($row->reviewed_at && ! in_array($row->status, [WithdrawalRejection::ON_HOLD, WithdrawalRejection::FINAL], true) && self::withinRange($row->reviewed_at, $from, $to)) {
                 $entries->push(self::lguPayoutEntry($row, 'lgu_payout_approved', $row->reviewed_at, $ref, "Municipality payout of ₱{$row->amount} approved."));
+            }
+            if ($row->reviewed_at && in_array($row->status, [WithdrawalRejection::ON_HOLD, WithdrawalRejection::FINAL], true) && self::withinRange($row->reviewed_at, $from, $to)) {
+                $entries->push(self::lguPayoutEntry($row, 'lgu_payout_rejected', $row->reviewed_at, $ref, "Municipality payout of ₱{$row->amount} rejected. Reason: {$row->rejection_reason}"));
             }
             if ($row->paid_at && self::withinRange($row->paid_at, $from, $to)) {
                 $entries->push(self::lguPayoutEntry($row, 'lgu_payout_completed', $row->paid_at, $ref, "Municipality payout of ₱{$row->amount} paid out."));

@@ -22,6 +22,11 @@ use App\Models\User;
  *  3. Rejected -- SUSPENSION, automatically (the team's rule since
  *     2026-10-09; it replaced the adviser's earlier "never auto-suspend").
  *     Only a reviewer who has read the explanation can trigger it.
+ *  5. Repeat offense -- a seller who ALREADY had an explanation rejected
+ *     gets no second chance to explain: their next notice (from a rating or
+ *     a valid report) suspends them on arrival (suspendForRepeatOffense),
+ *     like a rejected registration -- LGU chat or a support ticket only.
+ *     An accepted explanation is not an offense and does not count.
  *  4. Suspended -- by a rejected explanation or by an admin directly, the
  *     seller ends up in the same place: no explanation, no in-app dispute, no
  *     new notices. They message their LGU or send a support ticket, and staff
@@ -47,7 +52,7 @@ class SellerSanctions
     public static function offenseCount(int $sellerProfileId): int
     {
         return SellerNotice::where('seller_profile_id', $sellerProfileId)
-            ->where('status', SellerNotice::STATUS_REJECTED)
+            ->whereIn('status', SellerNotice::OFFENSE_STATUSES)
             ->count();
     }
 
@@ -68,7 +73,7 @@ class SellerSanctions
         }
 
         return SellerNotice::whereIn('seller_profile_id', $ids)
-            ->where('status', SellerNotice::STATUS_REJECTED)
+            ->whereIn('status', SellerNotice::OFFENSE_STATUSES)
             ->selectRaw('seller_profile_id, COUNT(*) as total')
             ->groupBy('seller_profile_id')
             ->pluck('total', 'seller_profile_id')
@@ -195,6 +200,49 @@ class SellerSanctions
                 $seller->hatchery_name,
                 $offenses
             ),
+        ]);
+
+        return $notice->fresh();
+    }
+
+    /** Whether this seller already has an offense (a rejected explanation) on record. */
+    public static function isRepeatOffender(int $sellerProfileId): bool
+    {
+        return self::offenseCount($sellerProfileId) > 0;
+    }
+
+    /**
+     * A new notice for a seller who already had an explanation rejected: it is
+     * closed as a repeat offense and the seller is suspended at once, with no
+     * explanation to send. $actor is the reviewer who sent a report notice, or
+     * null when a low rating raised it automatically.
+     */
+    public static function suspendForRepeatOffense(SellerNotice $notice, SellerProfile $seller, ?User $actor, string $why): SellerNotice
+    {
+        $notice->update([
+            'status' => SellerNotice::STATUS_REPEAT_OFFENSE,
+            'reviewed_by' => $actor?->id,
+            'reviewed_at' => now(),
+        ]);
+
+        $nextSteps = 'Because you already had an explanation rejected before, this notice cannot be answered in the app. Message your LGU or send a support ticket from Help & Support if you want it reviewed.';
+        if ($seller->status !== 'suspended') {
+            AccountModeration::suspendSeller($seller, $actor, "Repeat offense: {$why}", null, $nextSteps);
+        }
+
+        self::notifySeller($seller, 'seller_notice_repeat_offense', 'Notice to Explain -- Account Suspended', sprintf(
+            '%s You already had an explanation rejected before, so this is a repeat offense: your seller account has been suspended and you cannot send an explanation for this notice. %s',
+            $why,
+            'Message your LGU or send a support ticket from Help & Support if you want it reviewed.'
+        ));
+
+        ActivityLog::record([
+            'actor_id' => $actor?->id,
+            'actor_role' => $actor?->role ?? 'system',
+            'action' => 'seller_notice_repeat_offense',
+            'target_user_id' => $seller->user_id,
+            'municipality_id' => $notice->municipality_id,
+            'description' => sprintf('%s received a new Notice to Explain after an earlier rejected explanation -- repeat offense, suspended automatically.', $seller->hatchery_name),
         ]);
 
         return $notice->fresh();

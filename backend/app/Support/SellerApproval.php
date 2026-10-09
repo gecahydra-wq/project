@@ -159,6 +159,15 @@ class SellerApproval
     {
         $seller->loadMissing(['user', 'municipality']);
 
+        ActivityLog::record([
+            'actor_id' => $seller->user_id,
+            'actor_role' => 'seller',
+            'action' => 'seller_registration_submitted',
+            'target_user_id' => $seller->user_id,
+            'municipality_id' => $seller->municipality_id,
+            'description' => sprintf('%s submitted a seller registration for review.', $seller->hatchery_name ?: $seller->user?->name),
+        ]);
+
         $reviewers = User::where('role', 'lgu_admin')
             ->where('municipality_id', $seller->municipality_id)
             ->where('status', '!=', 'disabled')

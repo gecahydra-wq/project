@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\AppNotification;
+use App\Models\Order;
 use App\Models\Review;
 use App\Models\SellerNotice;
 use App\Models\SellerProfile;
@@ -112,16 +113,26 @@ class SellerReputation
             'status' => 'open',
         ]);
 
-        self::notifySeller($seller, sprintf(
-            'Your average buyer rating is now %.2f/5 across %d review%s, which is below the %.1f-star threshold. The notice lists the reviews of %d stars or fewer behind it. Your LGU has been notified and has asked you to explain.',
+        $why = sprintf(
+            'Your average buyer rating is now %.2f/5 across %d review%s, which is below the %.1f-star threshold. The notice lists the reviews of %d stars or fewer behind it.',
             $average,
             $count,
             $count === 1 ? '' : 's',
             self::LOW_RATING_THRESHOLD,
             self::LOW_REVIEW_MAX
-        ), 'Notice to Explain -- Low Rating');
+        );
+        // A seller who already had an explanation rejected does not get to
+        // explain again -- the system suspends them (no person acted).
+        $repeat = SellerSanctions::isRepeatOffender($seller->id);
+        if ($repeat) {
+            SellerSanctions::suspendForRepeatOffense($notice, $seller, null, $why);
+        } else {
+            self::notifySeller($seller, $why.' Your LGU has been notified and has asked you to explain.', 'Notice to Explain -- Low Rating');
+        }
         self::notifyLguAdmins($seller, 'seller_low_rating', 'Seller Flagged for Low Rating', sprintf(
-            '%s now averages %.2f/5 across %d review%s. A Notice to Explain has been issued -- review it under Notices to Explain and decide what action, if any, to take.',
+            $repeat
+                ? '%s now averages %.2f/5 across %d review%s. They already had an explanation rejected, so this repeat offense suspended them automatically. Reinstate them from the Sellers tab if they contact you and you agree.'
+                : '%s now averages %.2f/5 across %d review%s. A Notice to Explain has been issued -- review it under Notices to Explain and decide what action, if any, to take.',
             $seller->hatchery_name,
             $average,
             $count,
@@ -175,14 +186,22 @@ class SellerReputation
             'status' => 'open',
         ]);
 
-        self::notifySeller($seller, sprintf(
-            '%s reviewed a buyer\'s report against you ("%s") and found it valid: %s You have been asked to explain.',
+        $why = sprintf(
+            '%s reviewed a buyer\'s report against you ("%s") and found it valid: %s',
             SellerSanctions::reviewerLabel($actor),
             $report->reason,
             $findings
-        ), 'Notice to Explain -- Buyer Report');
+        );
+        $repeat = SellerSanctions::isRepeatOffender($seller->id);
+        if ($repeat) {
+            SellerSanctions::suspendForRepeatOffense($notice, $seller, $actor, $why);
+        } else {
+            self::notifySeller($seller, $why.' You have been asked to explain.', 'Notice to Explain -- Buyer Report');
+        }
         self::notifyLguAdmins($seller, 'seller_report_notice', 'Notice to Explain Issued', sprintf(
-            '%s issued %s a Notice to Explain after finding a buyer\'s report valid. Review the answer under Notices to Explain.',
+            $repeat
+                ? '%s issued %s a Notice to Explain after finding a buyer\'s report valid. They already had an explanation rejected, so this repeat offense suspended them automatically. Reinstate them from the Sellers tab if they contact you and you agree.'
+                : '%s issued %s a Notice to Explain after finding a buyer\'s report valid. Review the answer under Notices to Explain.',
             $actor->name,
             $seller->hatchery_name
         ), $actor->id);
@@ -227,6 +246,40 @@ class SellerReputation
                 'buyer_name' => $review->buyer?->name,
             ])
             ->all();
+    }
+
+    /**
+     * Tell the seller about every new review, 1 to 5 stars. The buyer is named
+     * because reviews are already public with the buyer's name on the
+     * seller's profile. The type carries the seller profile and review ids so
+     * the notification can open that exact review (see notificationLinkFor).
+     */
+    public static function notifyNewReview(Review $review, Order $order, User $buyer, float $average): void
+    {
+        $seller = SellerProfile::find($review->seller_profile_id);
+        if (! $seller?->user_id) {
+            return;
+        }
+
+        $rating = (int) $review->rating;
+        $count = Review::where('seller_profile_id', $seller->id)->count();
+        $comment = trim((string) ($review->comment ?: $review->title));
+
+        AppNotification::create([
+            'user_id' => $seller->user_id,
+            'type' => "review_received:{$seller->id}:{$review->id}",
+            'title' => sprintf('New Review: %s %d/5', str_repeat('★', $rating).str_repeat('☆', 5 - $rating), $rating),
+            'body' => sprintf(
+                '%s rated you %d out of 5 for order #%s.%s Your average is now %.2f/5 across %d review%s.',
+                $buyer->name,
+                $rating,
+                $order->order_number,
+                $comment !== '' ? " \"{$comment}\"" : '',
+                $average,
+                $count,
+                $count === 1 ? '' : 's'
+            ),
+        ]);
     }
 
     private static function notifySeller(SellerProfile $seller, string $why, string $title): void

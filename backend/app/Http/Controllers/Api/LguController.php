@@ -774,6 +774,7 @@ class LguController extends Controller
             $order->order_number,
             $data['reason']
         ));
+        ActivityLog::orderEvent($order, 'seller_earnings_held', $request->user(), sprintf('Earnings for order %s put on hold for investigation. Reason: %s', $order->order_number, $data['reason']));
 
         return response()->json(OrderTransactionPresenter::present($order->fresh(), $request->user()->role));
     }
@@ -783,6 +784,7 @@ class LguController extends Controller
         $order = $this->eligibleOrderForReview($request, $payment, requireHeld: true);
 
         $this->clearReviewStatus($order, $request->user());
+        ActivityLog::orderEvent($order, 'seller_earnings_hold_cleared', $request->user(), sprintf('Hold cleared on order %s; its earnings are back in the approval queue.', $order->order_number));
 
         return response()->json(OrderTransactionPresenter::present($order->fresh(), $request->user()->role));
     }
@@ -809,6 +811,7 @@ class LguController extends Controller
             $this->reviewerLabel($request->user()),
             $order->order_number
         ));
+        ActivityLog::orderEvent($order, 'seller_earnings_reopened', $request->user(), sprintf('Rejected earnings for order %s reopened for review.', $order->order_number));
 
         return response()->json(OrderTransactionPresenter::present($order->fresh(), $request->user()->role));
     }
@@ -856,6 +859,7 @@ class LguController extends Controller
             $order->order_number,
             $data['reason']
         ));
+        ActivityLog::orderEvent($order, 'seller_earnings_rejected', $request->user(), sprintf('Earnings for order %s rejected. Reason: %s', $order->order_number, $data['reason']));
 
         return response()->json(OrderTransactionPresenter::present($order->fresh(), $request->user()->role));
     }

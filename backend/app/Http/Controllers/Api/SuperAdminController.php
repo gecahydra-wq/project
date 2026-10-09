@@ -185,26 +185,6 @@ class SuperAdminController extends Controller
         return response()->json(ActivityLog::categoryOptions());
     }
 
-    /**
-     * Full moderation audit trail -- every suspend/reinstate action across
-     * every role, most recent first. Filterable by role and/or action so
-     * the Moderation Log page can answer "show me suspended sellers" etc.
-     * without a separate endpoint per role.
-     */
-    public function moderationLog(Request $request)
-    {
-        $query = ModerationLog::with(['user', 'moderator']);
-
-        if ($request->filled('role')) {
-            $query->where('role', $request->query('role'));
-        }
-        if ($request->filled('action')) {
-            $query->where('action', $request->query('action'));
-        }
-
-        return response()->json($query->latest()->get());
-    }
-
     public function withdrawals()
     {
         return response()->json(

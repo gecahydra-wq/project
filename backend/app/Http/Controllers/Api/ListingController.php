@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Support\ActivityLog;
 use App\Models\FingerlingListing;
 use App\Models\ListingMedia;
 use App\Models\SellerProfile;
@@ -164,6 +165,17 @@ class ListingController extends Controller
             return $listing;
         });
 
+        ActivityLog::record([
+            'actor_id' => $request->user()->id,
+            'actor_role' => $request->user()->role,
+            'action' => 'listing_created',
+            'target_user_id' => $request->user()->id,
+            'municipality_id' => $listing->municipality_id,
+            'reference_type' => 'LST',
+            'reference_number' => 'LST-'.$listing->id,
+            'description' => sprintf('Listing created: %s.', $listing->title ?: $listing->species),
+        ]);
+
         return response()->json($listing->load('media'), 201);
     }
 
@@ -208,6 +220,17 @@ class ListingController extends Controller
 
         $listing->update($this->normalizeSpeciesFields($data));
 
+        ActivityLog::record([
+            'actor_id' => $request->user()->id,
+            'actor_role' => $request->user()->role,
+            'action' => 'listing_updated',
+            'target_user_id' => $request->user()->id,
+            'municipality_id' => $listing->municipality_id,
+            'reference_type' => 'LST',
+            'reference_number' => 'LST-'.$listing->id,
+            'description' => sprintf('Listing edited: %s.', $listing->title ?: $listing->species),
+        ]);
+
         return response()->json($listing->fresh(['sellerProfile', 'municipality', 'media']));
     }
 
@@ -223,6 +246,16 @@ class ListingController extends Controller
             return response()->json(['message' => 'This listing has existing orders and cannot be deleted. Set its quantity to 0 to take it off the market instead.'], 422);
         }
 
+        ActivityLog::record([
+            'actor_id' => $request->user()->id,
+            'actor_role' => $request->user()->role,
+            'action' => 'listing_deleted',
+            'target_user_id' => $request->user()->id,
+            'municipality_id' => $listing->municipality_id,
+            'reference_type' => 'LST',
+            'reference_number' => 'LST-'.$listing->id,
+            'description' => sprintf('Seller deleted their listing: %s.', $listing->title ?: $listing->species),
+        ]);
         $listing->delete();
 
         return response()->json(['message' => 'Listing deleted.']);

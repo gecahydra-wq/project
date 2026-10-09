@@ -32,5 +32,18 @@ class ListingModeration
                 $reason ? " Reason: {$reason}" : ''
             ),
         ]);
+
+        if ($action === 'deleted') {
+            ActivityLog::record([
+                'actor_id' => $admin->id,
+                'actor_role' => $admin->role,
+                'action' => 'listing_deleted',
+                'target_user_id' => $sellerUserId,
+                'municipality_id' => $listing->municipality_id,
+                'reference_type' => 'LST',
+                'reference_number' => 'LST-'.$listing->id,
+                'description' => sprintf('Listing deleted: %s.%s', $listingName, $reason ? " Reason: {$reason}" : ''),
+            ]);
+        }
     }
 }

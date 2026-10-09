@@ -186,6 +186,14 @@ class OrderController extends Controller
             return $result;
         }
 
+        ActivityLog::orderEvent($result, 'order_placed', $request->user(), sprintf(
+            'Order %s placed: %s x %s, ₱%s.',
+            $result->order_number,
+            number_format((int) $result->quantity),
+            $result->listing?->title ?: $result->listing?->species ?: 'listing',
+            number_format((float) $result->total_amount, 2)
+        ));
+
         return response()->json($result->load('payment'), 201);
     }
 
@@ -224,6 +232,11 @@ class OrderController extends Controller
 
         if ($previousSession && $previousSession !== $checkout['id']) {
             $payMongo->expireCheckoutSession($previousSession);
+        }
+
+        // Demo mode has no PayMongo webhook: the payment is captured right here.
+        if ($checkout['mode'] === 'demo') {
+            ActivityLog::orderEvent($order, 'order_paid', request()->user(), sprintf('Order %s paid (demo mode). ₱%s is held in escrow.', $order->order_number, number_format((float) $order->total_amount, 2)));
         }
 
         return response()->json([
@@ -315,6 +328,13 @@ class OrderController extends Controller
 
         unset($data['cancellation_reason']);
         $order->update($data);
+
+        if ($statusChanged && in_array($data['status'], ['confirmed', 'in_transit'], true)) {
+            ActivityLog::orderEvent($order, $data['status'] === 'confirmed' ? 'order_confirmed' : 'order_out_for_delivery', $request->user(), sprintf(
+                $data['status'] === 'confirmed' ? 'Seller confirmed order %s.' : 'Order %s is out for delivery.',
+                $order->order_number
+            ));
+        }
 
         if ($statusChanged && $data['status'] === 'confirmed') {
             $order->loadMissing('buyer');
@@ -660,6 +680,8 @@ class OrderController extends Controller
             app(PayMongoService::class)->expireCheckoutSession($payment->provider_reference);
 
             $payment->update(['status' => 'paid_held', 'checkout_url' => null]);
+
+            ActivityLog::orderEvent($order, 'order_paid', null, sprintf('Order %s paid through PayMongo. ₱%s is held in escrow.', $order->order_number, number_format((float) $payment->amount, 2)));
         }
 
         if (! in_array($order->status, ['paid', 'confirmed', 'in_transit', 'completed'], true)) {

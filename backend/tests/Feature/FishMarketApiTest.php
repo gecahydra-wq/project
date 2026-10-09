@@ -1764,6 +1764,9 @@ class FishMarketApiTest extends TestCase
         $this->assertStringContainsString('A 4 or 5 star review never causes one', $seller['English']);
         $this->assertStringContainsString('lists the low reviews', $seller['English']);
         $this->assertStringContainsString('cannot explain in the app or get new notices', $seller['English']);
+        $this->assertStringContainsString("NEXT notice (from a rating or a report) suspends them right away", $seller['English']);
+        $this->assertStringContainsString('SUSUNOD na notice', $seller['Tagalog']);
+        $this->assertStringContainsString('SUNOD nga notice', $seller['Bisaya']);
         $this->assertStringContainsString('hindi na makakapagpaliwanag', $seller['Tagalog']);
         $this->assertStringContainsString('dili na makapasabot', $seller['Bisaya']);
         $this->assertStringNotContainsString('or below', $seller['English']);
@@ -2614,6 +2617,8 @@ class FishMarketApiTest extends TestCase
         $notification = AppNotification::where('user_id', $seller->user_id)->where('type', 'user_report_received')->firstOrFail();
         $this->assertSame('You Were Reported', $notification->title);
         $this->assertStringContainsString('A buyer filed a report about you. Reason: Seller unresponsive.', $notification->body);
+        // The buyer's own words, not just the category.
+        $this->assertStringContainsString('What they wrote: "No response to any of my messages about this order."', $notification->body);
         $this->assertStringContainsString('nothing has been decided yet', $notification->body);
         $this->assertStringNotContainsString($buyer->name, $notification->body);
 
@@ -7226,25 +7231,26 @@ class FishMarketApiTest extends TestCase
         $this->patchJson("/api/super-admin/lgu-admins/{$otherLguAdmin->id}/disable")->assertStatus(403);
     }
 
-    public function test_moderation_log_endpoint_returns_full_audit_trail_filterable_by_role_and_action(): void
+    /** The Moderation Log page is now the Activity Log's Moderation tab, with the same filtering. */
+    public function test_the_activity_logs_moderation_tab_holds_every_suspension_filterable_by_action(): void
     {
         $superAdmin = User::where('role', 'super_admin')->firstOrFail();
         $buyer = $this->makeBuyer();
         $seller = $this->makeSeller();
         Sanctum::actingAs($superAdmin);
 
-        $this->patchJson("/api/super-admin/buyers/{$buyer->id}/suspend", ['reason' => 'Harassment'])->assertOk();
+        $this->patchJson("/api/super-admin/buyers/{$buyer->id}/suspend", ['reason' => 'Harassment', 'notes' => 'Three warnings ignored.'])->assertOk();
         $this->patchJson("/api/super-admin/sellers/{$seller->id}/suspend", ['reason' => 'Repeated policy violations.'])->assertOk();
 
-        $all = $this->getJson('/api/super-admin/moderation-log')->assertOk();
-        $this->assertCount(2, $all->json());
+        $all = $this->getJson('/api/super-admin/activity-log?category=moderation')->assertOk();
+        $this->assertSame(2, $all->json('total'));
+        $this->assertStringContainsString('Notes: Three warnings ignored.', collect($all->json('data'))->firstWhere('action', 'buyer_suspended')['description']);
 
-        $buyersOnly = $this->getJson('/api/super-admin/moderation-log?role=buyer')->assertOk();
-        $this->assertCount(1, $buyersOnly->json());
-        $this->assertEquals('buyer', $buyersOnly->json('0.role'));
+        $buyersOnly = $this->getJson('/api/super-admin/activity-log?category=moderation&action=buyer_suspended')->assertOk();
+        $this->assertSame(1, $buyersOnly->json('total'));
 
-        $suspendedOnly = $this->getJson('/api/super-admin/moderation-log?action=suspended')->assertOk();
-        $this->assertCount(2, $suspendedOnly->json());
+        // The old endpoint is gone.
+        $this->getJson('/api/super-admin/moderation-log')->assertNotFound();
     }
 
     public function test_super_admin_dashboard_exposes_moderation_statistics(): void
@@ -7663,7 +7669,58 @@ class FishMarketApiTest extends TestCase
         Sanctum::actingAs($lguAdmin);
 
         $categories = $this->getJson('/api/lgu/activity-log/categories')->assertOk()->json();
-        $this->assertSame(['accounts', 'listings_sellers', 'moderation', 'payments', 'reviews', 'reports', 'support'], collect($categories)->pluck('value')->all());
+        $this->assertSame(
+            ['orders', 'payments', 'listings_sellers', 'reports', 'disputes', 'moderation', 'support', 'reviews', 'accounts'],
+            collect($categories)->pluck('value')->all()
+        );
+    }
+
+    /** One complete log: an order's whole life, a support reply and a rejected payout all show up, scoped to the LGU. */
+    public function test_the_activity_log_records_everything_important(): void
+    {
+        config(['services.paymongo.secret_key' => null]); // demo checkout: paid at once
+        $lguAdmin = $this->makeLguAdmin();
+        $seller = $this->makeSeller(['municipality_id' => $lguAdmin->municipality_id], ['municipality_id' => $lguAdmin->municipality_id]);
+        $listing = $this->makeListing($seller);
+        $buyer = $this->makeBuyer();
+
+        Sanctum::actingAs($buyer);
+        $orderId = $this->postJson('/api/orders', ['fingerling_listing_id' => $listing->id, 'quantity' => 100])->assertCreated()->json('id');
+        $this->postJson("/api/orders/{$orderId}/checkout")->assertOk()->assertJsonPath('mode', 'demo');
+
+        Sanctum::actingAs($seller->user);
+        $this->patchJson("/api/orders/{$orderId}/status", ['status' => 'confirmed'])->assertOk();
+        $this->patchJson("/api/orders/{$orderId}/status", ['status' => 'in_transit'])->assertOk();
+
+        Sanctum::actingAs($lguAdmin);
+        $orders = collect($this->getJson('/api/lgu/activity-log?category=orders&per_page=100')->assertOk()->json('data'))->pluck('action');
+        foreach (['order_placed', 'order_paid', 'order_confirmed', 'order_out_for_delivery'] as $action) {
+            $this->assertContains($action, $orders->all(), $action);
+        }
+
+        // A seller payout the Super Admin rejects appears under Payments & Payouts.
+        $order = $this->makeOrder($buyer, $listing, ['status' => 'completed']);
+        $payment = $this->makePayment($order, ['status' => 'released', 'amount' => 1000]);
+        $this->makeSettlement($order, $payment);
+        Sanctum::actingAs($seller->user);
+        $withdrawalId = $this->postJson('/api/seller/withdrawals', ['method' => 'gcash', 'account_name' => 'Test Seller', 'account_number' => '09170000000', 'amount' => 500])->assertCreated()->json('id');
+        Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
+        $this->patchJson("/api/super-admin/withdrawals/{$withdrawalId}/reject", ['reason' => 'Account name does not match.'])->assertOk();
+
+        Sanctum::actingAs($lguAdmin);
+        $this->assertContains('seller_payout_rejected', collect($this->getJson('/api/lgu/activity-log?category=payments&per_page=100')->json('data'))->pluck('action')->all());
+
+        // Every action anyone can see belongs to a category tab -- nothing only shows under "All".
+        $categorised = collect(\App\Support\ActivityLog::CATEGORIES)->flatMap(fn ($c) => $c['actions'])->all();
+        Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
+        foreach (collect($this->getJson('/api/super-admin/activity-log?per_page=100')->json('data'))->pluck('action')->unique() as $action) {
+            $this->assertContains($action, $categorised, "{$action} has no category");
+        }
+
+        // Another municipality's LGU sees none of it.
+        $otherLgu = $this->makeLguAdmin(['municipality_id' => Municipality::where('id', '!=', $lguAdmin->municipality_id)->firstOrFail()->id]);
+        Sanctum::actingAs($otherLgu);
+        $this->assertSame(0, $this->getJson('/api/lgu/activity-log?category=orders&per_page=100')->json('total'));
     }
 
     public function test_user_registration_is_logged_via_observer_and_lgu_admin_creation_is_not_double_logged(): void
@@ -9401,6 +9458,84 @@ class FishMarketApiTest extends TestCase
         Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
         $this->deleteJson("/api/super-admin/reviews/{$review->id}", ['reason' => 'Spam or fake review'])->assertSuccessful();
         $this->assertCount(1, $this->lowRatingNotices($seller));
+    }
+
+    /** Every review reaches the seller: who, how many stars, the comment and the new average. */
+    public function test_the_seller_is_notified_of_every_new_review(): void
+    {
+        $seller = $this->makeSeller();
+        $buyer = $this->makeBuyer();
+        $order = $this->makeOrder($buyer, $this->makeListing($seller), ['status' => 'completed', 'order_number' => 'FG-RATE01']);
+
+        Sanctum::actingAs($buyer);
+        $reviewId = $this->postJson("/api/orders/{$order->id}/review", ['rating' => 4, 'comment' => 'Healthy fingerlings, a day late.'])
+            ->assertCreated()->json('id');
+
+        $notification = AppNotification::where('user_id', $seller->user_id)->where('type', "review_received:{$seller->id}:{$reviewId}")->firstOrFail();
+        $this->assertSame('New Review: ★★★★☆ 4/5', $notification->title);
+        $this->assertSame(
+            "{$buyer->name} rated you 4 out of 5 for order #FG-RATE01. \"Healthy fingerlings, a day late.\" Your average is now 4.00/5 across 1 review.",
+            $notification->body
+        );
+
+        // A good review never raises a Notice to Explain, only the review notice.
+        $this->assertSame(0, SellerNotice::where('seller_profile_id', $seller->id)->count());
+    }
+
+    /**
+     * Second time: a seller who already had an explanation REJECTED is suspended
+     * on their next notice, with nothing to explain -- LGU chat or a ticket only.
+     * An accepted explanation does not count.
+     */
+    public function test_a_repeat_offender_is_suspended_on_their_next_notice_with_no_explanation(): void
+    {
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $seller = $this->makeSeller(['municipality_id' => $lguAdmin->municipality_id], ['municipality_id' => $lguAdmin->municipality_id]);
+
+        // An ACCEPTED explanation is not an offense: the next notice is a normal one.
+        $this->reviewSeller($seller, [1]);
+        $this->lowRatingNotices($seller)->first()->update(['status' => SellerNotice::STATUS_ACCEPTED]);
+        $this->reviewSeller($seller, [2]);
+        $second = $this->lowRatingNotices($seller)->last();
+        $this->assertSame('open', $second->status);
+        $this->assertNotSame('suspended', $seller->fresh()->status);
+
+        // That one is REJECTED -> suspended; then reinstated.
+        Sanctum::actingAs($seller->user);
+        $this->postJson("/api/seller/notices/{$second->id}/respond", ['response' => 'The courier was late twice.'])->assertOk();
+        Sanctum::actingAs($lguAdmin);
+        $this->patchJson("/api/lgu/seller-notices/{$second->id}/reject", ['reason' => 'Same complaint as before.'])->assertOk();
+        $this->assertSame('suspended', $seller->fresh()->status);
+        $this->patchJson("/api/lgu/sellers/{$seller->id}/reinstate", ['reason' => 'They called and explained.'])->assertOk();
+        $this->assertNotSame('suspended', $seller->fresh()->status);
+
+        // The next bad review: suspended at once, the notice closed as a repeat offense.
+        $this->reviewSeller($seller, [1]);
+        $third = $this->lowRatingNotices($seller)->last();
+        $this->assertSame(SellerNotice::STATUS_REPEAT_OFFENSE, $third->status);
+        $this->assertSame('suspended', $seller->fresh()->status);
+        $this->assertSame(2, SellerSanctions::offenseCount($seller->id));
+        $this->assertDatabaseHas('notifications', ['user_id' => $seller->user_id, 'type' => 'seller_notice_repeat_offense']);
+        $this->assertDatabaseHas('moderation_logs', ['user_id' => $seller->user_id, 'action' => 'suspended', 'moderator_id' => null]);
+
+        // Nothing to explain.
+        Sanctum::actingAs($seller->user);
+        $this->postJson("/api/seller/notices/{$third->id}/respond", ['response' => 'Please let me explain this one.'])->assertStatus(422);
+        $this->assertSame('repeat_offense', collect($this->getJson('/api/seller/notices')->json())->firstWhere('id', $third->id)['status']);
+    }
+
+    /** The same rule across sources: a rejected report notice, then a low rating. */
+    public function test_a_rejected_report_notice_makes_the_next_low_rating_a_repeat_offense(): void
+    {
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $seller = $this->makeSeller(['municipality_id' => $lguAdmin->municipality_id], ['municipality_id' => $lguAdmin->municipality_id]);
+        $notice = SellerNotice::create(['seller_profile_id' => $seller->id, 'municipality_id' => $seller->municipality_id, 'type' => 'user_report', 'details' => 'A valid buyer report.', 'status' => SellerNotice::STATUS_REJECTED, 'reviewed_at' => now()->subDay()]);
+        $this->assertTrue(SellerSanctions::isRepeatOffender($seller->id));
+
+        $this->reviewSeller($seller, [1]);
+        $this->assertSame(SellerNotice::STATUS_REPEAT_OFFENSE, $this->lowRatingNotices($seller)->last()->status);
+        $this->assertSame('suspended', $seller->fresh()->status);
+        $this->assertNotNull($notice);
     }
 
     /** The notice shows the seller (and the reviewers) the reviews of 3 stars or fewer behind it. */

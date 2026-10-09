@@ -20,6 +20,7 @@ use App\Support\ImageUploader;
 use App\Support\OrderTransactionPresenter;
 use App\Support\PayoutAccount;
 use App\Support\SellerReputation;
+use App\Support\ActivityLog;
 use App\Support\SellerSanctions;
 use App\Support\SellerWallet;
 use App\Support\WithdrawalNotifications;
@@ -376,7 +377,7 @@ class SellerController extends Controller
                     // so on the card -- display only, read from the moderation log.
                     $notice->reinstated_at = null;
                     $notice->reinstated_by_label = null;
-                    if ($notice->status === SellerNotice::STATUS_REJECTED && $notice->reviewed_at) {
+                    if (in_array($notice->status, SellerNotice::OFFENSE_STATUSES, true) && $notice->reviewed_at) {
                         $reinstated = ModerationLog::with('moderator:id,role')
                             ->where('user_id', $request->user()->id)
                             ->where('action', 'reinstated')
@@ -434,6 +435,15 @@ class SellerController extends Controller
                 'body' => "{$seller->hatchery_name} has sent their explanation for a Notice to Explain. Review it under Notices to Explain and accept or reject it.",
             ]);
         }
+
+        ActivityLog::record([
+            'actor_id' => $request->user()->id,
+            'actor_role' => 'seller',
+            'action' => 'seller_notice_answered',
+            'target_user_id' => $request->user()->id,
+            'municipality_id' => $seller->municipality_id,
+            'description' => sprintf('%s sent their explanation for a Notice to Explain.', $seller->hatchery_name),
+        ]);
 
         return response()->json($notice->fresh());
     }

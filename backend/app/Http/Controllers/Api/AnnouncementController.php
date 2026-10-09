@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Support\ActivityLog;
 use App\Models\Announcement;
 use App\Support\AnnouncementNotifier;
 use Illuminate\Http\Request;
@@ -51,6 +52,13 @@ class AnnouncementController extends Controller
             AnnouncementNotifier::notifyAudience($announcement);
         }
 
+        ActivityLog::record([
+            'actor_id' => $request->user()->id,
+            'actor_role' => $request->user()->role,
+            'action' => 'announcement_posted',
+            'description' => sprintf('Announcement posted: %s', $announcement->title),
+        ]);
+
         return response()->json($announcement->fresh(), 201);
     }
 
@@ -59,11 +67,24 @@ class AnnouncementController extends Controller
         $data = $this->validated($request, $announcement);
         $announcement->update($data);
 
+        ActivityLog::record([
+            'actor_id' => $request->user()->id,
+            'actor_role' => $request->user()->role,
+            'action' => 'announcement_updated',
+            'description' => sprintf('Announcement edited: %s', $announcement->title),
+        ]);
+
         return response()->json($announcement->fresh());
     }
 
-    public function destroy(Announcement $announcement)
+    public function destroy(Request $request, Announcement $announcement)
     {
+        ActivityLog::record([
+            'actor_id' => $request->user()->id,
+            'actor_role' => $request->user()->role,
+            'action' => 'announcement_deleted',
+            'description' => sprintf('Announcement deleted: %s', $announcement->title),
+        ]);
         $announcement->delete();
 
         return response()->json(['message' => 'Announcement deleted.']);

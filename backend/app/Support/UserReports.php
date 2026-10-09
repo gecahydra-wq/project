@@ -144,10 +144,11 @@ class UserReports
             'type' => 'user_report_received',
             'title' => 'You Were Reported',
             'body' => sprintf(
-                'A %s filed a report about you%s. Reason: %s. %s will review it and decide whether it is valid -- nothing has been decided yet, and no action has been taken against your account.',
+                'A %s filed a report about you%s. Reason: %s. What they wrote: "%s" %s will review it and decide whether it is valid -- nothing has been decided yet, and no action has been taken against your account.',
                 $reporter->role,
                 $order?->order_number ? " for order #{$order->order_number}" : '',
                 rtrim($report->reason, '.'),
+                trim($report->description),
                 $reviewer
             ),
         ]);

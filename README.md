@@ -58,7 +58,8 @@ The system emphasizes correctness of money movement, strict role permissions, a 
 - Buyer ↔ Seller two-way feedback (buyers review sellers; sellers rate buyers)
 - Direct messaging between all roles
 - In-app notifications, with a bell pop-up in the top bar (open one to jump to the right page, or mark one or all as read). Every new request notifies whoever has to act on it: withdrawal requests reach the Super Admin, new seller registrations reach the municipality's LGU, and so on. Read notifications are not lost: every role's Notifications page has a **Notification History** (newest first, date-filterable, the latest 200) under the unread list
-- **User reports:** the reporter must choose a reason from a fixed list (nothing is pre-selected) and describe what happened. The reported person is notified **right away** -- "You Were Reported", with the reason -- before any decision, without the reporter's name
+- **User reports:** the reporter must choose a reason from a fixed list (nothing is pre-selected) and describe what happened. The reported person is notified **right away** -- "You Were Reported", with the reason and what the reporter wrote -- before any decision, without the reporter's name
+- **New reviews:** every buyer review (1 to 5 stars) notifies the seller -- who rated them, the stars, the comment and their new average -- and clicking it opens that review, highlighted, on their profile
 
 **Orders & Payments**
 - Unified Order Numbers (`ORD-####` presentation; `FG-XXXXXX` internal reference)
@@ -79,7 +80,7 @@ The system emphasizes correctness of money movement, strict role permissions, a 
 **Governance & Moderation**
 - LGU: seller verification, listing approval/rejection/archival, seller suspension, earnings verification (approve / hold / reject / **reopen** a rejected transaction back into the queue)
 - Super Admin: platform-wide suspension of buyers/sellers/LGU admins, **permanent account removal** (buyers/sellers, with a required reason — blocked when the account has order history, to protect the financial record), listing management, review/rating removal
-- Global Activity Log / audit trail and a dedicated Moderation Log
+- One complete Activity Log / audit trail (LGU: own municipality; Super Admin: everything) with category tabs -- Orders, Payments & Payouts, Listings & Sellers, Reports & Notices, Disputes, Moderation, Help & Support, Reviews & Ratings, Accounts -- plus search, action type, Today/This Week/This Month/This Year or a date range, and municipality. The old separate Moderation Log page is its Moderation tab
 - A **reason is required** for every rejection, dismissal, suspension, archive or disable, and the affected user is told why
 
 **Analytics & Reporting**
@@ -305,7 +306,7 @@ Fish farmers who purchase fingerlings.
 - Rate buyers after completed orders (so other sellers can gauge legitimacy)
 - View the marketplace read-only (cannot purchase from other sellers)
 - Analytics, messaging, notifications
-- Answer **Notices to Explain** with **one** explanation; their LGU and the Super Admin are notified. A notice comes from a review of **3 stars or fewer** that brings the average **below 3.0** (a 4 or 5 star review never does; exactly 3.00 is fine; removing a review never does), or from a buyer report the LGU finds valid. A low-rating notice lists the low reviews behind it, each opening that review. **Every notice works the same**: not suspended, listings stay up while they explain. A **rejected explanation suspends the seller**; a suspended seller (however it happened) cannot explain or receive new notices -- they message their LGU or send a support ticket, and staff can reinstate them (the notice card then shows the reinstatement date).
+- Answer **Notices to Explain** with **one** explanation; their LGU and the Super Admin are notified. A notice comes from a review of **3 stars or fewer** that brings the average **below 3.0** (a 4 or 5 star review never does; exactly 3.00 is fine; removing a review never does), or from a buyer report the LGU finds valid. A low-rating notice lists the low reviews behind it, each opening that review. **Every notice works the same**: not suspended, listings stay up while they explain. A **rejected explanation suspends the seller**; a suspended seller (however it happened) cannot explain or receive new notices -- they message their LGU or send a support ticket, and staff can reinstate them (the notice card then shows the reinstatement date). A seller who already had an explanation **rejected** (from a rating or a report notice) is **suspended automatically on their next notice** — marked *Repeat Offense*, with no explanation form — and must message their LGU or send a support ticket, like a rejected registration. An **accepted** explanation does not count.
 - A suspended seller can still log in (to read why, dispute, message their LGU or the Super Admin, and send a support ticket), but their listings leave the marketplace and they **cannot** add or edit listings, update orders, request withdrawals, post, or message buyers.
 
 ### LGU Admin
@@ -323,7 +324,7 @@ Platform-wide authority.
 - Approve/release seller and LGU payouts
 - Suspend/reinstate buyers, sellers, and LGU admins; **permanently remove** buyers/sellers that have no order history
 - Global listing management, review/rating moderation
-- Announcements, global activity & moderation logs, platform reports and exports
+- Announcements, the complete activity log (moderation included), platform reports and exports
 
 ---
 
