@@ -7526,6 +7526,19 @@ function NotificationBell({ role, link }) {
     refetchInterval: 60000,
   })
   const items = query.data || []
+  // A suspension or reinstatement arrives as a notification, but the suspended
+  // banner, orders and listings come from other queries that are not polled.
+  // When a new one shows up, refresh everything so the page matches it.
+  const accountChangeId = items
+    .filter((item) => ['account_suspended', 'account_reinstated'].includes(item.type))
+    .reduce((latest, item) => Math.max(latest, item.id), 0)
+  const seenAccountChange = useRef(null)
+  useEffect(() => {
+    if (seenAccountChange.current !== null && accountChangeId > seenAccountChange.current) {
+      queryClient.invalidateQueries()
+    }
+    if (query.isSuccess) seenAccountChange.current = accountChangeId
+  }, [accountChangeId, query.isSuccess])
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: source.key })
     source.alsoRefresh.forEach((key) => queryClient.invalidateQueries({ queryKey: [key] }))
