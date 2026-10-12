@@ -2255,6 +2255,15 @@ class FishMarketApiTest extends TestCase
         // The money must still be sitting in escrow, undecided.
         $this->assertNull($order->fresh()->lgu_review_status);
         $this->assertSame('paid_held', $payment->fresh()->status);
+
+        // If the LGU rejects it again after the accepted dispute, that order
+        // has already used its one in-app dispute. The next step is LGU chat or
+        // a support ticket, not another loop through the Disputes tab.
+        $this->patchJson("/api/lgu/payments/{$payment->id}/reject", ['reason' => 'Receipt still does not match the delivered batch.'])->assertOk();
+        Sanctum::actingAs($seller->user);
+        $this->postJson("/api/orders/{$order->id}/dispute-earnings", ['reason' => 'Please check again.'])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'This rejected earnings review was already disputed once. Message your LGU or send a support ticket from Help & Support if you want it reviewed again.');
     }
 
     public function test_rejecting_a_dispute_leaves_the_original_decision_standing(): void
@@ -2287,6 +2296,13 @@ class FishMarketApiTest extends TestCase
 
         // Already resolved -- it cannot be decided twice.
         $this->patchJson("/api/lgu/disputes/{$id}/accept")->assertStatus(422);
+
+        // And the seller cannot keep disputing the same rejected earnings
+        // review after that one explanation was declined.
+        Sanctum::actingAs($seller->user);
+        $this->postJson("/api/orders/{$order->id}/dispute-earnings", ['reason' => 'I want to try again.'])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'This rejected earnings review was already disputed once. Message your LGU or send a support ticket from Help & Support if you want it reviewed again.');
     }
 
     /**

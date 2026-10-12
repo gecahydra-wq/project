@@ -4516,28 +4516,28 @@ function SellerOrderRow({ order, onUpdateStatus }) {
               Your LGU declined to approve the earnings for this order.
               {order.lgu_review_reason ? ` Reason: ${order.lgu_review_reason}` : ''}
             </p>
-            {/* An open appeal replaces the button: re-offering it would invite a
-                duplicate the API refuses, and say nothing about the one already
-                filed. A rejected appeal allows another, since the seller may
-                have new information -- that is the API's rule too. */}
+            {/* One in-app dispute is allowed for a rejected earnings review. If
+                it is still open, show the waiting state; once it has been
+                decided, the next step is outside this flow: message the LGU or
+                send a support ticket. */}
             {order.latestDispute?.status === 'open' ? (
               <span className="dispute-submitted">
                 <Clock size={15} /> Dispute submitted -- waiting for your LGU's response.
               </span>
+            ) : order.latestDispute ? (
+              <p className="helper-text dispute-outcome">
+                {order.latestDispute.status === 'accepted'
+                  ? 'Your previous dispute was accepted, but this earnings review was rejected again.'
+                  : 'Your previous dispute was reviewed and declined.'}
+                {order.latestDispute.resolution_note ? ` Note: ${order.latestDispute.resolution_note}` : ''}
+                {' '}If you want it reviewed again, message your LGU or send a support ticket from Help & Support.
+              </p>
             ) : (
-              <>
-                {order.latestDispute?.status === 'rejected' && (
-                  <p className="helper-text dispute-outcome">
-                    Your previous dispute was reviewed and declined.
-                    {order.latestDispute.resolution_note ? ` Note: ${order.latestDispute.resolution_note}` : ''}
-                  </p>
-                )}
-                <DisputeAction
-                  endpoint={`/orders/${order.id}/dispute-earnings`}
-                  invalidateKeys={['seller-dashboard']}
-                  label={order.latestDispute?.status === 'rejected' ? 'Dispute Again' : 'Explain My Side'}
-                />
-              </>
+              <DisputeAction
+                endpoint={`/orders/${order.id}/dispute-earnings`}
+                invalidateKeys={['seller-dashboard']}
+                label="Explain My Side"
+              />
             )}
           </div>
         )}

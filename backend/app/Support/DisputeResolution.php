@@ -64,13 +64,20 @@ class DisputeResolution
 
     /**
      * File an appeal. Refuses a second one while the first is still open --
-     * otherwise a seller could bury the reviewer in duplicates -- but allows a
-     * fresh one after a rejected appeal, since they may have new information.
+     * otherwise a seller could bury the reviewer in duplicates. Earnings
+     * approvals get one in-app dispute only: after that, the seller messages
+     * their LGU or sends a support ticket, matching the final-step guidance
+     * used by Notice to Explain decisions.
      */
     public static function file(Model $subject, User $actor, string $reason): Dispute
     {
         abort_unless(self::isRejected($subject), 422, 'Only a rejected item can be disputed.');
         abort_if((bool) self::openDisputeFor($subject), 422, 'You already have an open dispute for this. Wait for it to be reviewed.');
+        abort_if(
+            $subject instanceof Order && $subject->disputes()->exists(),
+            422,
+            'This rejected earnings review was already disputed once. Message your LGU or send a support ticket from Help & Support if you want it reviewed again.'
+        );
 
         // A rejected withdrawal holds its money only while it can still be
         // disputed: once, within WithdrawalRejection::DISPUTE_DAYS.
