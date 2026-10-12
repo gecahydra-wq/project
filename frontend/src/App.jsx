@@ -3975,6 +3975,7 @@ function SellerDashboard() {
                 <SellerOrderTable
                   rows={shown}
                   onUpdateStatus={(orderId, status, cancellationReason) => updateOrderStatus.mutateAsync({ orderId, status, cancellationReason })}
+                  lguContact={dashboard.data?.lgu_contact}
                 />
               )}
             </PeriodFilteredRows>
@@ -4447,12 +4448,12 @@ function RefundRow({ refund, onMarkRefunded }) {
   )
 }
 
-function SellerOrderTable({ rows, onUpdateStatus }) {
+function SellerOrderTable({ rows, onUpdateStatus, lguContact }) {
   if (!rows?.length) return <EmptyState message="No orders yet." />
-  return <div className="item-list">{rows.map((order) => <SellerOrderRow key={order.id} order={order} onUpdateStatus={onUpdateStatus} />)}</div>
+  return <div className="item-list">{rows.map((order) => <SellerOrderRow key={order.id} order={order} onUpdateStatus={onUpdateStatus} lguContact={lguContact} />)}</div>
 }
 
-function SellerOrderRow({ order, onUpdateStatus }) {
+function SellerOrderRow({ order, onUpdateStatus, lguContact }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [showDetails, setShowDetails] = useState(false)
@@ -4530,7 +4531,12 @@ function SellerOrderRow({ order, onUpdateStatus }) {
                   ? 'Your previous dispute was accepted, but this earnings review was rejected again.'
                   : 'Your previous dispute was reviewed and declined.'}
                 {order.latestDispute.resolution_note ? ` Note: ${order.latestDispute.resolution_note}` : ''}
-                {' '}If you want it reviewed again, message your LGU or send a support ticket from Help & Support.
+                {' '}If you want it reviewed again, message{' '}
+                {lguContact
+                  ? <Link to={`/seller/dashboard?tab=messages&with=${lguContact.id}`}>{lguContact.municipality ? `${lguContact.municipality} LGU` : 'your LGU'}</Link>
+                  : 'your LGU'}
+                {' '}or send a support ticket from{' '}
+                <Link to="/seller/dashboard?tab=support">Help &amp; Support</Link>.
               </p>
             ) : (
               <DisputeAction
