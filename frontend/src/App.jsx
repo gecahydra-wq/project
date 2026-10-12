@@ -1475,7 +1475,7 @@ function BrowsePage() {
         <label className="filter-label">Search<input placeholder="Search listings" value={filters.q} onChange={(e) => setFilters({ ...filters, q: e.target.value })} /></label>
         <label className="filter-label">Species<select value={filters.species} onChange={(e) => setFilters({ ...filters, species: e.target.value, variety: 'All' })}><option>All</option>{SPECIES_OPTIONS.map((s) => <option key={s}>{s}</option>)}</select></label>
         <VarietyFilter listings={data} filters={filters} setFilters={setFilters} />
-        <label className="filter-label">Municipality<select value={filters.municipality} onChange={(e) => setFilters({ ...filters, municipality: e.target.value })}><option>All</option>{['Mandaue', 'Consolacion', 'Compostela', 'Talisay', 'Lapu-Lapu', 'Carmen'].map((s) => <option key={s}>{s}</option>)}</select></label>
+        <MunicipalityFilter listings={data} filters={filters} setFilters={setFilters} />
       </aside>
       {filtered.length ? <ListingGrid items={filtered} /> : <EmptyState message="No listings match your filters yet." />}
     </main>
@@ -1500,7 +1500,7 @@ function MarketplaceBrowser({ detailPath }) {
         <label className="filter-label">Search<input placeholder="Search listings" value={filters.q} onChange={(e) => setFilters({ ...filters, q: e.target.value })} /></label>
         <label className="filter-label">Species<select value={filters.species} onChange={(e) => setFilters({ ...filters, species: e.target.value, variety: 'All' })}><option>All</option>{SPECIES_OPTIONS.map((s) => <option key={s}>{s}</option>)}</select></label>
         <VarietyFilter listings={data} filters={filters} setFilters={setFilters} />
-        <label className="filter-label">Municipality<select value={filters.municipality} onChange={(e) => setFilters({ ...filters, municipality: e.target.value })}><option>All</option>{['Mandaue', 'Consolacion', 'Compostela', 'Talisay', 'Lapu-Lapu', 'Carmen'].map((s) => <option key={s}>{s}</option>)}</select></label>
+        <MunicipalityFilter listings={data} filters={filters} setFilters={setFilters} />
       </div>
       {filtered.length ? (
         <ListingGrid items={filtered} detailPath={detailPath} />
@@ -1532,6 +1532,52 @@ function VarietyFilter({ listings, filters, setFilters }) {
   if (!varieties.length) return null
   return (
     <label className="filter-label">Variety<select value={filters.variety} onChange={(e) => setFilters({ ...filters, variety: e.target.value })}><option>All</option>{varieties.map((v) => <option key={v}>{v}</option>)}</select></label>
+  )
+}
+
+/**
+ * Municipality options must come from the database, not a hardcoded Cebu list,
+ * so a newly-created municipality appears in the listings filter immediately
+ * after the /municipalities query refreshes. If that public endpoint is briefly
+ * unavailable, fall back to the municipalities present in the loaded listings
+ * so filtering still works instead of showing an empty dropdown.
+ */
+function MunicipalityFilter({ listings, filters, setFilters }) {
+  const municipalitiesQuery = useQuery({
+    queryKey: ['municipalities'],
+    queryFn: async () => (await api.get('/municipalities')).data,
+    retry: false,
+  })
+  const apiOptions = useMemo(() => (
+    (municipalitiesQuery.data || [])
+      .map((municipality) => municipality.name?.trim())
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b))
+  ), [municipalitiesQuery.data])
+  const listingOptions = useMemo(() => (
+    [...new Set(
+      listings
+        .map((item) => item.municipality?.trim())
+        .filter(Boolean),
+    )].sort((a, b) => a.localeCompare(b))
+  ), [listings])
+  const options = apiOptions.length ? apiOptions : listingOptions
+
+  useEffect(() => {
+    if (filters.municipality === 'All' || !options.length || options.includes(filters.municipality)) return
+    setFilters((current) => current.municipality === filters.municipality
+      ? { ...current, municipality: 'All' }
+      : current)
+  }, [filters.municipality, options, setFilters])
+
+  return (
+    <label className="filter-label">
+      Municipality
+      <select value={filters.municipality} onChange={(e) => setFilters({ ...filters, municipality: e.target.value })}>
+        <option>All</option>
+        {options.map((municipality) => <option key={municipality}>{municipality}</option>)}
+      </select>
+    </label>
   )
 }
 
