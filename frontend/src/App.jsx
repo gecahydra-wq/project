@@ -7266,7 +7266,6 @@ function UserReportsPanel({ endpointBase, queryKey, scopeLabel }) {
                 <div className="form grid-form">
                   <select value={decision.status} onChange={(e) => setDecision({ ...decision, status: e.target.value })}>
                     <option value="under_review">Mark Under Review</option>
-                    <option value="resolved">Resolve</option>
                     {report.reported_role === 'seller' && <option value="notice">Valid: send Notice to Explain</option>}
                     <option value="dismissed">Dismiss</option>
                   </select>

@@ -99,6 +99,20 @@ class UserReports
                     $notes ? " Notes: {$notes}" : ''
                 ),
             ]);
+
+            if ($status === 'dismissed' && $report->reported_role === 'seller') {
+                AppNotification::create([
+                    'user_id' => $report->reported_user_id,
+                    'type' => 'user_report_dismissed',
+                    'title' => 'Report Against You Was Dismissed',
+                    'body' => sprintf(
+                        'The report against you (%s) was dismissed by %s. No action was taken against your seller account.%s',
+                        $report->reason,
+                        $reviewer->name,
+                        $notes ? " Notes: {$notes}" : ''
+                    ),
+                ]);
+            }
         }
 
         ActivityLog::record([

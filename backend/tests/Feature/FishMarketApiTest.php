@@ -2671,6 +2671,12 @@ class FishMarketApiTest extends TestCase
             ->assertJsonPath('errors.resolution_notes.0', 'Please give a reason for this decision.');
         $this->patchJson("/api/lgu/user-reports/{$reportId}", ['status' => 'dismissed', 'resolution_notes' => 'The seller replied within a day.'])
             ->assertOk()->assertJsonPath('status', 'dismissed');
+
+        $this->assertDatabaseHas('notifications', [
+            'user_id' => $seller->user_id,
+            'type' => 'user_report_dismissed',
+            'title' => 'Report Against You Was Dismissed',
+        ]);
     }
 
     public function test_only_a_rejected_item_can_be_disputed_and_only_by_its_owner(): void
