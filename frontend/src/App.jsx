@@ -4688,10 +4688,11 @@ function LguEarningsRow({ payment, onApprove, approvingId, onClearHold, onReject
  * returns the order to the approval queue (see
  * LguController::reopenRejectedEarnings).
  */
-function LguRejectedEarningsRow({ payment, base = '/lgu', dashboardPath = '/lgu/dashboard' }) {
+function LguRejectedEarningsRow({ payment, base = '/lgu', dashboardPath = '/lgu/dashboard', onReopen, reopeningId }) {
   const [expanded, setExpanded] = useState(false)
   const order = payment.order
   const orderNumber = order?.order_number
+  const isReopening = reopeningId === payment.id
 
   const detail = useQuery({
     queryKey: [`${base}-order-detail`, orderNumber],
@@ -4732,6 +4733,11 @@ function LguRejectedEarningsRow({ payment, base = '/lgu', dashboardPath = '/lgu/
           <Link className="button dispute-pending-link" to={`${dashboardPath}?tab=disputes&dispute=${order.latestDispute.id}`}>
             Review Dispute
           </Link>
+        )}
+        {order?.latestDispute?.status !== 'open' && (
+          <button type="button" onClick={() => onReopen(payment.id)} disabled={isReopening}>
+            {isReopening ? 'Reopening...' : 'Reopen Review'}
+          </button>
         )}
       </div>
     </div>
@@ -4800,6 +4806,15 @@ function SellerEarningsPanel({ scope = 'lgu' }) {
       queryClient.invalidateQueries({ queryKey: [rejectedKey] })
     },
   })
+  const reopenEarnings = useMutation({
+    mutationFn: async (paymentId) => (await api.patch(`${base}/payments/${paymentId}/reopen`)).data,
+    onSuccess: (data, paymentId) => {
+      queryClient.setQueryData([rejectedKey], (old) => (old || []).filter((payment) => payment.id !== paymentId))
+      queryClient.invalidateQueries({ queryKey: [rejectedKey] })
+      queryClient.invalidateQueries({ queryKey: [earningsKey] })
+      queryClient.invalidateQueries({ queryKey: [dashboardKey] })
+    },
+  })
 
   return (
     <>
@@ -4836,17 +4851,26 @@ function SellerEarningsPanel({ scope = 'lgu' }) {
           <p className="helper-text">
             {isSuperAdmin ? 'Rejected orders across every municipality.' : 'Orders you rejected.'} The buyer&apos;s payment is still held for these -- rejecting doesn&apos;t refund it or release it to the seller,
             and no revenue is distributed. If a seller disputes one, accepting their explanation on the Disputes tab reopens it and puts it
-            back in the queue above.
+            back in the queue above. If the seller messages you or opens a support ticket and you decide to reconsider,
+            use Reopen Review, then approve it from the approval queue.
           </p>
           <PeriodFilteredRows rows={rejectedEarnings.data} noun="orders rejected" dateKey={(payment) => payment.order?.lgu_reviewed_at}>
             {(shown) => (shown.length ? (
               <div className="item-list">
                 {shown.map((payment) => (
-                  <LguRejectedEarningsRow key={payment.id} payment={payment} base={base} dashboardPath={dashboardPath} />
+                  <LguRejectedEarningsRow
+                    key={payment.id}
+                    payment={payment}
+                    base={base}
+                    dashboardPath={dashboardPath}
+                    onReopen={(id) => reopenEarnings.mutate(id)}
+                    reopeningId={reopenEarnings.isPending ? reopenEarnings.variables : null}
+                  />
                 ))}
               </div>
             ) : <EmptyState message="No rejected orders in this period." />)}
           </PeriodFilteredRows>
+          {reopenEarnings.error && <p className="error">{reopenEarnings.error.response?.data?.message || 'Could not reopen this order.'}</p>}
         </Section>
       )}
     </>

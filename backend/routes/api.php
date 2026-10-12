@@ -269,6 +269,7 @@ Route::prefix('super-admin')->middleware(['auth:sanctum', 'verified', 'role:supe
     Route::patch('payments/{payment}/approve', [LguController::class, 'approveEarnings']);
     Route::patch('payments/{payment}/clear-hold', [LguController::class, 'clearHold']);
     Route::patch('payments/{payment}/reject', [LguController::class, 'rejectEarnings']);
+    Route::patch('payments/{payment}/reopen', [LguController::class, 'reopenRejectedEarnings']);
     Route::get('activity-log', [SuperAdminController::class, 'activityLog']);
     Route::get('activity-log/actions', [SuperAdminController::class, 'activityLogActions']);
     Route::get('activity-log/categories', [SuperAdminController::class, 'activityLogCategories']);

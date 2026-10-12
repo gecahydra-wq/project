@@ -845,6 +845,13 @@ class FishMarketApiTest extends TestCase
         $this->assertSame('rejected', $order->fresh()->lgu_review_status);
         $this->assertDatabaseHas('payments', ['id' => $payment->id, 'status' => 'paid_held']);
         $this->assertTrue(collect($this->getJson('/api/super-admin/earnings/rejected')->json())->pluck('id')->contains($payment->id));
+
+        $this->patchJson("/api/super-admin/payments/{$payment->id}/reopen")->assertOk();
+        $this->assertNull($order->fresh()->lgu_review_status);
+        $this->assertTrue(collect($this->getJson('/api/super-admin/earnings')->json())->pluck('id')->contains($payment->id));
+
+        $this->patchJson("/api/super-admin/payments/{$payment->id}/approve")->assertOk();
+        $this->assertSame('released', $payment->fresh()->status);
     }
 
     public function test_lgu_admin_can_approve_earnings_for_completed_orders_in_their_municipality(): void
