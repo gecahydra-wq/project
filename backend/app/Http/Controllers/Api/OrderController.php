@@ -9,6 +9,7 @@ use App\Mail\OrderDeliveredMail;
 use App\Mail\PaymentReceiptMail;
 use App\Models\AppNotification;
 use App\Models\FingerlingListing;
+use App\Models\Message;
 use App\Models\MockPayment;
 use App\Models\Order;
 use App\Models\PaymentLog;
@@ -327,6 +328,9 @@ class OrderController extends Controller
         }
 
         unset($data['cancellation_reason']);
+        if ($statusChanged && $data['status'] === 'in_transit') {
+            $data['in_transit_at'] = now();
+        }
         $order->update($data);
 
         if ($statusChanged && in_array($data['status'], ['confirmed', 'in_transit'], true)) {
@@ -385,11 +389,15 @@ class OrderController extends Controller
      *
      * Shared by the buyer's own confirmation and the LGU/Super Admin backstop,
      * so the two can never drift into completing an order by different rules.
-     * $confirmedBy names the admin acting for a silent buyer; null means the
-     * buyer confirmed it themselves.
+     * $confirmedBy names the admin acting for a silent buyer, or the Super
+     * Admin account used for automatic system messages. Null means the buyer
+     * confirmed it themselves.
      */
-    public function completeDelivery(Order $order, ?User $confirmedBy = null): Order
+    public function completeDelivery(Order $order, ?User $confirmedBy = null, bool $automatic = false): Order
     {
+        return DB::transaction(function () use ($order, $confirmedBy, $automatic) {
+        $order = Order::with('payment')->lockForUpdate()->findOrFail($order->id);
+
         abort_if(in_array($order->status, ['cancelled', 'failed'], true), 422, "This order is {$order->status} and can no longer be completed.");
         abort_if($order->status === 'completed', 422, 'This order is already marked as received.');
         abort_unless(
@@ -407,8 +415,11 @@ class OrderController extends Controller
             'This order has not been paid yet, so it cannot be marked as received.'
         );
 
-        $order->update(['status' => 'completed']);
-        $order->loadMissing(['buyer', 'sellerProfile.user']);
+        $order->update([
+            'status' => 'completed',
+            'auto_received_at' => $automatic ? now() : null,
+        ]);
+        $order->loadMissing(['buyer', 'sellerProfile.user', 'listing']);
 
         $this->notifyLguOfCompletedDelivery($order, $order->sellerProfile);
 
@@ -420,34 +431,70 @@ class OrderController extends Controller
             $order->sellerProfile?->user_id,
             "order_received:{$order->id}",
             'Order confirmed as received',
-            $confirmedBy
+            $automatic
+                ? sprintf('Order #%s was automatically marked received after the buyer confirmation window expired. It is now with your LGU for earnings approval.', $order->order_number)
+                : ($confirmedBy
                 ? sprintf('Order #%s was marked received by %s on the buyer\'s behalf. It is now with your LGU for earnings approval.', $order->order_number, $confirmedBy->name)
-                : sprintf('The buyer confirmed they received order #%s. It is now with your LGU for earnings approval.', $order->order_number)
+                : sprintf('The buyer confirmed they received order #%s. It is now with your LGU for earnings approval.', $order->order_number))
         );
 
         $this->notifyOnce(
             $order->buyer_id,
             "order_delivered:{$order->id}",
             'Order completed',
-            $confirmedBy
+            $automatic
+                ? sprintf('Order #%s was automatically marked received because the buyer did not confirm within the confirmation window. You can now rate the seller.', $order->order_number)
+                : ($confirmedBy
                 ? sprintf('Order #%s was marked received by %s. You can now rate the seller.', $order->order_number, $confirmedBy->name)
-                : sprintf('Order #%s is complete. You can now rate the seller.', $order->order_number)
+                : sprintf('Order #%s is complete. You can now rate the seller.', $order->order_number))
         );
 
         ActivityLog::record([
-            'actor_id' => $confirmedBy?->id ?? $order->buyer_id,
-            'actor_role' => $confirmedBy?->role ?? 'buyer',
-            'action' => $confirmedBy ? 'order_marked_received_by_admin' : 'order_confirmed_received',
+            'actor_id' => $automatic ? $confirmedBy?->id : ($confirmedBy?->id ?? $order->buyer_id),
+            'actor_role' => $automatic ? 'system' : ($confirmedBy?->role ?? 'buyer'),
+            'action' => $automatic ? 'order_auto_marked_received' : ($confirmedBy ? 'order_marked_received_by_admin' : 'order_confirmed_received'),
             'target_user_id' => $order->sellerProfile?->user_id,
             'municipality_id' => $order->sellerProfile?->municipality_id,
             'reference_type' => 'ORD',
             'reference_number' => $order->order_number,
-            'description' => $confirmedBy
+            'description' => $automatic
+                ? sprintf('Automatically marked order %s as received after the buyer confirmation window expired.', $order->order_number)
+                : ($confirmedBy
                 ? sprintf('Marked order %s as received on the buyer\'s behalf.', $order->order_number)
-                : sprintf('Buyer confirmed receipt of order %s.', $order->order_number),
+                : sprintf('Buyer confirmed receipt of order %s.', $order->order_number)),
         ]);
 
+        if ($automatic && $confirmedBy) {
+            $sellerName = str_replace(['[', ']'], '', (string) ($order->sellerProfile?->hatchery_name ?: $order->sellerProfile?->user?->name ?: 'Seller'));
+            $listingTitle = $order->listing?->title ?: 'this listing';
+            $buyerBody = sprintf(
+                'Our system detected that you did not click "Order Received" for order #%s within the confirmation window, so we assumed you received it and automatically completed the order. If you did not receive it, message the seller for listing "%s": [%s](/sellers/%d), or contact Support.',
+                $order->order_number,
+                $listingTitle,
+                $sellerName,
+                $order->seller_profile_id
+            );
+            $sellerBody = sprintf(
+                'Order #%s was automatically marked as received after the buyer confirmation window expired.',
+                $order->order_number
+            );
+            foreach ([[$order->buyer, $buyerBody], [$order->sellerProfile?->user, $sellerBody]] as [$recipient, $body]) {
+                if (! $recipient) {
+                    continue;
+                }
+
+                Message::create([
+                    'sender_id' => $confirmedBy->id,
+                    'receiver_id' => $recipient->id,
+                    'body' => $body,
+                    'message_type' => 'order_auto_completed',
+                ]);
+                MessageController::notifyReceiver($confirmedBy, $recipient, $body);
+            }
+        }
+
         return $order->fresh()->load('payment');
+        });
     }
 
     /**

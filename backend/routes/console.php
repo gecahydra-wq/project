@@ -13,4 +13,5 @@ Schedule::command('orders:expire-unpaid')->everyFiveMinutes()->withoutOverlappin
 Schedule::command('sanctum:prune-expired --hours=24')->daily();
 Schedule::command('withdrawals:finalize-rejections')->hourly()->withoutOverlapping();
 Schedule::command('withdrawals:auto-complete-sent')->everyMinute()->withoutOverlapping();
+Schedule::command('orders:auto-complete-unconfirmed')->everyMinute()->withoutOverlapping();
 Schedule::command('orders:cancel-suspended-seller-orders')->everyFiveMinutes()->withoutOverlapping();

@@ -4519,7 +4519,11 @@ function SellerOrderRow({ order, onUpdateStatus, lguContact }) {
             excluding it the card claimed to be waiting on an approval that had
             already been refused -- directly contradicting the notice below. */}
         {order.payment?.status === 'paid_held' && order.status === 'completed' && order.lgu_review_status !== 'rejected' && (
-          <p className="muted">The buyer confirmed delivery. Waiting for your LGU to approve the earnings before the payment is released.</p>
+          <p className="muted">
+            {order.auto_received_at
+              ? 'The system automatically marked this order as received because the buyer did not click Order Received within the confirmation window. Waiting for your LGU to approve the earnings before the payment is released.'
+              : 'The buyer confirmed delivery. Waiting for your LGU to approve the earnings before the payment is released.'}
+          </p>
         )}
         {order.status === 'placed' && (
           <p className="muted">Waiting for the buyer's payment. You can confirm this order once the payment is held in escrow.</p>
@@ -10949,6 +10953,9 @@ function MessageBubble({ message, isMine, onEdit, onDelete }) {
   const isDeleted = !!message.deleted_at
   const withinEditWindow = renderedAt - new Date(message.created_at).getTime() <= MESSAGE_EDIT_WINDOW_MS
   const canModify = isMine && !isDeleted
+  const sellerProfileLink = message.message_type === 'order_auto_completed'
+    ? message.body.match(/\[([^\]]+)\]\((\/sellers\/\d+)\)/)
+    : null
 
   const saveEdit = async () => {
     setBusy(true)
@@ -10994,7 +11001,13 @@ function MessageBubble({ message, isMine, onEdit, onDelete }) {
 
   return (
     <div className={`message-bubble ${isMine ? 'mine' : 'theirs'}`}>
-      <p className={isDeleted ? 'deleted' : ''}>{message.body}</p>
+      <p className={isDeleted ? 'deleted' : ''}>
+        {sellerProfileLink ? <>
+          {message.body.slice(0, sellerProfileLink.index)}
+          <Link className="seller-name-link" to={sellerProfileLink[2]}>{sellerProfileLink[1]}</Link>
+          {message.body.slice(sellerProfileLink.index + sellerProfileLink[0].length)}
+        </> : message.body}
+      </p>
       {message.has_attachment && attachmentUrl && (
         <button type="button" className="message-attachment-trigger" onClick={() => setShowReceipt(true)} aria-label="View payout receipt">
           <img className="message-attachment" src={attachmentUrl} alt="Payout receipt attachment" />
@@ -11010,9 +11023,9 @@ function MessageBubble({ message, isMine, onEdit, onDelete }) {
           <img className="message-attachment-full" src={attachmentUrl} alt="Full-size payout receipt" />
         </Modal>
       )}
-      {message.message_type === 'payout_auto_completed' && !isMine && (
+      {['payout_auto_completed', 'order_auto_completed'].includes(message.message_type) && !isMine && (
         <div className="row-actions">
-          <Link className="link-action" to={getSession()?.role === 'lgu_admin' ? '/lgu/dashboard?tab=support' : '/seller/dashboard?tab=support'}>Contact Support</Link>
+          <Link className="link-action" to={getSession()?.role === 'buyer' ? '/buyer/dashboard?tab=support' : getSession()?.role === 'lgu_admin' ? '/lgu/dashboard?tab=support' : '/seller/dashboard?tab=support'}>Contact Support</Link>
         </div>
       )}
       <div className="message-meta">

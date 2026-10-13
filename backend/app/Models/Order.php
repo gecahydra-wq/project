@@ -20,6 +20,8 @@ class Order extends Model
         'unit_price',
         'total_amount',
         'status',
+        'in_transit_at',
+        'auto_received_at',
         'cancellation_reason',
         'pickup_notes',
         'seller_notes',
@@ -33,6 +35,8 @@ class Order extends Model
         'unit_price' => 'decimal:2',
         'total_amount' => 'decimal:2',
         'lgu_reviewed_at' => 'datetime',
+        'in_transit_at' => 'datetime',
+        'auto_received_at' => 'datetime',
     ];
 
     protected $appends = ['payment_expires_at'];
