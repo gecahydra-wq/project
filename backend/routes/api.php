@@ -132,6 +132,7 @@ Route::middleware(['auth:sanctum', 'verified', 'role:seller'])->group(function (
     Route::patch('seller/notifications/{notification}/read', [SellerController::class, 'markNotificationRead']);
     Route::get('seller/wallet', [SellerController::class, 'wallet']);
     Route::post('seller/withdrawals', [SellerController::class, 'requestWithdrawal'])->middleware('active-seller');
+    Route::patch('seller/withdrawals/{withdrawal}/received', [SellerController::class, 'confirmWithdrawalReceived']);
     // Seller Posts -- the seller's own farm/hatchery feed. Reads are public
     // (SellerProfileController::show); these writes are owner-only.
     Route::post('seller/posts', [SellerPostController::class, 'store'])->middleware('active-seller');
@@ -173,6 +174,7 @@ Route::middleware(['auth:sanctum', 'verified', 'role:buyer,seller,lgu_admin,supe
     Route::get('messages/threads', [MessageController::class, 'threads']);
     Route::get('messages/unread-count', [MessageController::class, 'unreadCount']);
     Route::get('messages/thread/{user}', [MessageController::class, 'thread']);
+    Route::get('messages/{message}/attachment', [MessageController::class, 'attachment']);
     Route::post('messages', [MessageController::class, 'store']);
     Route::patch('messages/{message}', [MessageController::class, 'update']);
     Route::delete('messages/{message}', [MessageController::class, 'destroy']);
@@ -253,6 +255,7 @@ Route::prefix('lgu')->middleware(['auth:sanctum', 'verified', 'role:lgu_admin'])
     Route::delete('profile/picture', [LguController::class, 'removeProfilePicture']);
     Route::get('wallet', [LguController::class, 'wallet']);
     Route::post('withdrawals', [LguController::class, 'requestWithdrawal']);
+    Route::patch('withdrawals/{withdrawal}/received', [LguController::class, 'confirmWithdrawalReceived']);
     Route::get('activity-log', [LguController::class, 'activityLog']);
     Route::get('activity-log/actions', [LguController::class, 'activityLogActions']);
     Route::get('activity-log/categories', [LguController::class, 'activityLogCategories']);
@@ -312,7 +315,7 @@ Route::prefix('super-admin')->middleware(['auth:sanctum', 'verified', 'role:supe
     Route::get('withdrawals', [SuperAdminController::class, 'withdrawals']);
     Route::patch('withdrawals/{withdrawal}/approve', [SuperAdminController::class, 'approveWithdrawal']);
     Route::patch('withdrawals/{withdrawal}/reject', [SuperAdminController::class, 'rejectWithdrawal']);
-    Route::patch('withdrawals/{withdrawal}/paid', [SuperAdminController::class, 'markWithdrawalPaid']);
+    Route::post('withdrawals/{withdrawal}/send-receipt', [SuperAdminController::class, 'sendWithdrawalReceipt']);
     // Refund queue for paid orders that were cancelled or expired (App\Support\OrderCancellation).
     Route::get('refunds', [SuperAdminController::class, 'refunds']);
     Route::patch('refunds/{payment}/refunded', [SuperAdminController::class, 'markRefunded']);
@@ -324,7 +327,7 @@ Route::prefix('super-admin')->middleware(['auth:sanctum', 'verified', 'role:supe
     Route::get('lgu-withdrawals', [SuperAdminController::class, 'lguWithdrawals']);
     Route::patch('lgu-withdrawals/{withdrawal}/approve', [SuperAdminController::class, 'approveLguWithdrawal']);
     Route::patch('lgu-withdrawals/{withdrawal}/reject', [SuperAdminController::class, 'rejectLguWithdrawal']);
-    Route::patch('lgu-withdrawals/{withdrawal}/paid', [SuperAdminController::class, 'markLguWithdrawalPaid']);
+    Route::post('lgu-withdrawals/{withdrawal}/send-receipt', [SuperAdminController::class, 'sendLguWithdrawalReceipt']);
     Route::get('notifications', [SuperAdminController::class, 'notifications']);
     Route::patch('notifications/read-all', [SuperAdminController::class, 'markAllNotificationsRead']);
     Route::patch('notifications/{notification}/read', [SuperAdminController::class, 'markNotificationRead']);

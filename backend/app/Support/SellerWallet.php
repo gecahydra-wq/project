@@ -33,7 +33,7 @@ class SellerWallet
     public static function reservedOrWithdrawn(SellerProfile $seller): float
     {
         return (float) WithdrawalRequest::where('seller_profile_id', $seller->id)
-            ->whereIn('status', ['pending', 'approved', 'paid', WithdrawalRejection::ON_HOLD])
+            ->whereIn('status', ['pending', 'approved', 'sent', 'paid', WithdrawalRejection::ON_HOLD])
             ->sum('amount');
     }
 
@@ -118,7 +118,7 @@ class SellerWallet
     public static function processingAmount(SellerProfile $seller): float
     {
         return round((float) WithdrawalRequest::where('seller_profile_id', $seller->id)
-            ->whereIn('status', ['pending', 'approved'])
+            ->whereIn('status', ['pending', 'approved', 'sent'])
             ->sum('amount'), 2);
     }
 

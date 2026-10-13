@@ -26,6 +26,7 @@ use App\Support\SellerWallet;
 use App\Support\WithdrawalNotifications;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class SellerController extends Controller
@@ -273,6 +274,38 @@ class SellerController extends Controller
         return response()->json($withdrawal, 201);
     }
 
+    public function confirmWithdrawalReceived(Request $request, WithdrawalRequest $withdrawal)
+    {
+        $seller = SellerProfile::where('user_id', $request->user()->id)->firstOrFail();
+        abort_unless((int) $withdrawal->seller_profile_id === (int) $seller->id, 404);
+        $confirmedNow = DB::transaction(function () use ($withdrawal, $request) {
+            $locked = WithdrawalRequest::lockForUpdate()->findOrFail($withdrawal->id);
+            abort_unless($locked->status === 'sent', 422, 'Only a sent withdrawal can be confirmed as received.');
+
+            if ($locked->recipient_confirmed_at) {
+                return false;
+            }
+
+            $paidAt = Carbon::now();
+            $locked->update([
+                'status' => 'paid',
+                'recipient_confirmed_at' => Carbon::now(),
+                'recipient_confirmed_by' => $request->user()->id,
+                'paid_at' => $paidAt,
+                'reviewed_at' => $paidAt,
+            ]);
+
+            return true;
+        });
+
+        if ($confirmedNow) {
+            $withdrawal = $withdrawal->fresh();
+            WithdrawalNotifications::sellerConfirmedReceived($withdrawal);
+        }
+
+        return response()->json($withdrawal->fresh());
+    }
+
     /**
      * Balance math lives in App\Support\SellerWallet so the AI Assistant can
      * compute a seller's own wallet answers using the exact same rules as
@@ -294,7 +327,7 @@ class SellerController extends Controller
                         ? OrderTransactionPresenter::earningsBreakdown($payment->order)
                         : null);
                 }),
-            'withdrawal_requests' => WithdrawalRequest::where('seller_profile_id', $seller->id)->latest()->get(),
+            'withdrawal_requests' => WithdrawalRequest::where('seller_profile_id', $seller->id)->with('sentBy')->latest()->get(),
         ];
     }
 

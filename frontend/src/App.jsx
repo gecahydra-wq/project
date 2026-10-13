@@ -466,6 +466,7 @@ const BADGE_TONES = {
  * App\Support\WithdrawalRejection.
  */
 const WITHDRAWAL_STATUS_LABELS = {
+  sent: 'Payout Sent',
   rejected: 'Rejected · On hold',
   rejected_final: 'Rejected',
 }
@@ -1879,7 +1880,7 @@ function MediaGallery({ media, title = 'Seller Care Photos & Videos' }) {
  * navigating away to a separate page. Dismisses on Escape or a backdrop
  * click; the panel swallows clicks so working inside the form never closes it.
  */
-function Modal({ title, subtitle, onClose, children, footer }) {
+function Modal({ title, subtitle, onClose, children, footer, className = '' }) {
   useEffect(() => {
     const handleKey = (e) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', handleKey)
@@ -1892,7 +1893,7 @@ function Modal({ title, subtitle, onClose, children, footer }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}>
+      <div className={`modal-panel ${className}`.trim()} role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}>
         <header className="modal-header">
           <div>
             <h3>{title}</h3>
@@ -3734,6 +3735,7 @@ function SellerDashboard() {
     queryFn: async () => (await api.get('/seller/wallet')).data,
     retry: false,
     placeholderData: { available_balance: 0, pending_balance: 0, processing_amount: 0, total_earnings: 0, withdrawn_amount: 0, payment_history: [], withdrawal_requests: [] },
+    refetchInterval: 30000,
   })
   const notifications = (dashboard.data?.notifications || []).filter((notification) => !visibleNotificationIds.includes(notification.id))
   const markRead = useMutation({
@@ -3765,6 +3767,10 @@ function SellerDashboard() {
       setWithdrawForm({ method: 'gcash', bank_choice: '', bank_other: '', account_name: '', account_number: '', amount: '' })
       queryClient.invalidateQueries({ queryKey: ['seller-wallet'] })
     },
+  })
+  const confirmWithdrawalReceived = useMutation({
+    mutationFn: async (id) => (await api.patch(`/seller/withdrawals/${id}/received`)).data,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['seller-wallet'] }),
   })
   const submitWithdrawal = () => {
     if (withdrawalFormIsIncomplete(withdrawForm)) {
@@ -4019,6 +4025,7 @@ function SellerDashboard() {
             )}
           </Section>
           <Section title="Withdrawal Requests">
+            {confirmWithdrawalReceived.isError && <p className="error">{apiErrorMessage(confirmWithdrawalReceived.error, 'Could not confirm payout receipt.')}</p>}
             <PeriodFilteredRows rows={wallet.data?.withdrawal_requests || []} noun="withdrawal requests made">
               {(shown) => (shown.length ? (
               <div className="table">
@@ -4043,7 +4050,24 @@ function SellerDashboard() {
                     <span>
                       {['rejected', 'rejected_final'].includes(request.status) && request.rejection_reason && `Reason: ${request.rejection_reason}`}
                       {request.status === 'paid' && request.paid_at && `Paid on ${new Date(request.paid_at).toLocaleDateString()}`}
-                      {(request.status === 'pending' || request.status === 'approved') && '—'}
+                      {request.status === 'paid' && request.auto_completed_at && ' '}
+                      {request.status === 'pending' && 'Awaiting Super Admin review.'}
+                      {request.status === 'approved' && 'Approved; waiting for the Super Admin to send the payout.'}
+                      {request.status === 'sent' && (request.recipient_confirmed_at
+                        ? `You confirmed receipt on ${new Date(request.recipient_confirmed_at).toLocaleDateString()}. Awaiting admin completion.`
+                        : <>
+                          <span>Payout sent {request.sent_at ? `on ${new Date(request.sent_at).toLocaleDateString()}` : ''}. Once it arrives, confirm it here.</span>{' '}
+                          <button type="button" className="ghost" onClick={() => {
+                            if (window.confirm(`Confirm you received ${currency(request.net_amount)}? This will complete the withdrawal.`)) confirmWithdrawalReceived.mutate(request.id)
+                          }} disabled={confirmWithdrawalReceived.isPending}>Money Received</button>
+                        </>)}
+                      {request.status === 'paid' && request.auto_completed_at && (
+                        <>
+                          <span>Automatically marked paid after no confirmation. If you have not received it, </span>
+                          {request.sent_by && <><Link className="link-action" to={`/seller/dashboard?tab=messages&with=${request.sent_by}`}>message the Super Admin</Link> or </>}
+                          <Link className="link-action" to="/seller/dashboard?tab=support">contact Support</Link>.
+                        </>
+                      )}
                     </span>
                   </div>
                   {request.status === 'rejected' && (
@@ -5487,6 +5511,7 @@ function LguDashboard() {
     queryFn: async () => (await api.get('/lgu/wallet')).data,
     retry: false,
     placeholderData: { available_balance: 0, pending_balance: 0, processing_amount: 0, total_revenue: 0, withdrawn_amount: 0, revenue_history: [], withdrawal_requests: [] },
+    refetchInterval: 30000,
   })
   const [lguWithdrawForm, setLguWithdrawForm] = useState({ method: 'gcash', bank_choice: '', bank_other: '', account_name: '', account_number: '', amount: '' })
   const [lguWithdrawFormError, setLguWithdrawFormError] = useState('')
@@ -5503,6 +5528,10 @@ function LguDashboard() {
       setLguWithdrawForm({ method: 'gcash', bank_choice: '', bank_other: '', account_name: '', account_number: '', amount: '' })
       queryClient.invalidateQueries({ queryKey: ['lgu-wallet'] })
     },
+  })
+  const confirmLguWithdrawalReceived = useMutation({
+    mutationFn: async (id) => (await api.patch(`/lgu/withdrawals/${id}/received`)).data,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['lgu-wallet'] }),
   })
   const submitLguWithdrawal = () => {
     if (withdrawalFormIsIncomplete(lguWithdrawForm)) {
@@ -5697,6 +5726,7 @@ function LguDashboard() {
             {requestLguWithdrawal.isSuccess && <p className="helper-text">Withdrawal request submitted for {currency(requestLguWithdrawal.data?.amount)}. You&apos;ll be notified once the Super Admin pays it out.</p>}
           </Section>
           <Section title="Withdrawal Requests">
+            {confirmLguWithdrawalReceived.isError && <p className="error">{apiErrorMessage(confirmLguWithdrawalReceived.error, 'Could not confirm payout receipt.')}</p>}
             <PeriodFilteredRows rows={wallet.data?.withdrawal_requests || []} noun="withdrawal requests made">
               {(shown) => (shown.length ? (
               <div className="table">
@@ -5721,7 +5751,24 @@ function LguDashboard() {
                     <span>
                       {['rejected', 'rejected_final'].includes(request.status) && request.rejection_reason && `Reason: ${request.rejection_reason}`}
                       {request.status === 'paid' && request.paid_at && `Paid on ${new Date(request.paid_at).toLocaleDateString()}`}
-                      {(request.status === 'pending' || request.status === 'approved') && '—'}
+                      {request.status === 'paid' && request.auto_completed_at && ' '}
+                      {request.status === 'pending' && 'Awaiting Super Admin review.'}
+                      {request.status === 'approved' && 'Approved; waiting for the Super Admin to send the payout.'}
+                      {request.status === 'sent' && (request.recipient_confirmed_at
+                        ? `An LGU admin confirmed receipt on ${new Date(request.recipient_confirmed_at).toLocaleDateString()}. Awaiting Super Admin completion.`
+                        : <>
+                          Payout sent {request.sent_at ? `on ${new Date(request.sent_at).toLocaleDateString()}` : ''}. Once it arrives, confirm it here.{' '}
+                          <button type="button" className="ghost" onClick={() => {
+                            if (window.confirm(`Confirm your municipality received ${currency(request.amount)}? This will complete the withdrawal.`)) confirmLguWithdrawalReceived.mutate(request.id)
+                          }} disabled={confirmLguWithdrawalReceived.isPending}>Money Received</button>
+                        </>)}
+                      {request.status === 'paid' && request.auto_completed_at && (
+                        <>
+                          <span>Automatically marked paid after no confirmation. If your municipality has not received it, </span>
+                          {request.sent_by && <><Link className="link-action" to={`/lgu/dashboard?tab=messages&with=${request.sent_by}`}>message the Super Admin</Link> or </>}
+                          <Link className="link-action" to="/lgu/dashboard?tab=support">contact Support</Link>.
+                        </>
+                      )}
                     </span>
                   </div>
                   {request.status === 'rejected' && (
@@ -6453,6 +6500,7 @@ function SuperAdminDashboard() {
     queryFn: async () => (await api.get('/super-admin/withdrawals')).data,
     retry: false,
     placeholderData: [],
+    refetchInterval: 30000,
   })
   const approveWithdrawal = useMutation({
     mutationFn: async (id) => (await api.patch(`/super-admin/withdrawals/${id}/approve`)).data,
@@ -6462,8 +6510,14 @@ function SuperAdminDashboard() {
     mutationFn: async ({ id, reason }) => (await api.patch(`/super-admin/withdrawals/${id}/reject`, { reason })).data,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['super-admin-withdrawals'] }),
   })
-  const markWithdrawalPaid = useMutation({
-    mutationFn: async (id) => (await api.patch(`/super-admin/withdrawals/${id}/paid`)).data,
+  const sendWithdrawalReceipt = useMutation({
+    mutationFn: async ({ id, note, attachment }) => {
+      const form = new FormData()
+      form.append('payout_sent', '1')
+      if (note.trim()) form.append('note', note.trim())
+      if (attachment) form.append('attachment', attachment)
+      return (await api.post(`/super-admin/withdrawals/${id}/send-receipt`, form)).data
+    },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['super-admin-withdrawals'] }),
   })
   const refunds = useQuery({
@@ -6481,6 +6535,7 @@ function SuperAdminDashboard() {
     queryFn: async () => (await api.get('/super-admin/lgu-withdrawals')).data,
     retry: false,
     placeholderData: [],
+    refetchInterval: 30000,
   })
   const approveLguWithdrawal = useMutation({
     mutationFn: async (id) => (await api.patch(`/super-admin/lgu-withdrawals/${id}/approve`)).data,
@@ -6490,8 +6545,14 @@ function SuperAdminDashboard() {
     mutationFn: async ({ id, reason }) => (await api.patch(`/super-admin/lgu-withdrawals/${id}/reject`, { reason })).data,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['super-admin-lgu-withdrawals'] }),
   })
-  const markLguWithdrawalPaid = useMutation({
-    mutationFn: async (id) => (await api.patch(`/super-admin/lgu-withdrawals/${id}/paid`)).data,
+  const sendLguWithdrawalReceipt = useMutation({
+    mutationFn: async ({ id, note, attachment }) => {
+      const form = new FormData()
+      form.append('payout_sent', '1')
+      if (note.trim()) form.append('note', note.trim())
+      if (attachment) form.append('attachment', attachment)
+      return (await api.post(`/super-admin/lgu-withdrawals/${id}/send-receipt`, form)).data
+    },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['super-admin-lgu-withdrawals'] }),
   })
   const createLguAdmin = useMutation({
@@ -6934,6 +6995,7 @@ function SuperAdminDashboard() {
       {tab === 'payouts' && (
         <>
         <Section title="Seller Payouts" id="seller-payouts">
+          <p className="helper-text">Approve the request and send the payout through Messages (a screenshot is optional). The seller’s Money Received confirmation completes the withdrawal.</p>
           <PeriodFilteredRows rows={withdrawals.data || []} noun="withdrawal requests made">
             {(shown) => (shown.length ? (
             <div className="item-list">
@@ -6941,9 +7003,9 @@ function SuperAdminDashboard() {
                 <WithdrawalRow
                   key={request.id}
                   request={request}
-                  onApprove={(id) => approveWithdrawal.mutate(id)}
-                  onReject={(id, reason) => rejectWithdrawal.mutate({ id, reason })}
-                  onMarkPaid={(id) => markWithdrawalPaid.mutate(id)}
+                  onApprove={(id) => approveWithdrawal.mutateAsync(id)}
+                  onReject={(id, reason) => rejectWithdrawal.mutateAsync({ id, reason })}
+                  onSendReceipt={(id, payload) => sendWithdrawalReceipt.mutateAsync({ id, ...payload })}
                 />
               ))}
             </div>
@@ -6951,6 +7013,7 @@ function SuperAdminDashboard() {
           </PeriodFilteredRows>
         </Section>
         <Section title="LGU Payouts" id="lgu-payouts">
+          <p className="helper-text">Approve the request and send the payout through Messages (a screenshot is optional). An LGU admin’s Money Received confirmation completes the withdrawal.</p>
           <PeriodFilteredRows rows={lguWithdrawals.data || []} noun="withdrawal requests made">
             {(shown) => (shown.length ? (
             <div className="item-list">
@@ -6959,9 +7022,9 @@ function SuperAdminDashboard() {
                   key={request.id}
                   request={request}
                   type="lgu"
-                  onApprove={(id) => approveLguWithdrawal.mutate(id)}
-                  onReject={(id, reason) => rejectLguWithdrawal.mutate({ id, reason })}
-                  onMarkPaid={(id) => markLguWithdrawalPaid.mutate(id)}
+                  onApprove={(id) => approveLguWithdrawal.mutateAsync(id)}
+                  onReject={(id, reason) => rejectLguWithdrawal.mutateAsync({ id, reason })}
+                  onSendReceipt={(id, payload) => sendLguWithdrawalReceipt.mutateAsync({ id, ...payload })}
                 />
               ))}
             </div>
@@ -7391,7 +7454,7 @@ const HELP_TOPICS = [
     audience: 'seller',
     items: [
       ['When do I get paid?', 'After the buyer confirms they received the order, your LGU reviews the earnings. Once approved, 94% of the order total goes to your Available Balance. The other 6% is shared: 2% to your LGU and 4% to AbaiMarket.'],
-      ['How do I withdraw my money?', 'Open your Wallet and click Request Withdrawal. Choose GCash, Maya or a bank account. You receive the full amount you request. The Super Admin approves the request and marks it paid once the money is sent.'],
+      ['How do I withdraw my money?', 'Open your Wallet and click Request Withdrawal. Choose GCash, Maya or a bank account. You receive the full amount you request. The Super Admin approves and sends the payout. Once it arrives, click Money Received to complete the withdrawal. If you do not confirm within the confirmation window, the system marks it paid automatically.'],
       ['My earnings review or withdrawal was rejected.', 'Open the rejected item and click Dispute This Rejection to explain your side. The person who rejected it reviews your dispute. If they accept it, the item is reopened for another review. A rejected withdrawal keeps its amount on hold for 7 days so you can dispute it once. If you do not dispute it within 7 days, or your dispute is rejected, the amount returns to your Available Balance on its own. If you still think a final rejection is wrong, message the Super Admin or send a support ticket under Wallet or withdrawal.'],
       ['What is a Notice to Explain?', 'If a review of 3 stars or fewer brings your average rating below 3, or your LGU finds a buyer\'s report against you valid, AbaiMarket sends you a Notice to Explain. The notice lists the low reviews behind it, and you can open each one. You are not suspended and your listings stay up while you send one explanation from the Notices tab. If it is rejected, your seller account is suspended and you can no longer explain in the app; to have it reviewed again, message your LGU or send a support ticket. After a rejected explanation, your next notice (from a rating or a report) suspends you right away with nothing to explain -- message your LGU or send a support ticket. An accepted explanation does not count against you. A 4 or 5 star review never causes a notice.'],
     ],
@@ -7506,6 +7569,7 @@ const NOTIFICATION_TABS = {
     ['order_', 'orders'], ['payment_', 'orders'], ['refund_', 'orders'],
   ],
   seller: [
+    ['withdrawal_auto_completed', 'wallet'],
     ['withdrawal_', 'wallet'], ['earnings_', 'wallet'], ['dispute_resolved', 'wallet'],
     ['order_', 'orders'],
     ['seller_notice', 'notices'], ['low_rating', 'notices'], ['seller_low_rating', 'notices'], ['notice_dispute_resolved', 'notices'],
@@ -7517,10 +7581,12 @@ const NOTIFICATION_TABS = {
     ['user_report', 'user-reports'],
     ['seller_notice', 'notices'], ['seller_report_notice', 'notices'],
     ['dispute_filed', 'disputes'],
-    ['lgu_withdrawal_', 'wallet'], ['dispute_resolved', 'wallet'],
+    ['lgu_withdrawal_auto_completed', 'wallet'], ['lgu_withdrawal_', 'wallet'], ['dispute_resolved', 'wallet'],
   ],
   super_admin: [
+    ['lgu_withdrawal_received', 'payouts&focus=lgu-payouts'],
     ['lgu_withdrawal_requested', 'payouts&focus=lgu-payouts'],
+    ['withdrawal_received', 'payouts&focus=seller-payouts'],
     ['withdrawal_requested', 'payouts&focus=seller-payouts'],
     ['refund_pending', 'payouts'],
     ['seller_registration_submitted', 'sellers'],
@@ -8964,71 +9030,143 @@ function LguAdminRow({ admin, municipalities, onUpdate, onDisable, onEnable }) {
   )
 }
 
-function WithdrawalRow({ request, onApprove, onReject, onMarkPaid, type = 'seller' }) {
-  const [showReject, setShowReject] = useState(false)
-  const [reason, setReason] = useState('')
+function WithdrawalRow({ request, onApprove, onReject, onSendReceipt, type = 'seller' }) {
+  const [showDetails, setShowDetails] = useState(false)
   const seller = request.sellerProfile
   const isLgu = type === 'lgu'
-
-  const submitReject = () => {
-    if (!reason.trim()) return
-    onReject(request.id, reason.trim())
-    setShowReject(false)
-    setReason('')
-  }
 
   return (
     <div className="card action withdrawal-row">
       <div>
         <div className="card-row">
-          {isLgu ? (
-            <strong>{request.municipality?.name || 'Unknown municipality'}</strong>
-          ) : (
-            <>
-              <Avatar src={seller?.profile_picture} alt={seller?.hatchery_name} className="listing-seller-avatar" />
-              <strong><SellerLink seller={seller} /></strong>
-            </>
-          )}
-          <Badge status={request.status}>{withdrawalStatusLabel(request.status)}</Badge>
+          {isLgu ? <strong>{request.municipality?.name || 'Unknown municipality'}</strong> : <strong><SellerLink seller={seller} /></strong>}
+          <Badge status={request.status}>{request.auto_completed_at ? 'Auto-completed' : withdrawalStatusLabel(request.status)}</Badge>
         </div>
-        <p>
-          Request #{request.id} · {currency(request.amount)} requested via {withdrawalMethodLabel(request.method, request.bank_name)}<br />
-          {request.account_name} · {request.account_number}
-        </p>
-        {isLgu
-          ? <p className="muted">Requested by: {request.requestedBy?.name || 'Unknown'}</p>
-          : <p className="muted">Seller receives: {currency(request.net_amount)}</p>}
-        <p className="muted">Requested {new Date(request.created_at).toLocaleDateString()}</p>
-        {['rejected', 'rejected_final'].includes(request.status) && request.rejection_reason && (
-          <p className="error">Reason: {request.rejection_reason}</p>
-        )}
-        {request.status === 'rejected' && (
-          <p className="helper-text">
-            The amount stays on hold until the rejection is final{request.dispute_deadline ? ` (no later than ${new Date(request.dispute_deadline).toLocaleDateString()}, unless a dispute is filed)` : ''}.
-          </p>
+        <p>Request #{request.id} · {currency(request.amount)} via {withdrawalMethodLabel(request.method, request.bank_name)}</p>
+        <p className="muted">{isLgu ? `Requested by ${request.requestedBy?.name || 'Unknown'} · ` : ''}Requested {new Date(request.created_at).toLocaleDateString()}</p>
+        {request.status === 'sent' && request.recipient_confirmed_at && (
+          <p className="helper-text">Receipt confirmed by {request.recipientConfirmedBy?.name || (isLgu ? 'an LGU admin' : 'the seller')} on {new Date(request.recipient_confirmed_at).toLocaleDateString()}.</p>
         )}
         {request.status === 'paid' && request.paid_at && (
-          <p className="helper-text">Paid on {new Date(request.paid_at).toLocaleDateString()}</p>
+          <p className="helper-text">{request.auto_completed_at ? `Auto-completed ${new Date(request.auto_completed_at).toLocaleDateString()} after no receipt confirmation.` : `Paid on ${new Date(request.paid_at).toLocaleDateString()}`}</p>
         )}
+        {['rejected', 'rejected_final'].includes(request.status) && request.rejection_reason && <p className="error">Reason: {request.rejection_reason}</p>}
       </div>
       <div className="row-actions">
-        {request.status === 'pending' && (
-          <button type="button" onClick={() => onApprove(request.id)}>Approve</button>
-        )}
-        {request.status === 'approved' && (
-          <button type="button" onClick={() => onMarkPaid(request.id)}>Mark as Paid</button>
-        )}
-        {(request.status === 'pending' || request.status === 'approved') && (
-          <button type="button" className="ghost danger" onClick={() => setShowReject(!showReject)}>Reject</button>
+        <button type="button" className="ghost" onClick={() => setShowDetails(true)}>Review Request</button>
+        {request.status === 'paid' && request.auto_completed_at && (
+          <Link className="ghost" to={`/admin/dashboard?tab=messages&with=${request.sent_by}`}>Open Payout Message</Link>
         )}
       </div>
-      {showReject && (
-        <div className="form grid-form withdrawal-reject-form">
-          <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason for rejection" />
-          <button type="button" className="danger" onClick={submitReject} disabled={!reason.trim()}>Confirm Reject</button>
-        </div>
+      {showDetails && (
+        <WithdrawalReviewModal
+          request={request}
+          type={type}
+          onClose={() => setShowDetails(false)}
+          onApprove={onApprove}
+          onReject={onReject}
+          onSendReceipt={onSendReceipt}
+        />
       )}
     </div>
+  )
+}
+
+function WithdrawalReviewModal({ request, type, onClose, onApprove, onReject, onSendReceipt }) {
+  const [attachment, setAttachment] = useState(null)
+  const [note, setNote] = useState('')
+  const [payoutSent, setPayoutSent] = useState(false)
+  const [showReject, setShowReject] = useState(false)
+  const [reason, setReason] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const isLgu = type === 'lgu'
+  const accountNumberLabel = request.method === 'bank_transfer' ? 'Bank account number' : 'Mobile number'
+  const rows = [
+    ['Request number', `#${request.id}`],
+    [isLgu ? 'Municipality' : 'Seller', isLgu ? (request.municipality?.name || 'Unknown') : (request.sellerProfile?.hatchery_name || request.sellerProfile?.user?.name || 'Unknown')],
+    ['Requested by', isLgu ? (request.requestedBy?.name || 'Unknown') : (request.sellerProfile?.user?.name || 'Unknown')],
+    ['Amount requested', currency(request.amount)],
+    ...(!isLgu ? [['Seller receives', currency(request.net_amount)]] : []),
+    ['Payout method', withdrawalMethodLabel(request.method, request.bank_name)],
+    ...(request.method === 'bank_transfer' ? [['Bank', request.bank_name || '—']] : []),
+    ['Account name', request.account_name],
+    [accountNumberLabel, request.account_number],
+    ['Requested on', new Date(request.created_at).toLocaleString()],
+    ['Status', request.auto_completed_at ? 'Auto-completed after no confirmation' : withdrawalStatusLabel(request.status)],
+    ...(request.sent_at ? [['Payout sent on', new Date(request.sent_at).toLocaleString()]] : []),
+    ...(request.recipient_confirmed_at ? [['Receipt confirmed on', new Date(request.recipient_confirmed_at).toLocaleString()]] : []),
+    ...(request.paid_at ? [['Completed on', new Date(request.paid_at).toLocaleString()]] : []),
+    ...(request.rejection_reason ? [['Rejection reason', request.rejection_reason]] : []),
+  ]
+
+  const run = async (action) => {
+    setBusy(true)
+    setError('')
+    try {
+      await action()
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not update this withdrawal request.'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const footer = request.status === 'pending' ? (
+    <>
+      <button type="button" onClick={() => run(() => onApprove(request.id))} disabled={busy}>Approve Request</button>
+      <button type="button" className="ghost danger" onClick={() => setShowReject(true)} disabled={busy}>Reject</button>
+      <button type="button" className="ghost" onClick={onClose} disabled={busy}>Close</button>
+    </>
+  ) : request.status === 'approved' ? (
+    <>
+      <button type="button" onClick={() => run(async () => {
+        if (!payoutSent) throw new Error('Confirm that the payout has already been sent before sending its receipt.')
+        await onSendReceipt(request.id, { note, attachment })
+      })} disabled={busy || !payoutSent}>{busy ? 'Sending...' : 'Send Payout'}</button>
+      <button type="button" className="ghost danger" onClick={() => setShowReject(true)} disabled={busy}>Reject Request</button>
+      <button type="button" className="ghost" onClick={onClose} disabled={busy}>Close</button>
+    </>
+  ) : <button type="button" className="ghost" onClick={onClose}>Close</button>
+
+  return (
+    <Modal
+      title={`${isLgu ? 'LGU' : 'Seller'} Withdrawal Request`}
+      subtitle="Review the submitted account and withdrawal details before acting."
+      onClose={busy ? () => {} : onClose}
+      footer={footer}
+    >
+      <div className="withdrawal-confirm-list">
+        {rows.map(([label, value]) => (
+          <div key={label} className="order-detail-field">
+            <span className="order-detail-field-label">{label}</span>
+            <strong>{value}</strong>
+          </div>
+        ))}
+      </div>
+      {request.status === 'approved' && (
+        <div className="form grid-form payout-receipt-form">
+          <p className="helper-text">Send the payout to the account above first. Then confirm it below and send a direct message. The receipt image is optional; this dedicated action starts the inactivity timer.</p>
+          <label className="checkbox-row"><input type="checkbox" checked={payoutSent} onChange={(event) => setPayoutSent(event.target.checked)} /> I have sent this payout to the listed account.</label>
+          <textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Optional note or transfer reference" rows={3} />
+          <label className="file-input-label">Receipt screenshot (optional)<input type="file" accept="image/*" onChange={(event) => setAttachment(event.target.files?.[0] || null)} disabled={busy} /></label>
+          {attachment && <span className="muted">{attachment.name}</span>}
+        </div>
+      )}
+      {request.status === 'sent' && (
+        <p className="helper-text">Payout message sent {request.sent_at ? new Date(request.sent_at).toLocaleString() : ''}. The request completes when the recipient confirms Money Received, or automatically after the confirmation window.</p>
+      )}
+      {request.status === 'paid' && request.auto_completed_at && (
+        <p className="helper-text">Automatically completed after the recipient did not confirm within the configured window. If they report a missing payout, investigate the linked Messages conversation.</p>
+      )}
+      {showReject && (
+        <div className="form grid-form withdrawal-reject-form">
+          <input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Reason for rejection" />
+          <button type="button" className="danger" disabled={busy || !reason.trim()} onClick={() => run(async () => { await onReject(request.id, reason.trim()); onClose() })}>Confirm Reject</button>
+        </div>
+      )}
+      {error && <p className="error">{error}</p>}
+    </Modal>
   )
 }
 
@@ -10790,7 +10928,23 @@ function MessageBubble({ message, isMine, onEdit, onDelete }) {
   const [draft, setDraft] = useState(message.body)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [attachmentUrl, setAttachmentUrl] = useState('')
+  const [showReceipt, setShowReceipt] = useState(false)
   const [renderedAt] = useState(() => Date.now())
+  useEffect(() => {
+    if (!message.has_attachment) return undefined
+    let objectUrl = ''
+    let cancelled = false
+    api.get(`/messages/${message.id}/attachment`, { responseType: 'blob' }).then(({ data }) => {
+      if (cancelled) return
+      objectUrl = URL.createObjectURL(data)
+      setAttachmentUrl(objectUrl)
+    }).catch(() => setAttachmentUrl(''))
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [message.id, message.has_attachment])
 
   const isDeleted = !!message.deleted_at
   const withinEditWindow = renderedAt - new Date(message.created_at).getTime() <= MESSAGE_EDIT_WINDOW_MS
@@ -10841,6 +10995,26 @@ function MessageBubble({ message, isMine, onEdit, onDelete }) {
   return (
     <div className={`message-bubble ${isMine ? 'mine' : 'theirs'}`}>
       <p className={isDeleted ? 'deleted' : ''}>{message.body}</p>
+      {message.has_attachment && attachmentUrl && (
+        <button type="button" className="message-attachment-trigger" onClick={() => setShowReceipt(true)} aria-label="View payout receipt">
+          <img className="message-attachment" src={attachmentUrl} alt="Payout receipt attachment" />
+        </button>
+      )}
+      {showReceipt && attachmentUrl && (
+        <Modal
+          title="Payout receipt"
+          subtitle="Receipt image attached to this message"
+          className="receipt-viewer-modal"
+          onClose={() => setShowReceipt(false)}
+        >
+          <img className="message-attachment-full" src={attachmentUrl} alt="Full-size payout receipt" />
+        </Modal>
+      )}
+      {message.message_type === 'payout_auto_completed' && !isMine && (
+        <div className="row-actions">
+          <Link className="link-action" to={getSession()?.role === 'lgu_admin' ? '/lgu/dashboard?tab=support' : '/seller/dashboard?tab=support'}>Contact Support</Link>
+        </div>
+      )}
       <div className="message-meta">
         {/* Date and time on every message, for whoever is reading it -- this
             bubble renders identically for the sender and the receiver, so both

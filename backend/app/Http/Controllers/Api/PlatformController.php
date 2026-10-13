@@ -107,7 +107,7 @@ class PlatformController extends Controller
             // approval, or approved but not yet marked Paid) -- NOT payments
             // awaiting LGU earnings approval, which is a separate queue (see
             // LguController::pendingEarnings) with no payout involved.
-            'pending_payouts' => WithdrawalRequest::whereIn('status', ['pending', 'approved'])->count(),
+            'pending_payouts' => WithdrawalRequest::whereIn('status', ['pending', 'approved', 'sent'])->count(),
             'transactions' => Order::with(['listing', 'payment'])->latest()->take(10)->get(),
             'lgu_admins' => User::where('role', 'lgu_admin')->with('municipality')->get(),
 

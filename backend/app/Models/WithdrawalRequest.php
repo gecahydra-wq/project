@@ -21,6 +21,11 @@ class WithdrawalRequest extends Model
         'rejection_reason',
         'reviewed_at',
         'paid_at',
+        'recipient_confirmed_at',
+        'recipient_confirmed_by',
+        'sent_at',
+        'sent_by',
+        'auto_completed_at',
     ];
 
     protected $casts = [
@@ -28,6 +33,9 @@ class WithdrawalRequest extends Model
         'platform_fee' => 'decimal:2',
         'reviewed_at' => 'datetime',
         'paid_at' => 'datetime',
+        'recipient_confirmed_at' => 'datetime',
+        'sent_at' => 'datetime',
+        'auto_completed_at' => 'datetime',
     ];
 
     protected $appends = ['net_amount', 'dispute_deadline', 'can_dispute', 'has_open_dispute'];
@@ -45,6 +53,16 @@ class WithdrawalRequest extends Model
     public function sellerProfile()
     {
         return $this->belongsTo(SellerProfile::class);
+    }
+
+    public function sentBy()
+    {
+        return $this->belongsTo(User::class, 'sent_by');
+    }
+
+    public function recipientConfirmedBy()
+    {
+        return $this->belongsTo(User::class, 'recipient_confirmed_by');
     }
 
     /** See App\Support\WithdrawalRejection: a rejection holds the money until it is final. */

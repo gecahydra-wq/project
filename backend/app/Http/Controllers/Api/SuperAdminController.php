@@ -6,13 +6,12 @@ use App\Http\Controllers\Controller;
 use App\Mail\ListingApprovedMail;
 use App\Mail\ListingRejectedMail;
 use App\Mail\LguWithdrawalApprovedMail;
-use App\Mail\LguWithdrawalReleasedMail;
 use App\Mail\SellerWithdrawalApprovedMail;
-use App\Mail\WithdrawalReleasedMail;
 use App\Models\AppNotification;
 use App\Models\Dispute;
 use App\Models\FingerlingListing;
 use App\Models\LguWithdrawalRequest;
+use App\Models\Message;
 use App\Models\MockPayment;
 use App\Models\ModerationLog;
 use App\Http\Controllers\Api\OrderController;
@@ -41,6 +40,8 @@ use App\Support\UserReports;
 use App\Support\WithdrawalRejection;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 
 class SuperAdminController extends Controller
@@ -113,8 +114,8 @@ class SuperAdminController extends Controller
             // in separate tables (see WithdrawalRequest / LguWithdrawalRequest)
             // so they're counted separately here too, never merged into one
             // ambiguous figure.
-            'pending_seller_withdrawals' => WithdrawalRequest::whereIn('status', ['pending', 'approved'])->count(),
-            'pending_lgu_withdrawals' => LguWithdrawalRequest::whereIn('status', ['pending', 'approved'])->count(),
+            'pending_seller_withdrawals' => WithdrawalRequest::whereIn('status', ['pending', 'approved', 'sent'])->count(),
+            'pending_lgu_withdrawals' => LguWithdrawalRequest::whereIn('status', ['pending', 'approved', 'sent'])->count(),
             'completed_seller_withdrawals' => WithdrawalRequest::where('status', 'paid')->count(),
             'completed_lgu_withdrawals' => LguWithdrawalRequest::where('status', 'paid')->count(),
             // Account Moderation -- platform-wide, every role. "Active" is
@@ -188,20 +189,20 @@ class SuperAdminController extends Controller
     public function withdrawals()
     {
         return response()->json(
-            WithdrawalRequest::with('sellerProfile.user')->latest()->get()
+            WithdrawalRequest::with(['sellerProfile.user', 'sentBy', 'recipientConfirmedBy'])->latest()->get()
         );
     }
 
     /**
      * LGU revenue withdrawals -- managed exactly like Seller withdrawals
      * (see withdrawals()/approveWithdrawal()/rejectWithdrawal()/
-     * markWithdrawalPaid() above), just against the municipality-scoped
+     * sendLguWithdrawalReceipt() below), just against the municipality-scoped
      * LguWithdrawalRequest table instead of the seller-scoped one.
      */
     public function lguWithdrawals()
     {
         return response()->json(
-            LguWithdrawalRequest::with(['municipality', 'requestedBy'])->latest()->get()
+            LguWithdrawalRequest::with(['municipality', 'requestedBy', 'sentBy', 'recipientConfirmedBy'])->latest()->get()
         );
     }
 
@@ -218,7 +219,7 @@ class SuperAdminController extends Controller
                 'type' => 'lgu_withdrawal_approved',
                 'title' => 'LGU Withdrawal Approved',
                 'body' => sprintf(
-                    'Your withdrawal request of ₱%s for %s via %s has been approved and is being processed.',
+                    'Your withdrawal request of ₱%s for %s via %s has been approved. Once the payout arrives, confirm it with Money Received in your LGU Wallet to complete the withdrawal.',
                     number_format((float) $withdrawal->amount, 2),
                     $withdrawal->municipality?->name ?? 'your municipality',
                     $withdrawal->method
@@ -226,8 +227,8 @@ class SuperAdminController extends Controller
             ]);
         }
 
-        // Distinct from LguWithdrawalReleasedMail (fired only from
-        // markLguWithdrawalPaid) -- this one confirms the request was
+        // Distinct from LguWithdrawalReleasedMail (fired on confirmation or
+        // automatic completion) -- this one confirms the request was
         // accepted and is being processed, not that funds have moved yet.
         SafeMailer::send($withdrawal->requestedBy?->email, new LguWithdrawalApprovedMail($withdrawal));
 
@@ -236,6 +237,7 @@ class SuperAdminController extends Controller
 
     public function rejectLguWithdrawal(Request $request, LguWithdrawalRequest $withdrawal)
     {
+        abort_if($withdrawal->sent_at || $withdrawal->recipient_confirmed_at, 422, 'A sent payout cannot be rejected.');
         abort_if(in_array($withdrawal->status, ['paid', WithdrawalRejection::ON_HOLD, WithdrawalRejection::FINAL], true), 422, 'This withdrawal request has already been finalized.');
 
         $data = $request->validate([
@@ -268,35 +270,19 @@ class SuperAdminController extends Controller
         return response()->json($withdrawal->fresh());
     }
 
-    public function markLguWithdrawalPaid(LguWithdrawalRequest $withdrawal)
+    public function sendLguWithdrawalReceipt(Request $request, LguWithdrawalRequest $withdrawal)
     {
-        abort_unless($withdrawal->status === 'approved', 422, 'Only approved withdrawal requests can be marked as paid.');
+        $data = $request->validate([
+            'payout_sent' => ['required', 'accepted'],
+            'note' => ['nullable', 'string', 'max:1000'],
+            'attachment' => ['nullable', 'image', 'max:8192'],
+        ]);
+        abort_unless($withdrawal->status === 'approved', 422, 'Approve the withdrawal before sending its payout receipt.');
 
-        $paidAt = Carbon::now();
-        $withdrawal->update(['status' => 'paid', 'paid_at' => $paidAt, 'reviewed_at' => $paidAt]);
-        $withdrawal->load('requestedBy', 'municipality');
+        $recipient = $withdrawal->requestedBy;
+        abort_unless($recipient, 422, 'The LGU request owner is no longer available to receive this payout message.');
 
-        if ($withdrawal->requested_by) {
-            AppNotification::firstOrCreate([
-                'user_id' => $withdrawal->requested_by,
-                'type' => 'lgu_withdrawal_paid',
-                'title' => 'LGU Withdrawal Completed',
-                'body' => sprintf(
-                    'Your withdrawal request of ₱%s for %s via %s has been paid out on %s.',
-                    number_format((float) $withdrawal->amount, 2),
-                    $withdrawal->municipality?->name ?? 'your municipality',
-                    $withdrawal->method,
-                    $paidAt->format('M d, Y')
-                ),
-            ]);
-        }
-
-        // Distinct from LguWithdrawalApprovedMail (fired in approveLguWithdrawal
-        // above) -- this one confirms the payout actually happened, never on
-        // submission or mere approval.
-        SafeMailer::send($withdrawal->requestedBy?->email, new LguWithdrawalReleasedMail($withdrawal));
-
-        return response()->json($withdrawal->fresh());
+        return $this->sendPayoutReceiptMessage($request, $withdrawal, $recipient, 'lgu', $data);
     }
 
     public function approveWithdrawal(WithdrawalRequest $withdrawal)
@@ -311,13 +297,14 @@ class SuperAdminController extends Controller
             'type' => 'withdrawal_approved',
             'title' => 'Withdrawal Approved',
             'body' => sprintf(
-                'Your withdrawal request of ₱%s via %s has been approved and is being processed.',
+                'Your withdrawal request of ₱%s via %s has been approved. Once the payout arrives, confirm it with Money Received in your Wallet to complete the withdrawal.',
                 number_format((float) $withdrawal->amount, 2),
                 $withdrawal->method
             ),
         ]);
 
-        // Accepted, not yet paid -- WithdrawalReleasedMail follows at markWithdrawalPaid.
+        // Accepted, not yet paid -- WithdrawalReleasedMail follows when the
+        // recipient confirms Money Received or the inactivity timer completes it.
         $withdrawal->loadMissing('sellerProfile.user');
         SafeMailer::send($withdrawal->sellerProfile->user?->email, new SellerWithdrawalApprovedMail($withdrawal));
 
@@ -410,6 +397,7 @@ class SuperAdminController extends Controller
 
     public function rejectWithdrawal(Request $request, WithdrawalRequest $withdrawal)
     {
+        abort_if($withdrawal->sent_at || $withdrawal->recipient_confirmed_at, 422, 'A sent payout cannot be rejected.');
         abort_if(in_array($withdrawal->status, ['paid', WithdrawalRejection::ON_HOLD, WithdrawalRejection::FINAL], true), 422, 'This withdrawal request has already been finalized.');
 
         $data = $request->validate([
@@ -439,33 +427,73 @@ class SuperAdminController extends Controller
         return response()->json($withdrawal->fresh());
     }
 
-    public function markWithdrawalPaid(WithdrawalRequest $withdrawal)
+    public function sendWithdrawalReceipt(Request $request, WithdrawalRequest $withdrawal)
     {
-        abort_unless($withdrawal->status === 'approved', 422, 'Only approved withdrawal requests can be marked as paid.');
-
-        $paidAt = Carbon::now();
-        $withdrawal->update(['status' => 'paid', 'paid_at' => $paidAt, 'reviewed_at' => $paidAt]);
-        $withdrawal->load('sellerProfile.user');
-
-        AppNotification::firstOrCreate([
-            'user_id' => $withdrawal->sellerProfile->user_id,
-            'type' => 'withdrawal_paid',
-            'title' => 'Withdrawal Completed',
-            'body' => sprintf(
-                'Your withdrawal request of ₱%s via %s has been paid out on %s.%s',
-                number_format((float) $withdrawal->amount, 2),
-                $withdrawal->method,
-                $paidAt->format('M d, Y'),
-                // Only requests made before 2026-10-09 carry a payout fee.
-                (float) $withdrawal->platform_fee > 0
-                    ? sprintf(' A ₱%s platform payout fee was deducted -- you received ₱%s.', number_format((float) $withdrawal->platform_fee, 2), number_format($withdrawal->net_amount, 2))
-                    : ''
-            ),
+        $data = $request->validate([
+            'payout_sent' => ['required', 'accepted'],
+            'note' => ['nullable', 'string', 'max:1000'],
+            'attachment' => ['nullable', 'image', 'max:8192'],
         ]);
+        abort_unless($withdrawal->status === 'approved', 422, 'Approve the withdrawal before sending its payout receipt.');
 
-        SafeMailer::send($withdrawal->sellerProfile->user?->email, new WithdrawalReleasedMail($withdrawal));
+        $recipient = $withdrawal->sellerProfile?->user;
+        abort_unless($recipient, 422, 'The seller is no longer available to receive this payout message.');
 
-        return response()->json($withdrawal->fresh());
+        return $this->sendPayoutReceiptMessage($request, $withdrawal, $recipient, 'seller', $data);
+    }
+
+    private function sendPayoutReceiptMessage(Request $request, $withdrawal, User $recipient, string $type, array $data)
+    {
+        $admin = $request->user();
+        $attachmentPath = $request->file('attachment')?->store('payout-receipts', 'local');
+        $minutes = (int) config('payouts.auto_complete_after_minutes', 1440);
+        $amount = $type === 'seller' ? $withdrawal->net_amount : (float) $withdrawal->amount;
+        $amountLabel = number_format($amount, 2);
+        $messageBody = sprintf(
+            'The Super Admin has sent your %s withdrawal payout of ₱%s via %s. %sIf you have received the payout, click Money Received in your Wallet within %d minute(s). If it has not arrived, reply to this message or contact Support.',
+            $type === 'lgu' ? 'LGU' : 'seller',
+            $amountLabel,
+            $withdrawal->method,
+            trim((string) ($data['note'] ?? '')) !== '' ? trim($data['note'])."\n\n" : '',
+            $minutes
+        );
+
+        try {
+            $message = DB::transaction(function () use ($withdrawal, $admin, $recipient, $type, $messageBody, $attachmentPath) {
+                $locked = $withdrawal::query()->lockForUpdate()->findOrFail($withdrawal->id);
+                abort_unless($locked->status === 'approved' && ! $locked->sent_at, 422, 'This payout is no longer awaiting a receipt message.');
+
+                $locked->update([
+                    'status' => 'sent',
+                    'sent_at' => Carbon::now(),
+                    'sent_by' => $admin->id,
+                ]);
+
+                $message = Message::create([
+                    'sender_id' => $admin->id,
+                    'receiver_id' => $recipient->id,
+                    'body' => $messageBody,
+                    'message_type' => 'payout_receipt',
+                    'attachment_path' => $attachmentPath,
+                    'withdrawal_type' => $type,
+                    'withdrawal_id' => $locked->id,
+                ]);
+
+                MessageController::notifyReceiver($admin, $recipient, $messageBody);
+
+                return $message;
+            });
+        } catch (\Throwable $exception) {
+            if ($attachmentPath) {
+                Storage::disk('local')->delete($attachmentPath);
+            }
+            throw $exception;
+        }
+
+        return response()->json([
+            'withdrawal' => $withdrawal->fresh(),
+            'message' => $message->load(['sender', 'receiver']),
+        ]);
     }
 
     public function storeLguAdmin(Request $request)

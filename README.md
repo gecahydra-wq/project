@@ -348,8 +348,11 @@ LGU verifies the transaction  ──►  approves earnings
 Seller Available Balance increases;  LGU revenue recognized
         │
         ▼
-Seller requests payout (PAY-##)  ──►  Super Admin approves & marks Paid
-LGU requests payout   (LGU-##)   ──►  Super Admin approves & marks Paid
+Seller requests payout (PAY-##)  ──►  Super Admin approves & sends payout
+                                      Seller confirms Money Received ──► Paid
+LGU requests payout   (LGU-##)   ──►  Super Admin approves & sends payout
+                                      LGU confirms Money Received ──► Paid
+                                      (No confirmation: auto-paid after the configured window)
 ```
 
 - **Demo mode:** if PayMongo keys are blank, checkout returns a demo session that immediately marks the payment held, so the full flow can be exercised end-to-end without real keys.
@@ -370,6 +373,8 @@ The split is **fixed in code** (not a runtime setting) and happens once, at **LG
 The seller and LGU shares are rounded to the centavo first; the platform absorbs any rounding remainder so the three always sum to exactly the gross amount. All three shares are frozen onto the Settlement row.
 
 **Withdrawals carry no fee** — a seller receives the full amount they withdraw.
+
+**Payout confirmation:** after approving a seller or LGU withdrawal, the Super Admin sends the payout through Messages (an optional screenshot can be included). Once the funds arrive, the seller or an LGU admin clicks **Money Received** in their Wallet, immediately completing the withdrawal. If they do not confirm before the configured inactivity window, the scheduler marks it paid automatically and notifies them.
 
 **The seller sees the split.** Order details, the Wallet's Payment History and the "earnings approved" email all show the same breakdown, e.g. order total ₱600 − platform fee 4% (₱24) − LGU share 2% (₱12) = **you receive ₱564** (an estimate until the LGU approves, then the frozen settlement figures). The LGU Wallet's Revenue History shows each order number, seller and "2% of ₱600". Each withdrawal (seller or LGU) must be at least **₱100**.
 

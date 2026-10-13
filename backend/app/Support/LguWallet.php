@@ -29,7 +29,7 @@ class LguWallet
     public static function reservedOrWithdrawn(int $municipalityId): float
     {
         return (float) LguWithdrawalRequest::where('municipality_id', $municipalityId)
-            ->whereIn('status', ['pending', 'approved', 'paid', WithdrawalRejection::ON_HOLD])
+            ->whereIn('status', ['pending', 'approved', 'sent', 'paid', WithdrawalRejection::ON_HOLD])
             ->sum('amount');
     }
 
@@ -94,7 +94,7 @@ class LguWallet
     public static function processingAmount(int $municipalityId): float
     {
         return round((float) LguWithdrawalRequest::where('municipality_id', $municipalityId)
-            ->whereIn('status', ['pending', 'approved'])
+            ->whereIn('status', ['pending', 'approved', 'sent'])
             ->sum('amount'), 2);
     }
 

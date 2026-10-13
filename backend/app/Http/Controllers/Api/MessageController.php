@@ -9,6 +9,7 @@ use App\Models\SellerProfile;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Storage;
 
 class MessageController extends Controller
 {
@@ -134,6 +135,14 @@ class MessageController extends Controller
         ]);
     }
 
+    public function attachment(Request $request, Message $message)
+    {
+        abort_unless(in_array((int) $request->user()->id, [(int) $message->sender_id, (int) $message->receiver_id], true), 404);
+        abort_if(! $message->attachment_path || $message->deleted_at, 404);
+
+        return Storage::disk('local')->download($message->attachment_path, basename($message->attachment_path));
+    }
+
     public function store(Request $request)
     {
         $data = $request->validate([
@@ -196,7 +205,7 @@ class MessageController extends Controller
      * the receiver has not read it, a newer message just refreshes the
      * preview, so a chatty thread cannot flood their notifications.
      */
-    private static function notifyReceiver(User $sender, User $receiver, string $body): void
+    public static function notifyReceiver(User $sender, User $receiver, string $body): void
     {
         $title = self::notificationTitle($sender);
         $preview = Str::limit(trim($body), 140);
@@ -230,6 +239,7 @@ class MessageController extends Controller
 
     public function update(Request $request, Message $message)
     {
+        abort_if($message->message_type !== 'text', 403, 'System payout messages cannot be edited.');
         if ($message->sender_id !== $request->user()->id) {
             return response()->json(['message' => 'You can only edit your own messages.'], 403);
         }
@@ -256,6 +266,7 @@ class MessageController extends Controller
 
     public function destroy(Request $request, Message $message)
     {
+        abort_if($message->message_type !== 'text', 403, 'System payout messages cannot be deleted.');
         if ($message->sender_id !== $request->user()->id) {
             return response()->json(['message' => 'You can only delete your own messages.'], 403);
         }

@@ -6,15 +6,94 @@ use App\Models\AppNotification;
 use App\Models\LguWithdrawalRequest;
 use App\Models\User;
 use App\Models\WithdrawalRequest;
+use App\Mail\LguWithdrawalReleasedMail;
+use App\Mail\WithdrawalReleasedMail;
+use App\Support\SafeMailer;
 
 /**
- * Who hears about a NEW withdrawal request. Approval, rejection and payment
- * already notify the requester (SuperAdminController); this covers the
- * submission itself: the Super Admin, who has to act on it, and the
- * requester, as a receipt of what they asked for.
+ * Withdrawal request and receipt-confirmation notifications. Approvals and
+ * rejections are sent by SuperAdminController; confirmation completes the
+ * payout and sends the paid notification and email here.
  */
 class WithdrawalNotifications
 {
+    public static function sellerConfirmedReceived(WithdrawalRequest $withdrawal, bool $automatic = false): void
+    {
+        $withdrawal->loadMissing('sellerProfile.user');
+        $seller = $withdrawal->sellerProfile;
+        if ($seller?->user) {
+            AppNotification::firstOrCreate([
+                'user_id' => $seller->user_id,
+                'type' => ($automatic ? 'withdrawal_auto_completed:' : 'withdrawal_paid:').$withdrawal->id,
+            ], [
+                'title' => $automatic ? 'Withdrawal Automatically Completed' : 'Withdrawal Completed',
+                'body' => $automatic
+                    ? sprintf(
+                        'Your withdrawal payout of ₱%s via %s was automatically marked paid after the confirmation window expired.',
+                        self::money($withdrawal->net_amount),
+                        $withdrawal->method
+                    )
+                    : sprintf(
+                        'Your withdrawal payout of ₱%s via %s was marked paid after you confirmed receipt on %s.',
+                        self::money($withdrawal->net_amount),
+                        $withdrawal->method,
+                        $withdrawal->paid_at?->format('M d, Y') ?? now()->format('M d, Y')
+                    ),
+            ]);
+            SafeMailer::send($seller->user->email, new WithdrawalReleasedMail($withdrawal));
+        }
+
+        self::notifySuperAdmins(
+            ($automatic ? 'withdrawal_auto_completed:' : 'withdrawal_received:').$withdrawal->id,
+            $automatic ? 'Seller Payout Automatically Completed' : 'Seller Confirmed Payout Received',
+            sprintf(
+                $automatic
+                    ? '%s’s ₱%s withdrawal was automatically marked paid after the confirmation window expired.'
+                    : '%s confirmed receiving the ₱%s withdrawal. It has been marked paid and completed.',
+                $seller?->hatchery_name ?: ($seller?->user?->name ?? 'A seller'),
+                self::money($withdrawal->amount)
+            )
+        );
+    }
+
+    public static function lguConfirmedReceived(LguWithdrawalRequest $withdrawal, bool $automatic = false): void
+    {
+        $withdrawal->loadMissing(['municipality', 'requestedBy']);
+        if ($withdrawal->requestedBy) {
+            AppNotification::firstOrCreate([
+                'user_id' => $withdrawal->requested_by,
+                'type' => ($automatic ? 'lgu_withdrawal_auto_completed:' : 'lgu_withdrawal_paid:').$withdrawal->id,
+            ], [
+                'title' => $automatic ? 'LGU Withdrawal Automatically Completed' : 'LGU Withdrawal Completed',
+                'body' => $automatic
+                    ? sprintf(
+                        'Your municipality’s ₱%s withdrawal via %s was automatically marked paid after the confirmation window expired.',
+                        self::money($withdrawal->amount),
+                        $withdrawal->method
+                    )
+                    : sprintf(
+                        'Your municipality confirmed receipt of the ₱%s withdrawal via %s. It was marked paid on %s.',
+                        self::money($withdrawal->amount),
+                        $withdrawal->method,
+                        $withdrawal->paid_at?->format('M d, Y') ?? now()->format('M d, Y')
+                    ),
+            ]);
+            SafeMailer::send($withdrawal->requestedBy->email, new LguWithdrawalReleasedMail($withdrawal));
+        }
+
+        self::notifySuperAdmins(
+            ($automatic ? 'lgu_withdrawal_auto_completed:' : 'lgu_withdrawal_received:').$withdrawal->id,
+            $automatic ? 'LGU Payout Automatically Completed' : 'LGU Confirmed Payout Received',
+            sprintf(
+                $automatic
+                    ? '%s’s ₱%s withdrawal was automatically marked paid after the confirmation window expired.'
+                    : '%s confirmed receiving the ₱%s withdrawal. It has been marked paid and completed.',
+                $withdrawal->municipality?->name ?? 'A municipality',
+                self::money($withdrawal->amount)
+            )
+        );
+    }
+
     public static function sellerRequested(WithdrawalRequest $withdrawal): void
     {
         $withdrawal->loadMissing('sellerProfile.user');

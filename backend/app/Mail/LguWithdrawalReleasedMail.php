@@ -11,8 +11,8 @@ use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
 
 /**
- * Sent only when the Super Admin marks an LGU revenue withdrawal as Paid --
- * see SuperAdminController::markLguWithdrawalPaid(). Reuses the same
+ * Sent when an LGU admin confirms Money Received or the inactivity timer
+ * automatically completes an LGU revenue withdrawal. Reuses the same
  * emails.wallet.withdrawal-released view as the seller's
  * WithdrawalReleasedMail (see that class), just with LGU-specific rows and
  * no platform-fee line, since LGU withdrawals aren't charged one.

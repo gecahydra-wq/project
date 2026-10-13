@@ -21,6 +21,11 @@ class LguWithdrawalRequest extends Model
         'rejection_reason',
         'reviewed_at',
         'paid_at',
+        'recipient_confirmed_at',
+        'recipient_confirmed_by',
+        'sent_at',
+        'sent_by',
+        'auto_completed_at',
     ];
 
     protected $appends = ['dispute_deadline', 'can_dispute', 'has_open_dispute'];
@@ -29,6 +34,9 @@ class LguWithdrawalRequest extends Model
         'amount' => 'decimal:2',
         'reviewed_at' => 'datetime',
         'paid_at' => 'datetime',
+        'recipient_confirmed_at' => 'datetime',
+        'sent_at' => 'datetime',
+        'auto_completed_at' => 'datetime',
     ];
 
     public function municipality()
@@ -39,6 +47,16 @@ class LguWithdrawalRequest extends Model
     public function requestedBy()
     {
         return $this->belongsTo(User::class, 'requested_by');
+    }
+
+    public function sentBy()
+    {
+        return $this->belongsTo(User::class, 'sent_by');
+    }
+
+    public function recipientConfirmedBy()
+    {
+        return $this->belongsTo(User::class, 'recipient_confirmed_by');
     }
 
     /** See App\Support\WithdrawalRejection: a rejection holds the money until it is final. */

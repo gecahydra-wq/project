@@ -500,7 +500,7 @@ class AiDataQueryResolver
     private static function lguWallet(int $municipalityId): array
     {
         $w = LguWallet::summary($municipalityId);
-        $pendingCount = LguWithdrawalRequest::where('municipality_id', $municipalityId)->whereIn('status', ['pending', 'approved'])->count();
+        $pendingCount = LguWithdrawalRequest::where('municipality_id', $municipalityId)->whereIn('status', ['pending', 'approved', 'sent'])->count();
         $paidCount = LguWithdrawalRequest::where('municipality_id', $municipalityId)->where('status', 'paid')->count();
 
         $context = "Your municipality's LGU wallet: Available Balance {$w['available_balance']}, Total Revenue {$w['total_revenue']}, Withdrawn Amount {$w['withdrawn_amount']}, {$pendingCount} pending withdrawal request(s), {$paidCount} completed withdrawal(s).";
@@ -606,8 +606,14 @@ class AiDataQueryResolver
 
         if (self::matchesAny($lower, ['pending payout', 'completed payout', 'how many withdrawals'])) {
             $status = str_contains($lower, 'completed') || str_contains($lower, 'paid') ? 'paid' : 'pending';
-            $count = WithdrawalRequest::where('status', $status)->count();
-            $sum = round((float) WithdrawalRequest::where('status', $status)->sum('amount'), 2);
+            $query = WithdrawalRequest::query();
+            if ($status === 'paid') {
+                $query->where('status', 'paid');
+            } else {
+                $query->whereIn('status', ['pending', 'approved', 'sent']);
+            }
+            $count = (clone $query)->count();
+            $sum = round((float) $query->sum('amount'), 2);
             $label = $status === 'paid' ? 'completed payouts' : 'pending payouts';
             $context = "There are {$count} {$label}, totaling {$sum}.";
 

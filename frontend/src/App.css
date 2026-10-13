@@ -3014,6 +3014,42 @@ a.activity-log-item:hover {
   margin: 0;
 }
 
+.message-attachment {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  display: block;
+  margin-top: 0.6rem;
+  max-height: 320px;
+  max-width: min(100%, 420px);
+  object-fit: contain;
+}
+
+.message-attachment-trigger {
+  background: transparent;
+  border: 0;
+  cursor: zoom-in;
+  max-width: 100%;
+  min-height: 0;
+  padding: 0;
+}
+
+.receipt-viewer-modal {
+  max-width: min(1100px, 94vw);
+}
+
+.receipt-viewer-modal .modal-body {
+  align-items: center;
+  justify-content: center;
+}
+
+.message-attachment-full {
+  display: block;
+  height: auto;
+  max-height: calc(100vh - 13rem);
+  max-width: 100%;
+  object-fit: contain;
+}
+
 .message-bubble .deleted {
   color: var(--color-text-muted);
   font-style: italic;

@@ -10,9 +10,21 @@ class Message extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['sender_id', 'receiver_id', 'body', 'read_at', 'edited_at', 'deleted_at'];
+    protected $fillable = [
+        'sender_id', 'receiver_id', 'body', 'read_at', 'edited_at', 'deleted_at',
+        'message_type', 'attachment_path', 'withdrawal_type', 'withdrawal_id',
+    ];
+
+    protected $hidden = ['attachment_path'];
+
+    protected $appends = ['has_attachment'];
 
     protected $casts = ['read_at' => 'datetime', 'edited_at' => 'datetime', 'deleted_at' => 'datetime'];
+
+    public function getHasAttachmentAttribute(): bool
+    {
+        return ! empty($this->attachment_path);
+    }
 
     public function sender()
     {

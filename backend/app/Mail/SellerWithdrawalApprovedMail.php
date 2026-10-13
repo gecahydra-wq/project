@@ -13,7 +13,7 @@ use Illuminate\Queue\SerializesModels;
  * Seller counterpart of LguWithdrawalApprovedMail, sent from
  * SuperAdminController::approveWithdrawal(). "Approved" means the request was
  * accepted and is being processed -- NOT paid yet; WithdrawalReleasedMail
- * follows when the Super Admin marks it Paid.
+ * follows when the seller confirms Money Received or the timer completes it.
  */
 class SellerWithdrawalApprovedMail extends Mailable
 {
@@ -54,9 +54,9 @@ class SellerWithdrawalApprovedMail extends Mailable
                 'subject' => 'Your Withdrawal Request Has Been Approved',
                 'eyebrow' => 'Withdrawal Update',
                 'headline' => 'Your withdrawal request has been approved',
-                'preheader' => 'Your withdrawal request has been approved and is being processed.',
+                'preheader' => 'Your withdrawal is approved. Click Money Received in your Wallet once the payout arrives.',
                 'recipientName' => $seller?->hatchery_name ?? ($seller?->user?->name ?? 'there'),
-                'introLine' => 'Your withdrawal request has been approved and is now being processed. You will receive a separate email once the payment has actually been made.',
+                'introLine' => 'Your withdrawal request has been approved. The Super Admin will send the payout through AbaiMarket Messages. Once it arrives, click Money Received in your Wallet to complete the withdrawal.',
                 'rows' => $rows,
                 'ctaLabel' => 'View Wallet',
                 'ctaUrl' => "{$frontend}/seller/dashboard?tab=wallet",

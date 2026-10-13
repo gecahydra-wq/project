@@ -74,6 +74,36 @@ class FishMarketApiTest extends TestCase
         $this->seed(DatabaseSeeder::class);
     }
 
+    protected function sendAndConfirmSellerPayout(WithdrawalRequest $withdrawal, SellerProfile $seller): void
+    {
+        $superAdmin = User::where('role', 'super_admin')->firstOrFail();
+        Sanctum::actingAs($superAdmin);
+        $this->postJson("/api/super-admin/withdrawals/{$withdrawal->id}/send-receipt", [
+            'payout_sent' => true,
+            'note' => 'Test transfer reference',
+        ])->assertOk()->assertJsonPath('withdrawal.status', 'sent');
+
+        Sanctum::actingAs($seller->user);
+        $this->patchJson("/api/seller/withdrawals/{$withdrawal->id}/received")
+            ->assertOk()
+            ->assertJsonPath('status', 'paid');
+    }
+
+    protected function sendAndConfirmLguPayout(LguWithdrawalRequest $withdrawal, User $lguAdmin): void
+    {
+        $superAdmin = User::where('role', 'super_admin')->firstOrFail();
+        Sanctum::actingAs($superAdmin);
+        $this->postJson("/api/super-admin/lgu-withdrawals/{$withdrawal->id}/send-receipt", [
+            'payout_sent' => true,
+            'note' => 'Test transfer reference',
+        ])->assertOk()->assertJsonPath('withdrawal.status', 'sent');
+
+        Sanctum::actingAs($lguAdmin);
+        $this->patchJson("/api/lgu/withdrawals/{$withdrawal->id}/received")
+            ->assertOk()
+            ->assertJsonPath('status', 'paid');
+    }
+
     protected function makeBuyer(array $overrides = []): User
     {
         $user = User::create(array_merge([
@@ -1268,7 +1298,7 @@ class FishMarketApiTest extends TestCase
         $this->assertDatabaseHas('withdrawal_requests', ['id' => $withdrawal->id, 'status' => 'pending']);
     }
 
-    public function test_super_admin_can_mark_an_approved_withdrawal_as_paid_and_seller_sees_the_update(): void
+    public function test_seller_money_received_confirmation_completes_an_approved_withdrawal(): void
     {
         $seller = $this->makeSeller();
         $withdrawal = WithdrawalRequest::create([
@@ -1283,15 +1313,20 @@ class FishMarketApiTest extends TestCase
         Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
 
         // Cannot mark as paid before it has been approved.
-        $this->patchJson("/api/super-admin/withdrawals/{$withdrawal->id}/paid")->assertStatus(422);
+        $this->patchJson("/api/super-admin/withdrawals/{$withdrawal->id}/paid")->assertNotFound();
 
         $this->patchJson("/api/super-admin/withdrawals/{$withdrawal->id}/approve")->assertOk();
-        $paid = $this->patchJson("/api/super-admin/withdrawals/{$withdrawal->id}/paid");
+        // Approval alone is not payment: a structured payout receipt must be
+        // sent, then the seller confirms before the Super Admin completes it.
+        $this->patchJson("/api/super-admin/withdrawals/{$withdrawal->id}/paid")->assertNotFound();
+        $this->sendAndConfirmSellerPayout($withdrawal, $seller);
+        Sanctum::actingAs($seller->user);
+        $paid = $this->getJson('/api/seller/wallet')->assertOk()->json('withdrawal_requests.0');
 
-        $paid->assertOk()->assertJsonPath('status', 'paid');
-        $this->assertNotNull($paid->json('paid_at'));
+        $this->assertSame('paid', $paid['status']);
+        $this->assertNotNull($paid['paid_at']);
 
-        $this->assertDatabaseHas('notifications', ['user_id' => $seller->user_id, 'type' => 'withdrawal_paid']);
+        $this->assertDatabaseHas('notifications', ['user_id' => $seller->user_id, 'type' => "withdrawal_paid:{$withdrawal->id}"]);
 
         Sanctum::actingAs($seller->user);
         $wallet = $this->getJson('/api/seller/wallet');
@@ -1299,6 +1334,95 @@ class FishMarketApiTest extends TestCase
             ->assertJsonPath('withdrawal_requests.0.status', 'paid')
             ->assertJsonPath('withdrawal_requests.0.id', $withdrawal->id);
         $this->assertNotNull($wallet->json('withdrawal_requests.0.paid_at'));
+    }
+
+    public function test_sending_a_payout_receipt_creates_a_message_and_starts_the_timer(): void
+    {
+        Storage::fake('local');
+        $seller = $this->makeSeller();
+        $withdrawal = $this->makeWithdrawal($seller, ['amount' => 40, 'status' => 'approved']);
+        $superAdmin = User::where('role', 'super_admin')->firstOrFail();
+
+        Sanctum::actingAs($superAdmin);
+        $this->postJson("/api/super-admin/withdrawals/{$withdrawal->id}/send-receipt", [
+            'payout_sent' => true,
+            'note' => 'Transfer reference 123',
+            'attachment' => UploadedFile::fake()->image('receipt.png'),
+        ])->assertOk()->assertJsonPath('withdrawal.status', 'sent');
+
+        $message = Message::where('withdrawal_type', 'seller')->where('withdrawal_id', $withdrawal->id)->firstOrFail();
+        $this->assertSame('payout_receipt', $message->message_type);
+        $this->assertNotNull($withdrawal->fresh()->sent_at);
+        Storage::disk('local')->assertExists($message->attachment_path);
+
+        // A normal message in the same conversation is not associated with
+        // this withdrawal and cannot create or reset its receipt timer.
+        $this->postJson('/api/messages', [
+            'receiver_id' => $seller->user_id,
+            'body' => 'A regular follow-up message',
+        ])->assertCreated();
+        $this->assertDatabaseHas('withdrawal_requests', [
+            'id' => $withdrawal->id,
+            'status' => 'sent',
+            'sent_at' => $withdrawal->fresh()->sent_at,
+        ]);
+
+        Sanctum::actingAs($seller->user);
+        $this->getJson("/api/messages/{$message->id}/attachment")->assertOk();
+    }
+
+    public function test_one_minute_of_unconfirmed_sent_payouts_auto_completes_for_sellers_and_lgus(): void
+    {
+        Mail::fake();
+        config(['payouts.auto_complete_after_minutes' => 1]);
+        $superAdmin = User::where('role', 'super_admin')->firstOrFail();
+        $seller = $this->makeSeller();
+        $sellerWithdrawal = $this->makeWithdrawal($seller, [
+            'amount' => 40,
+            'status' => 'sent',
+            'sent_at' => now()->subMinutes(2),
+            'sent_by' => $superAdmin->id,
+        ]);
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $lguWithdrawal = $this->makeLguWithdrawal($lguAdmin->municipality_id, [
+            'requested_by' => $lguAdmin->id,
+            'amount' => 25,
+            'status' => 'sent',
+            'sent_at' => now()->subMinutes(2),
+            'sent_by' => $superAdmin->id,
+        ]);
+        $recentWithdrawal = $this->makeWithdrawal($seller, [
+            'amount' => 20,
+            'status' => 'sent',
+            'sent_at' => now(),
+            'sent_by' => $superAdmin->id,
+        ]);
+
+        $this->artisan('withdrawals:auto-complete-sent')->assertExitCode(0);
+
+        $this->assertDatabaseHas('withdrawal_requests', [
+            'id' => $sellerWithdrawal->id,
+            'status' => 'paid',
+            'auto_completed_at' => $sellerWithdrawal->fresh()->auto_completed_at,
+        ]);
+        $this->assertDatabaseHas('lgu_withdrawal_requests', [
+            'id' => $lguWithdrawal->id,
+            'status' => 'paid',
+            'auto_completed_at' => $lguWithdrawal->fresh()->auto_completed_at,
+        ]);
+        $this->assertSame('sent', $recentWithdrawal->fresh()->status);
+        $this->assertDatabaseHas('messages', [
+            'withdrawal_type' => 'seller',
+            'withdrawal_id' => $sellerWithdrawal->id,
+            'message_type' => 'payout_auto_completed',
+        ]);
+        $this->assertDatabaseHas('messages', [
+            'withdrawal_type' => 'lgu',
+            'withdrawal_id' => $lguWithdrawal->id,
+            'message_type' => 'payout_auto_completed',
+        ]);
+        Mail::assertSent(WithdrawalReleasedMail::class, fn ($mail) => $mail->hasTo($seller->user->email));
+        Mail::assertSent(LguWithdrawalReleasedMail::class, fn ($mail) => $mail->hasTo($lguAdmin->email));
     }
 
     public function test_marking_a_withdrawal_paid_does_not_return_the_amount_to_available_balance(): void
@@ -1326,7 +1450,7 @@ class FishMarketApiTest extends TestCase
 
         Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
         $this->patchJson("/api/super-admin/withdrawals/{$withdrawal->id}/approve")->assertOk();
-        $this->patchJson("/api/super-admin/withdrawals/{$withdrawal->id}/paid")->assertOk();
+        $this->sendAndConfirmSellerPayout($withdrawal, $seller);
 
         Sanctum::actingAs($seller->user);
         $after = $this->getJson('/api/seller/wallet');
@@ -1447,7 +1571,7 @@ class FishMarketApiTest extends TestCase
         $this->assertEquals(40, $this->getJson('/api/super-admin/dashboard')->json('platform_revenue.total_platform_revenue'));
 
         // 10. Super Admin marks it paid: Processing -> Withdrawn. Available must NOT change again.
-        $this->patchJson("/api/super-admin/withdrawals/{$withdrawal->id}/paid")->assertOk();
+        $this->sendAndConfirmSellerPayout($withdrawal, $seller);
         Sanctum::actingAs($seller->user);
         $wallet = $this->getJson('/api/seller/wallet')->assertOk()->json();
         $this->assertEquals(400, $wallet['available_balance']);
@@ -5850,7 +5974,8 @@ class FishMarketApiTest extends TestCase
         $this->assertEquals(2, $this->getJson('/api/super-admin/reports')->json('pending_payouts'));
 
         // Once paid, it drops out of the pending count.
-        $this->patchJson("/api/super-admin/withdrawals/{$pendingWithdrawal->id}/paid")->assertOk();
+        $this->sendAndConfirmSellerPayout($pendingWithdrawal, $seller);
+        Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
         $this->assertEquals(1, $this->getJson('/api/super-admin/reports')->json('pending_payouts'));
 
         // A rejected withdrawal also drops out -- it's resolved, just not paid.
@@ -6344,7 +6469,7 @@ class FishMarketApiTest extends TestCase
         Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
 
         $this->patchJson("/api/super-admin/withdrawals/{$withdrawal->id}/approve")->assertOk();
-        $this->patchJson("/api/super-admin/withdrawals/{$withdrawal->id}/paid")->assertOk();
+        $this->sendAndConfirmSellerPayout($withdrawal, $seller);
 
         Mail::assertSent(WithdrawalReleasedMail::class, fn ($mail) => $mail->hasTo($seller->user->email) && $mail->withdrawal->is($withdrawal));
 
@@ -6437,7 +6562,7 @@ class FishMarketApiTest extends TestCase
         Mail::assertSent(SellerWithdrawalApprovedMail::class, fn ($mail) => $mail->hasTo($seller->user->email));
         Mail::assertNotSent(WithdrawalReleasedMail::class);
 
-        $this->patchJson("/api/super-admin/withdrawals/{$withdrawal['id']}/paid")->assertOk();
+        $this->sendAndConfirmSellerPayout(WithdrawalRequest::findOrFail($withdrawal['id']), $seller);
 
         Mail::assertSent(WithdrawalReleasedMail::class, fn ($mail) => $mail->hasTo($seller->user->email));
     }
@@ -6660,7 +6785,8 @@ class FishMarketApiTest extends TestCase
 
         Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
         $this->patchJson("/api/super-admin/withdrawals/{$withdrawal['id']}/approve")->assertOk();
-        $this->patchJson("/api/super-admin/withdrawals/{$withdrawal['id']}/paid")->assertOk();
+        $this->sendAndConfirmSellerPayout(WithdrawalRequest::findOrFail($withdrawal['id']), $seller);
+        Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
         $this->assertEquals(40, $this->getJson('/api/super-admin/dashboard')->json('platform_revenue.total_platform_revenue'));
 
         // An old-rules withdrawal (6% of ₱450 = ₱27 frozen on it) still counts once paid.
@@ -6900,7 +7026,7 @@ class FishMarketApiTest extends TestCase
         $this->assertStringContainsString('Bank details unclear.', $rejectedNotification->body);
     }
 
-    public function test_super_admin_can_mark_lgu_withdrawal_paid_and_it_reflects_in_the_wallet(): void
+    public function test_lgu_money_received_confirmation_completes_withdrawal_and_updates_wallet(): void
     {
         $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
         $municipalityId = $lguAdmin->municipality_id;
@@ -6914,15 +7040,17 @@ class FishMarketApiTest extends TestCase
 
         Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
 
-        // Cannot mark as paid before it has been approved.
-        $this->patchJson("/api/super-admin/lgu-withdrawals/{$withdrawal->id}/paid")->assertStatus(422);
+        // There is no separate Super Admin mark-paid action.
+        $this->patchJson("/api/super-admin/lgu-withdrawals/{$withdrawal->id}/paid")->assertNotFound();
 
         $this->patchJson("/api/super-admin/lgu-withdrawals/{$withdrawal->id}/approve")->assertOk();
-        $paid = $this->patchJson("/api/super-admin/lgu-withdrawals/{$withdrawal->id}/paid");
-        $paid->assertOk()->assertJsonPath('status', 'paid');
-        $this->assertNotNull($paid->json('paid_at'));
+        $this->patchJson("/api/super-admin/lgu-withdrawals/{$withdrawal->id}/paid")->assertNotFound();
+        $this->sendAndConfirmLguPayout($withdrawal, $lguAdmin);
+        $paid = $withdrawal->fresh();
+        $this->assertSame('paid', $paid->status);
+        $this->assertNotNull($paid->paid_at);
 
-        $this->assertDatabaseHas('notifications', ['user_id' => $lguAdmin->id, 'type' => 'lgu_withdrawal_paid']);
+        $this->assertDatabaseHas('notifications', ['user_id' => $lguAdmin->id, 'type' => "lgu_withdrawal_paid:{$withdrawal->id}"]);
 
         Sanctum::actingAs($lguAdmin);
         $wallet = $this->getJson('/api/lgu/wallet')->assertOk();
@@ -6965,7 +7093,7 @@ class FishMarketApiTest extends TestCase
         Mail::assertSent(LguWithdrawalApprovedMail::class, fn ($mail) => $mail->hasTo($lguAdmin->email) && $mail->withdrawal->is($withdrawal));
         Mail::assertNotSent(LguWithdrawalReleasedMail::class);
 
-        $this->patchJson("/api/super-admin/lgu-withdrawals/{$withdrawal->id}/paid")->assertOk();
+        $this->sendAndConfirmLguPayout($withdrawal, $lguAdmin);
 
         Mail::assertSent(LguWithdrawalReleasedMail::class, fn ($mail) => $mail->hasTo($lguAdmin->email) && $mail->withdrawal->is($withdrawal));
         // Approval email must not fire a second time just because the withdrawal was later paid.
@@ -6989,7 +7117,7 @@ class FishMarketApiTest extends TestCase
         $html = $mailable->render();
         $this->assertStringContainsString('25.00', $html);
         $this->assertStringContainsString('Awaiting Payout', $html);
-        $this->assertStringContainsString('separate email once the payment has actually been made', $html);
+        $this->assertStringContainsString('Super Admin will send the payout through AbaiMarket Messages', $html);
         // Must not claim the funds have already moved -- that's the paid email's job.
         $this->assertStringNotContainsString('Withdrawal Has Been Successfully', $html);
     }

@@ -742,8 +742,8 @@ class LguController extends Controller
             ->update(['read_at' => $settledAt]);
 
         // Earnings approval only unlocks the wallet balance -- it is not a
-        // payout, so this is a distinct email from WithdrawalReleasedMail
-        // (which only ever fires from SuperAdminController::markWithdrawalPaid).
+        // payout, so this is a distinct email from WithdrawalReleasedMail,
+        // which fires only when a withdrawal is completed.
         SafeMailer::send($order->sellerProfile->user?->email, new SellerEarningsApprovedMail($settlement));
 
         return response()->json($payment->fresh());
@@ -947,7 +947,7 @@ class LguController extends Controller
                 ->latest('settled_at')
                 ->get(),
             'withdrawal_requests' => LguWithdrawalRequest::where('municipality_id', $municipalityId)
-                ->with('requestedBy')
+                ->with(['requestedBy', 'sentBy'])
                 ->latest()
                 ->get(),
         ]);
@@ -967,7 +967,7 @@ class LguController extends Controller
         $data = $request->validate(PayoutAccount::rules($method), PayoutAccount::messages($method));
 
         $alreadyPending = LguWithdrawalRequest::where('municipality_id', $municipalityId)
-            ->whereIn('status', ['pending', 'approved'])
+            ->whereIn('status', ['pending', 'approved', 'sent'])
             ->exists();
         abort_if($alreadyPending, 422, 'Your municipality already has a withdrawal request awaiting payment. Wait for it to be resolved before submitting another.');
 
@@ -989,5 +989,36 @@ class LguController extends Controller
         WithdrawalNotifications::lguRequested($withdrawal);
 
         return response()->json($withdrawal, 201);
+    }
+
+    public function confirmWithdrawalReceived(Request $request, LguWithdrawalRequest $withdrawal)
+    {
+        abort_unless((int) $withdrawal->municipality_id === (int) $request->user()->municipality_id, 404);
+        $confirmedNow = DB::transaction(function () use ($withdrawal, $request) {
+            $locked = LguWithdrawalRequest::lockForUpdate()->findOrFail($withdrawal->id);
+            abort_unless($locked->status === 'sent', 422, 'Only a sent withdrawal can be confirmed as received.');
+
+            if ($locked->recipient_confirmed_at) {
+                return false;
+            }
+
+            $paidAt = Carbon::now();
+            $locked->update([
+                'status' => 'paid',
+                'recipient_confirmed_at' => Carbon::now(),
+                'recipient_confirmed_by' => $request->user()->id,
+                'paid_at' => $paidAt,
+                'reviewed_at' => $paidAt,
+            ]);
+
+            return true;
+        });
+
+        if ($confirmedNow) {
+            $withdrawal = $withdrawal->fresh();
+            WithdrawalNotifications::lguConfirmedReceived($withdrawal);
+        }
+
+        return response()->json($withdrawal->fresh());
     }
 }
