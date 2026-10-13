@@ -34,6 +34,7 @@ import {
   Info,
   LayoutDashboard,
   LifeBuoy,
+  ListFilter,
   LogOut,
   MapPin,
   Scale,
@@ -3203,7 +3204,7 @@ function BuyerDashboard() {
           >
             <NotificationStack notifications={notifications} onMarkRead={handleMarkRead} getLink={notificationLinkFor('buyer')} emptyMessage="No unread notifications." />
           </Section>
-          <NotificationHistory getLink={notificationLinkFor('buyer')} unreadCount={data?.notifications?.length ?? 0} />
+          <NotificationHistory getLink={notificationLinkFor('buyer')} unreadCount={data?.notifications?.length ?? 0} showTypeFilter />
         </>
       )}
       {tab === 'analytics' && (
@@ -4126,7 +4127,7 @@ function SellerDashboard() {
           >
             <NotificationStack notifications={notifications} onMarkRead={handleMarkRead} getLink={notificationLinkFor('seller')} emptyMessage="No unread notifications." />
           </Section>
-          <NotificationHistory getLink={notificationLinkFor('seller')} unreadCount={dashboard.data?.notifications?.length ?? 0} />
+          <NotificationHistory getLink={notificationLinkFor('seller')} unreadCount={dashboard.data?.notifications?.length ?? 0} showTypeFilter />
         </>
       )}
       {tab === 'analytics' && (
@@ -10182,24 +10183,65 @@ function NotificationStack({ notifications, onMarkRead = null, getLink, emptyMes
   )
 }
 
+const NOTIFICATION_HISTORY_TYPES = [
+  ['all', 'All types'],
+  ['message', 'Messages'],
+  ['report', 'Reports'],
+  ['order', 'Orders'],
+  ['review', 'Reviews'],
+  ['listing', 'Listings'],
+  ['notice', 'Notices'],
+  ['account', 'Account'],
+  ['payout', 'Payouts'],
+  ['support', 'Support'],
+  ['announcement', 'Announcements'],
+  ['dispute', 'Disputes'],
+  ['other', 'Other'],
+]
+
+function notificationHistoryType(notification) {
+  const type = String(notification?.type || '').toLowerCase()
+  if (type.includes('message')) return 'message'
+  if (type.includes('report')) return 'report'
+  if (type.includes('order') || type.includes('earnings')) return 'order'
+  if (type.includes('review') || type.includes('rating')) return 'review'
+  if (type.includes('listing')) return 'listing'
+  if (type.includes('notice')) return 'notice'
+  if (type.includes('account') || type.includes('seller_registration')) return 'account'
+  if (type.includes('withdrawal') || type.includes('payout')) return 'payout'
+  if (type.includes('support_ticket') || type.includes('support')) return 'support'
+  if (type.includes('announcement')) return 'announcement'
+  if (type.includes('dispute')) return 'dispute'
+  return 'other'
+}
+
 /**
- * Notifications already marked read, for every role (GET /notifications/history).
- * The list above it only holds unread ones, so without this a notification
- * was gone for good once read. `unreadCount` is the SERVER's unread count
- * (not the on-screen list, which hides an item the instant Mark Read is
- * clicked, before the server has saved it). It is part of the query key, so
- * the history refreshes once the read is actually stored.
+ * Read notifications (GET /notifications/history). For buyers and sellers,
+ * the type dropdown narrows the list before the existing date filter applies.
  */
-function NotificationHistory({ getLink, unreadCount }) {
+function NotificationHistory({ getLink, unreadCount, showTypeFilter = false }) {
+  const [typeFilter, setTypeFilter] = useState('all')
   const history = useQuery({
     queryKey: ['notification-history', unreadCount],
     queryFn: async () => (await api.get('/notifications/history')).data,
     placeholderData: (previous) => previous,
   })
+  const rows = history.data || []
+  const filteredRows = typeFilter === 'all'
+    ? rows
+    : rows.filter((notification) => notificationHistoryType(notification) === typeFilter)
   return (
     <Section title="Notification History">
       <p className="helper-text">Notifications you have already read, newest first (the latest 200).</p>
-      <PeriodFilteredRows rows={history.data || []} noun="notifications received" dateKey="created_at">
+      {showTypeFilter && (
+        <label className="period-select notification-history-type-filter">
+          <ListFilter size={16} />
+          <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)} aria-label="Filter notification history by type">
+            {NOTIFICATION_HISTORY_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </label>
+      )}
+      <PeriodFilteredRows rows={filteredRows} noun="notifications received" dateKey="created_at">
         {(shown) => <NotificationStack notifications={shown} getLink={getLink} emptyMessage="No read notifications yet." />}
       </PeriodFilteredRows>
     </Section>
