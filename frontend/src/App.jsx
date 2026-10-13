@@ -9632,7 +9632,7 @@ function OrderDetailPanel({ detail, paymentView = 'escrow' }) {
         <div className="order-detail-field"><span className="order-detail-field-label">Delivery Status</span><span>{detail.delivery_status}</span></div>
         <div className="order-detail-field">
           <span className="order-detail-field-label">Review Status</span>
-          <span>{detail.review ? `${'★'.repeat(detail.review.rating)}${'☆'.repeat(5 - detail.review.rating)} (${detail.review.rating}/5)` : 'Not yet reviewed'}</span>
+          <span>{detail.review ? <>{renderStars(detail.review.rating)} ({detail.review.rating}/5)</> : 'Not yet reviewed'}</span>
         </div>
         {detail.seller_notes && (
           <div className="order-detail-field"><span className="order-detail-field-label">Seller Notes</span><span>{detail.seller_notes}</span></div>
