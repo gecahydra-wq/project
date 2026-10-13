@@ -4261,19 +4261,21 @@ body.modal-open {
 
 .modal-panel {
   animation: scale-in 0.2s ease both;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  background: var(--color-primary-dark);
+  border: 0;
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-float);
   display: flex;
   flex-direction: column;
   max-height: calc(100vh - 3rem);
   max-width: 640px;
+  overflow: hidden;
   width: 100%;
 }
 
 .modal-header {
   align-items: flex-start;
+  background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
   display: flex;
   gap: 1rem;
@@ -4309,6 +4311,7 @@ body.modal-open {
 }
 
 .modal-body {
+  background: var(--color-surface);
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
@@ -4329,7 +4332,8 @@ body.modal-open {
 }
 
 .modal-footer {
-  border-top: 1px solid var(--color-border);
+  background: var(--color-primary-dark);
+  border-top: 0;
   display: flex;
   flex-wrap: wrap;
   gap: 0.6rem;
