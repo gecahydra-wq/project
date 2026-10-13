@@ -3462,7 +3462,6 @@ function BuyerSettingsForm({ user, buyerProfile, onSave, saving, success, error 
         email={saved.email}
         badges={<RoleBadge role="buyer" />}
         meta={[
-          user.municipality?.name && [MapPin, user.municipality.name],
           user.created_at && [CalendarDays, `Member since ${formatMonthYear(user.created_at)}`],
         ]}
         picture={user.profile_picture}
@@ -3482,9 +3481,6 @@ function BuyerSettingsForm({ user, buyerProfile, onSave, saving, success, error 
           </ProfileField>
           <ProfileField label="Phone number" hint="Optional. Helps sellers coordinate delivery.">
             <input type="tel" value={form.phone} onChange={setField('phone')} autoComplete="tel" placeholder="e.g. 0917 123 4567" />
-          </ProfileField>
-          <ProfileField label="Municipality" hint="Set when you registered.">
-            <input value={user.municipality?.name || 'Not set'} disabled />
           </ProfileField>
         </div>
         <PasswordResetNote />
@@ -9376,7 +9372,7 @@ function OrderTable({ rows, onReview, onConfirmReceived, confirmPendingOrderId, 
             ) : (
               <span className="order-seller-cell">
                 <Avatar src={row.seller_avatar} alt={row.seller_name} className="order-seller-avatar" />
-                <SellerLink id={row.seller_profile_id} name={row.seller_name} />{row.seller_contact_name ? ` (${row.seller_contact_name})` : ''}
+                <SellerLink id={row.seller_profile_id} name={row.seller_name} />{row.seller_contact_name && row.seller_contact_name !== row.seller_name ? ` (${row.seller_contact_name})` : ''}
               </span>
             )}
             <span>{row.quantity_label}</span>
