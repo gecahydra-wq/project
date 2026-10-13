@@ -9372,7 +9372,7 @@ function OrderTable({ rows, onReview, onConfirmReceived, confirmPendingOrderId, 
             ) : (
               <span className="order-seller-cell">
                 <Avatar src={row.seller_avatar} alt={row.seller_name} className="order-seller-avatar" />
-                <SellerLink id={row.seller_profile_id} name={row.seller_name} />{row.seller_contact_name && row.seller_contact_name !== row.seller_name ? ` (${row.seller_contact_name})` : ''}
+                <SellerLink id={row.seller_profile_id} name={row.seller_name} />
               </span>
             )}
             <span>{row.quantity_label}</span>
@@ -10022,6 +10022,68 @@ function DisputesPanel({ scope = 'lgu' }) {
 }
 
 
+function ReviewModal({ row, rating, title, comment, error, submitting, onRatingChange, onTitleChange, onCommentChange, onSubmit, onClose }) {
+  return (
+    <Modal
+      title="Rate Seller"
+      subtitle={`Order #${row.order_number}`}
+      onClose={submitting ? () => {} : onClose}
+      footer={(
+        <>
+          <button type="button" className="ghost" onClick={onClose} disabled={submitting}>Cancel</button>
+          <button type="button" onClick={onSubmit} disabled={submitting}>{submitting ? 'Submitting...' : 'Submit'}</button>
+        </>
+      )}
+    >
+      <div className="review-modal-product">
+        <Avatar src={row.seller_avatar} alt={row.seller_name} className="listing-seller-avatar" />
+        <div>
+          <strong>{row.order_name}</strong>
+          <p className="muted">{row.quantity_label} · Seller: {row.seller_name}</p>
+        </div>
+      </div>
+
+      <div className="review-modal-rating">
+        <span>Seller Quality</span>
+        <div className="review-star-picker" role="radiogroup" aria-label="Seller rating">
+          {[1, 2, 3, 4, 5].map((star) => (
+            <button
+              key={star}
+              type="button"
+              className={star <= rating ? 'active' : ''}
+              onClick={() => onRatingChange(star)}
+              aria-label={`${star} star${star > 1 ? 's' : ''}`}
+              aria-checked={rating === star}
+              role="radio"
+            >
+              ★
+            </button>
+          ))}
+        </div>
+        <strong>{rating === 5 ? 'Amazing' : rating >= 4 ? 'Good' : rating >= 3 ? 'Okay' : rating >= 2 ? 'Poor' : 'Bad'}</strong>
+      </div>
+
+      <div className="review-modal-box">
+        <label>
+          <span>Topic</span>
+          <input placeholder="Review title (optional)" value={title} onChange={(e) => onTitleChange(e.target.value)} />
+        </label>
+        <label>
+          <span>Review</span>
+          <textarea
+            placeholder="Share more thoughts about this seller to help other buyers."
+            value={comment}
+            onChange={(e) => onCommentChange(e.target.value)}
+            rows={6}
+          />
+        </label>
+      </div>
+
+      {error && <p className="error">{error}</p>}
+    </Modal>
+  )
+}
+
 function ReviewCell({ row, onReview, onConfirmReceived, confirmPendingOrderId }) {
   const [open, setOpen] = useState(false)
   const [rating, setRating] = useState(5)
@@ -10064,6 +10126,7 @@ function ReviewCell({ row, onReview, onConfirmReceived, confirmPendingOrderId })
     try {
       await onReview(row.orderId, { rating, title, comment })
       setOpen(false)
+      setSubmitting(false)
     } catch (err) {
       setError(err?.response?.data?.message || 'Could not submit review.')
       setSubmitting(false)
@@ -10071,14 +10134,23 @@ function ReviewCell({ row, onReview, onConfirmReceived, confirmPendingOrderId })
   }
 
   return (
-    <span className="review-form">
-      <select value={rating} onChange={(e) => setRating(Number(e.target.value))}>
-        {[5, 4, 3, 2, 1].map((n) => <option key={n} value={n}>{n} star{n > 1 ? 's' : ''}</option>)}
-      </select>
-      <input placeholder="Review title (optional)" value={title} onChange={(e) => setTitle(e.target.value)} />
-      <input placeholder="Write your review (optional)" value={comment} onChange={(e) => setComment(e.target.value)} />
-      <button type="button" onClick={submit} disabled={submitting}>{submitting ? 'Saving...' : 'Submit'}</button>
-      {error && <p className="error">{error}</p>}
+    <span>
+      <button type="button" className="ghost" onClick={() => setOpen(true)}>Rate Seller</button>
+      {open && (
+        <ReviewModal
+          row={row}
+          rating={rating}
+          title={title}
+          comment={comment}
+          error={error}
+          submitting={submitting}
+          onRatingChange={setRating}
+          onTitleChange={setTitle}
+          onCommentChange={setComment}
+          onSubmit={submit}
+          onClose={() => setOpen(false)}
+        />
+      )}
     </span>
   )
 }
