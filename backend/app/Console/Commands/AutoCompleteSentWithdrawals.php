@@ -7,6 +7,7 @@ use App\Models\LguWithdrawalRequest;
 use App\Models\Message;
 use App\Models\WithdrawalRequest;
 use App\Support\WithdrawalNotifications;
+use App\Support\DurationLabel;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -39,7 +40,8 @@ class AutoCompleteSentWithdrawals extends Command
             $completed += $this->completeLgu((int) $id, $cutoff) ? 1 : 0;
         }
 
-        $this->info("Automatically completed {$completed} withdrawal(s) after {$minutes} minute(s) without a receipt confirmation.");
+        $window = DurationLabel::fromMinutes($minutes);
+        $this->info("Automatically completed {$completed} withdrawal(s) after {$window} without a receipt confirmation.");
 
         return self::SUCCESS;
     }
@@ -66,9 +68,9 @@ class AutoCompleteSentWithdrawals extends Command
             $completedAt = Carbon::now();
             $request->update(['status' => 'paid', 'paid_at' => $completedAt, 'reviewed_at' => $completedAt, 'auto_completed_at' => $completedAt]);
             $body = sprintf(
-                'Our records show your withdrawal payout of ₱%s was sent. It was marked paid after the %d-minute receipt confirmation window expired. If you have not received it, reply here to message the Super Admin or contact Support.',
+                'Our records show your withdrawal payout of ₱%s was sent. It was marked paid after the %s receipt confirmation window expired. If you have not received it, reply here to message the Super Admin or contact Support.',
                 number_format($request->net_amount, 2),
-                max(1, (int) config('payouts.auto_complete_after_minutes', 1440))
+                DurationLabel::fromMinutes(max(1, (int) config('payouts.auto_complete_after_minutes', 1440)))
             );
             if ($sender) {
                 Message::create([
@@ -115,9 +117,9 @@ class AutoCompleteSentWithdrawals extends Command
             $completedAt = Carbon::now();
             $request->update(['status' => 'paid', 'paid_at' => $completedAt, 'reviewed_at' => $completedAt, 'auto_completed_at' => $completedAt]);
             $body = sprintf(
-                'Our records show your municipality\'s withdrawal payout of ₱%s was sent. It was marked paid after the %d-minute receipt confirmation window expired. If your municipality has not received it, reply here to message the Super Admin or contact Support.',
+                'Our records show your municipality\'s withdrawal payout of ₱%s was sent. It was marked paid after the %s receipt confirmation window expired. If your municipality has not received it, reply here to message the Super Admin or contact Support.',
                 number_format((float) $request->amount, 2),
-                max(1, (int) config('payouts.auto_complete_after_minutes', 1440))
+                DurationLabel::fromMinutes(max(1, (int) config('payouts.auto_complete_after_minutes', 1440)))
             );
             if ($sender) {
                 Message::create([

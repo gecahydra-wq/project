@@ -36,6 +36,7 @@ use App\Support\ReviewModeration;
 use App\Support\RevenueReport;
 use App\Support\SafeMailer;
 use App\Support\SellerApproval;
+use App\Support\DurationLabel;
 use App\Support\UserReports;
 use App\Support\WithdrawalRejection;
 use Illuminate\Http\Request;
@@ -450,12 +451,12 @@ class SuperAdminController extends Controller
         $amount = $type === 'seller' ? $withdrawal->net_amount : (float) $withdrawal->amount;
         $amountLabel = number_format($amount, 2);
         $messageBody = sprintf(
-            'The Super Admin has sent your %s withdrawal payout of ₱%s via %s. %sIf you have received the payout, click Money Received in your Wallet within %d minute(s). If it has not arrived, reply to this message or contact Support.',
+            'The Super Admin has sent your %s withdrawal payout of ₱%s via %s. %sIf you have received the payout, click Money Received in your Wallet within %s. If it has not arrived, reply to this message or contact Support.',
             $type === 'lgu' ? 'LGU' : 'seller',
             $amountLabel,
             $withdrawal->method,
             trim((string) ($data['note'] ?? '')) !== '' ? trim($data['note'])."\n\n" : '',
-            $minutes
+            DurationLabel::fromMinutes($minutes)
         );
 
         try {
