@@ -4006,11 +4006,6 @@ function SellerDashboard() {
             </div>
             <p className="helper-text">Available to withdraw: {currency(wallet.data?.available_balance ?? 0)} · Minimum withdrawal: {currency(MIN_WITHDRAWAL)}</p>
             <BelowMinimumWarning amount={withdrawRequestAmount} />
-            {withdrawRequestAmount >= MIN_WITHDRAWAL && (
-              <p className="helper-text">
-                There is no payout fee: you&apos;ll receive the full {currency(withdrawRequestAmount)}. The LGU&apos;s 2% and the platform&apos;s 4% were already taken when each order was settled.
-              </p>
-            )}
             <button type="button" onClick={submitWithdrawal} disabled={requestWithdrawal.isPending || (withdrawRequestAmount > 0 && withdrawRequestAmount < MIN_WITHDRAWAL)}>{requestWithdrawal.isPending ? 'Submitting...' : 'Submit Withdrawal Request'}</button>
             {withdrawFormError && <p className="error">{withdrawFormError}</p>}
             {confirmingWithdrawal && (
@@ -4019,7 +4014,7 @@ function SellerDashboard() {
             {requestWithdrawal.error && <p className="error">{apiErrorMessage(requestWithdrawal.error, 'Could not submit withdrawal request.')}</p>}
             {requestWithdrawal.isSuccess && (
               <p className="helper-text">
-                Withdrawal request submitted for {currency(requestWithdrawal.data?.amount)}. You&apos;ll receive {currency(requestWithdrawal.data?.net_amount)} once the Super Admin pays it out.
+                Withdrawal request submitted for {currency(requestWithdrawal.data?.amount)}. The full requested amount will be paid out once the Super Admin processes it.
               </p>
             )}
           </Section>
@@ -4029,7 +4024,6 @@ function SellerDashboard() {
               <div className="table">
                 <div className="table-row first">
                   <span>Amount Requested</span>
-                  <span>Payout Fee</span>
                   <span>You Receive</span>
                   <span>Method</span>
                   <span>Account</span>
@@ -4041,8 +4035,6 @@ function SellerDashboard() {
                   <Fragment key={request.id}>
                   <div className="table-row">
                     <span>{currency(request.amount)}</span>
-                    {/* Only requests made before 2026-10-09 carry the old 6% fee. */}
-                    <span>{Number(request.platform_fee) > 0 ? currency(request.platform_fee) : 'None'}</span>
                     <span>{currency(request.net_amount)}</span>
                     <span>{withdrawalMethodLabel(request.method, request.bank_name)}</span>
                     <span>{request.account_name} · {request.account_number}</span>
@@ -7399,7 +7391,7 @@ const HELP_TOPICS = [
     audience: 'seller',
     items: [
       ['When do I get paid?', 'After the buyer confirms they received the order, your LGU reviews the earnings. Once approved, 94% of the order total goes to your Available Balance. The other 6% is shared: 2% to your LGU and 4% to AbaiMarket.'],
-      ['How do I withdraw my money?', 'Open your Wallet and click Request Withdrawal. Choose GCash, Maya or a bank account. There is no payout fee, so you receive the full amount you request. The Super Admin approves the request and marks it paid once the money is sent.'],
+      ['How do I withdraw my money?', 'Open your Wallet and click Request Withdrawal. Choose GCash, Maya or a bank account. You receive the full amount you request. The Super Admin approves the request and marks it paid once the money is sent.'],
       ['My earnings review or withdrawal was rejected.', 'Open the rejected item and click Dispute This Rejection to explain your side. The person who rejected it reviews your dispute. If they accept it, the item is reopened for another review. A rejected withdrawal keeps its amount on hold for 7 days so you can dispute it once. If you do not dispute it within 7 days, or your dispute is rejected, the amount returns to your Available Balance on its own. If you still think a final rejection is wrong, message the Super Admin or send a support ticket under Wallet or withdrawal.'],
       ['What is a Notice to Explain?', 'If a review of 3 stars or fewer brings your average rating below 3, or your LGU finds a buyer\'s report against you valid, AbaiMarket sends you a Notice to Explain. The notice lists the low reviews behind it, and you can open each one. You are not suspended and your listings stay up while you send one explanation from the Notices tab. If it is rejected, your seller account is suspended and you can no longer explain in the app; to have it reviewed again, message your LGU or send a support ticket. After a rejected explanation, your next notice (from a rating or a report) suspends you right away with nothing to explain -- message your LGU or send a support ticket. An accepted explanation does not count against you. A 4 or 5 star review never causes a notice.'],
     ],
@@ -9003,15 +8995,9 @@ function WithdrawalRow({ request, onApprove, onReject, onMarkPaid, type = 'selle
           Request #{request.id} · {currency(request.amount)} requested via {withdrawalMethodLabel(request.method, request.bank_name)}<br />
           {request.account_name} · {request.account_number}
         </p>
-        {isLgu ? (
-          <p className="muted">Requested by: {request.requestedBy?.name || 'Unknown'} · No platform fee applies to LGU withdrawals.</p>
-        ) : (
-          <p className="muted">
-            {Number(request.platform_fee) > 0
-              ? `Platform payout fee (6%, requested before Oct 9, 2026): ${currency(request.platform_fee)} · Seller receives: ${currency(request.net_amount)}`
-              : `No payout fee · Seller receives: ${currency(request.net_amount)}`}
-          </p>
-        )}
+        {isLgu
+          ? <p className="muted">Requested by: {request.requestedBy?.name || 'Unknown'}</p>
+          : <p className="muted">Seller receives: {currency(request.net_amount)}</p>}
         <p className="muted">Requested {new Date(request.created_at).toLocaleDateString()}</p>
         {['rejected', 'rejected_final'].includes(request.status) && request.rejection_reason && (
           <p className="error">Reason: {request.rejection_reason}</p>
