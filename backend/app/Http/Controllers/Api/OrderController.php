@@ -392,6 +392,11 @@ class OrderController extends Controller
     {
         abort_if(in_array($order->status, ['cancelled', 'failed'], true), 422, "This order is {$order->status} and can no longer be completed.");
         abort_if($order->status === 'completed', 422, 'This order is already marked as received.');
+        abort_unless(
+            $order->status === 'in_transit',
+            422,
+            'This order is not out for delivery yet, so receipt cannot be confirmed.'
+        );
 
         // The same rule updateStatus enforces: an order whose money never
         // reached escrow has nothing to release, and completing it anyway

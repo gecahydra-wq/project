@@ -10094,13 +10094,13 @@ function ReviewCell({ row, onReview, onConfirmReceived, confirmPendingOrderId })
   const [submitting, setSubmitting] = useState(false)
 
   if (row.status !== 'completed') {
-    // Paid and on its way, so the buyer is the one who says it arrived.
+    // Paid and marked Out for Delivery, so the buyer can confirm it arrived.
     // The payment must actually have reached escrow, not merely have a
     // checkout session open -- the API refuses to complete an unpaid order,
     // so offering the button would only produce an error. 'paid_held' and
     // 'released' are the only two captured states (see MockPayment).
     const awaitingReceipt = onConfirmReceived
-      && ['confirmed', 'in_transit'].includes(row.status)
+      && row.status === 'in_transit'
       && ['paid_held', 'released'].includes(row.payment_status)
     if (!awaitingReceipt) return <span className="muted">Not yet eligible</span>
 
