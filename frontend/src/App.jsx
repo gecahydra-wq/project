@@ -9434,6 +9434,7 @@ const ORDER_PERIODS = [
   ['week', 'This Week'],
   ['month', 'This Month'],
   ['year', 'This Year'],
+  ['custom', 'Custom range'],
 ]
 
 function orderPeriodStart(period) {
@@ -9447,6 +9448,12 @@ function orderPeriodStart(period) {
   if (period === 'month') return new Date(now.getFullYear(), now.getMonth(), 1)
   if (period === 'year') return new Date(now.getFullYear(), 0, 1)
   return null
+}
+
+function periodDateValue(value) {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? new Date(`${value}T00:00:00`)
+    : new Date(value)
 }
 
 /**
@@ -9463,14 +9470,29 @@ function orderPeriodStart(period) {
  */
 function usePeriodFilter(rows, { noun, dateKey = 'created_at', compact = false }) {
   const [period, setPeriod] = useState('all')
-  const start = orderPeriodStart(period)
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+  const start = period === 'custom'
+    ? (dateFrom ? new Date(`${dateFrom}T00:00:00`) : null)
+    : orderPeriodStart(period)
+  const endExclusive = period === 'custom' && dateTo
+    ? new Date(`${dateTo}T00:00:00`)
+    : null
+  if (endExclusive) endExclusive.setDate(endExclusive.getDate() + 1)
   const all = rows || []
   const dateOf = typeof dateKey === 'function' ? dateKey : (row) => row[dateKey]
-  const shown = start ? all.filter((row) => dateOf(row) && new Date(dateOf(row)) >= start) : all
-  const when = ORDER_PERIODS.find(([value]) => value === period)[1].toLowerCase()
-  const filtered = period !== 'all' && all.length > 0
+  const shown = period === 'custom'
+    ? all.filter((row) => {
+      const value = dateOf(row)
+      if (!value) return false
+      const date = periodDateValue(value)
+      return (!start || date >= start) && (!endExclusive || date < endExclusive)
+    })
+    : (start ? all.filter((row) => dateOf(row) && new Date(dateOf(row)) >= start) : all)
+  const when = period === 'custom' ? 'in this date range' : ORDER_PERIODS.find(([value]) => value === period)[1].toLowerCase()
+  const filtered = period !== 'all' && (period !== 'custom' || Boolean(dateFrom || dateTo)) && all.length > 0
   const controls = (
-    <>
+    <div className="period-filter-controls">
       {compact ? (
         <label className="period-select">
           <CalendarDays size={16} />
@@ -9485,7 +9507,19 @@ function usePeriodFilter(rows, { noun, dateKey = 'created_at', compact = false }
           ))}
         </div>
       )}
-    </>
+      {period === 'custom' && (
+        <div className="period-custom-range">
+          <label>
+            <span>From</span>
+            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} aria-label={`From date for ${noun}`} />
+          </label>
+          <label>
+            <span>To</span>
+            <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} aria-label={`To date for ${noun}`} />
+          </label>
+        </div>
+      )}
+    </div>
   )
   const periodEmpty = filtered && !shown.length ? <EmptyState message={`No ${noun} ${when}.`} /> : null
   return { shown, controls, periodEmpty }
