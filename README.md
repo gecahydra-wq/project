@@ -34,8 +34,8 @@ AbaiMarket digitizes the fingerling supply chain for a cluster of coastal munici
 
 - Sellers list fingerling stock; buyers order and pay online.
 - Every listing and seller is **governed by the LGU** for the seller's municipality (verification, approval, moderation).
-- Payments are held in **escrow** and only released after the LGU verifies the completed transaction, protecting buyers and keeping local government in the loop.
-- Revenue is **automatically split** between the seller and the LGU, and the platform earns a fee only when a seller cashes out.
+- Payments are held in **escrow** and only released after the LGU verifies the completed transaction, protecting buyers and keeping local government in the loop. Buyers can confirm receipt only after the seller marks the order out for delivery.
+- Revenue is **automatically split** between the seller and the LGU, and the platform earns its 4% share when an order is settled, with no withdrawal fee.
 - A **Super Admin** oversees the whole platform: LGU accounts, payouts, moderation, announcements, reports, and audit trails.
 
 The system emphasizes correctness of money movement, strict role permissions, a complete audit trail, and a single, consistent source of truth for every financial figure (wallet page, dashboards, reports, and the AI assistant all agree).
@@ -57,7 +57,7 @@ The system emphasizes correctness of money movement, strict role permissions, a 
 - Seller profiles with a "Farm Posts" social feed (likes + comments), ratings and reviews
 - Buyer ↔ Seller two-way feedback (buyers review sellers; sellers rate buyers)
 - Direct messaging between all roles
-- In-app notifications, with a bell pop-up in the top bar (open one to jump to the right page, or mark one or all as read). Every new request notifies whoever has to act on it: withdrawal requests reach the Super Admin, new seller registrations reach the municipality's LGU, and so on. Read notifications are not lost: every role's Notifications page has a **Notification History** (newest first, date-filterable, the latest 200) under the unread list
+- In-app notifications, with a bell pop-up in the top bar (open one to jump to the right page, or mark one or all as read). Every new request notifies whoever has to act on it: withdrawal requests reach the Super Admin, new seller registrations reach the municipality's LGU, and so on. Read notifications are not lost: every role's Notifications page has a **Notification History** (newest first, the latest 200) under the unread list, with date and notification-type filters (such as messages and reports)
 - **User reports:** the reporter must choose a reason from a fixed list (nothing is pre-selected) and describe what happened. The reported person is notified **right away** -- "You Were Reported", with the reason and what the reporter wrote -- before any decision, without the reporter's name
 - **New reviews:** every buyer review (1 to 5 stars) notifies the seller -- who rated them, the stars, the comment and their new average -- and clicking it opens that review, highlighted, on their profile
 
@@ -339,7 +339,7 @@ Buyer places order
 Buyer pays via PayMongo  ──►  funds marked "paid_held" (escrow)
         │
         ▼
-Seller delivers  ──►  order marked "completed"
+Seller marks order out for delivery  ──►  Buyer confirms receipt; order is completed
         │
         ▼
 LGU verifies the transaction  ──►  approves earnings
