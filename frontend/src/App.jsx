@@ -276,6 +276,17 @@ function renderStars(rating) {
   return <span className="stars">{'★'.repeat(rounded)}{'☆'.repeat(5 - rounded)}</span>
 }
 
+// Review notifications embed stars as plain text in the title/body (built
+// server-side), which renders them in the surrounding text colour. Wrap star
+// runs in the gold .stars span -- as React elements, not innerHTML, because
+// notification bodies carry user-written review comments.
+function withGoldStars(text) {
+  if (!text || !/[★☆]/.test(text)) return text
+  return String(text)
+    .split(/([★☆]+)/)
+    .map((part, index) => (/^[★☆]+$/.test(part) ? <span className="stars" key={index}>{part}</span> : part))
+}
+
 function currency(value) {
   return new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(value)
 }
@@ -7657,7 +7668,7 @@ function NotificationBell({ role, link }) {
                     onClick={() => openItem(item)}
                     className="min-w-0 flex-1 cursor-pointer text-left"
                   >
-                    <span className="block text-sm font-semibold text-abai-navy">{item.title}</span>
+                    <span className="block text-sm font-semibold text-abai-navy">{withGoldStars(item.title)}</span>
                     <span className="mt-0.5 line-clamp-2 block text-sm text-slate-600">{item.body}</span>
                     <span className="mt-1 block text-xs text-slate-400">{timeAgo(item.created_at)}</span>
                   </button>
@@ -10513,7 +10524,7 @@ function NotificationStack({ notifications, onMarkRead = null, getLink, emptyMes
         const link = getLink?.(item)
         const body = (
           <div>
-            <strong>{item.title}</strong>
+            <strong>{withGoldStars(item.title)}</strong>
             <p>{item.body}</p>
             <small className="notification-time">
               {new Date(item.created_at).toLocaleString()}
