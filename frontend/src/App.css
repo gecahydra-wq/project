@@ -432,12 +432,14 @@ button:where(:not([data-tw])):disabled:hover,
   white-space: nowrap;
 }
 
-/* A filled action sitting in an order-table row (Confirm Received / Mark as
-   Received). Same shape as the ghost Rate Seller / View Details buttons beside
-   it, so the row reads as one set of controls -- the fill alone marks it as the
-   primary action instead of a pill that stands out from its neighbours. */
-.table-row .table-row-action {
+/* A control sitting in an order-table row (View Order). Same shape as the
+   ghost buttons elsewhere, slightly slimmer: the 42px default was the widest
+   thing in its column and pushed the last column under the table's right edge
+   on the widest order tables. */
+.table-row .ghost {
   border-radius: var(--radius-sm);
+  min-height: 38px;
+  padding: 0.5rem 0.8rem;
 }
 
 .ghost:hover {
@@ -1327,7 +1329,7 @@ body,
 
 /* Grid and flex children default to min-width:auto, which refuses to shrink
    below their content's min-content width. A .table deliberately sets a floor
-   on its rows (min-width: 760px, plus minmax(130px, 1fr) per column) so the
+   on its rows (min-width: 760px, plus minmax(126px, 1fr) per column) so the
    columns stay readable and the TABLE scrolls sideways inside its own
    overflow-x:auto box. Without this that floor propagated up through .section
    and .dashboard into the page column, so the whole page grew wider
@@ -1684,13 +1686,18 @@ body,
   border-bottom: 1px solid var(--color-border-subtle);
   display: grid;
   font-size: var(--fs-sm);
-  /* 1.1rem, not 0.8: Review and Details sit side by side in the buyer's order
-     table and a review score nearly touched the Hide Details button. */
-  gap: 1.1rem;
-  grid-auto-columns: minmax(130px, 1fr);
+  /* Seven columns on every role's order list (Order Name, Order #, Seller or
+     Buyer, Qty, Order Date, Status, Details), plus an eighth Rating column on
+     the buyer's, between Status and Details. 0.85rem gaps and a 126px floor
+     add up to ~964px for seven columns and ~1103px for eight, both still
+     inside the 1500px page cap, so the widest row never hides its View Order
+     button under the table's edge. The table's own columns keep their width
+     on genuinely narrow screens instead. */
+  gap: 0.85rem;
+  grid-auto-columns: minmax(126px, 1fr);
   grid-auto-flow: column;
   min-width: 760px;
-  padding: 0.85rem 1.1rem;
+  padding: 0.85rem 1rem;
   transition: background-color var(--transition-fast);
 }
 
@@ -1939,32 +1946,6 @@ a.activity-log-item:hover {
   padding: 0.6rem 1rem;
 }
 
-/* Expanded order details used to sit on a pale tinted panel while the header
-   row above it stayed white -- so the "detail" read as a different, sunken
-   surface. Reversed: the row is White like every other card, and the Sea mist
-   page behind the table is what separates them. A Hairline top edge marks
-   where the expansion begins. */
-.order-table-detail-row {
-  background: var(--neutral-white);
-  border-bottom: 1px solid var(--color-border);
-  border-top: 1px solid var(--color-border-subtle);
-  padding: 1rem 1.1rem 1.25rem;
-}
-
-/* The same expandable panel the buyer has, re-hosted on a seller's order card.
-   In the buyer's table it is a full-width row BETWEEN two table rows, so it
-   brings its own white fill, hairlines top and bottom, and a gutter matching
-   the table's. A card supplies all of that already, and .action is a flex row
-   -- without flex-basis the panel is squeezed in beside the action buttons
-   instead of claiming its own line, which is what made it look wrong. Only the
-   top hairline is kept, as the separator from the row above. */
-.action-stacked > .order-table-detail-row {
-  background: none;
-  border-bottom: 0;
-  flex-basis: 100%;
-  padding: 1rem 0 0;
-}
-
 .order-lookup-form {
   align-items: center;
   display: flex;
@@ -2133,10 +2114,9 @@ a.activity-log-item:hover {
   font-style: italic;
 }
 
-/* No white-space: nowrap. The review cell sits next to the Details button in
-   the buyer's order table, and at a narrow column the un-wrappable
-   "Reviewed: ***** (5/5)" ran straight under it -- the trailing (5/5) collided
-   with "Hide Details". Wrapping keeps it inside its own column at any width. */
+/* The buyer's Rating column once a review exists: the stars given, e.g.
+   "★★★★★ (5/5)". Wraps instead of nowrap so the count never spills into the
+   Details column at narrow widths. */
 .review-given {
   color: var(--color-warning);
   font-size: var(--fs-sm);
@@ -3076,6 +3056,17 @@ a.activity-log-item:hover {
 
 .message-meta .muted {
   font-size: var(--fs-xs);
+}
+
+/* One-way messages from AbaiMarket (the system account, never a person): the
+   tag says so on the bubble itself, since the thread has no reply box. */
+.automated-tag {
+  background: var(--color-primary-soft);
+  border-radius: 999px;
+  color: var(--color-primary);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  padding: 0.1rem 0.5rem;
 }
 
 /* When the last message in a conversation arrived, in the thread list. */
@@ -4354,6 +4345,9 @@ body.modal-open {
 }
 
 .modal-footer {
+  /* align-items: center so the two-line Pay Now + countdown group does not
+     stretch the one-line buttons beside it to match its height. */
+  align-items: center;
   background: var(--color-primary-dark);
   border-top: 0;
   display: flex;
@@ -4361,6 +4355,14 @@ body.modal-open {
   gap: 0.6rem;
   justify-content: flex-end;
   padding: 1.15rem 1.35rem;
+}
+
+/* The order popup (see OrderDetailsModal in App.jsx). Wider than the 640px
+   default so the details grid can lay out three columns instead of two: the
+   popup is a reading surface -- order facts, timeline, earnings breakdown --
+   and vertical scrolling through one narrow column was the whole cost. */
+.order-details-modal {
+  max-width: 720px;
 }
 
 .modal-section {
@@ -4376,8 +4378,8 @@ body.modal-open {
   gap: 0.6rem;
 }
 
-/* Order Date column on the Buyer Dashboard's Recent Orders -- date on top,
-   time underneath, so the column stays narrow. */
+/* Order Date column on every order table -- date on top, time underneath, so
+   the column stays narrow. */
 .order-date-cell {
   display: flex;
   flex-direction: column;
@@ -4389,49 +4391,23 @@ body.modal-open {
   font-size: var(--fs-xs);
 }
 
-/* Order status and escrow status sit side by side on a seller's order card,
-   wrapping together rather than one badge dropping to its own line. */
-.seller-order-badges {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-
-/* Buyer's Pay Now cell: the action, with the time it has left tucked under it.
-   inline-flex so the cell is only as wide as the button rather than the whole
-   column -- that is what lets the countdown centre under the button instead of
-   floating off to one side of it. The button is deliberately compact: it sits
-   in a table row, not a form, so the default full-size control looked oversized
-   next to a 12px caption. */
-/* align-items: center, not stretch or flex-start.
-   The countdown is slightly WIDER than the button's label, so the two boxes
-   are never the same size. flex-start left the button narrow on the left while
-   the caption centred across the whole cell, which read as the caption sitting
-   off to its right. stretch fixed the alignment but forced the button to fill
-   the column, making it heavy again. Centring puts both children on one shared
-   centre line: their widths stay independent -- the button keeps its natural,
-   compact size -- and their centres coincide exactly whatever the label says,
-   from "Less than a minute" to "29 min left". */
+/* Buyer's Pay Now control: the action, with the time it has left tucked under
+   it. inline-flex column so the cell is only as wide as the button and the
+   countdown centres under it instead of floating off to one side. It sits in
+   the order popup's footer now (see OrderDetailsModal), next to the Close
+   button, rather than in a table column. */
 .order-pay-cell {
   align-items: center;
   display: inline-flex;
   flex-direction: column;
   gap: 0.3rem;
-  /* This span IS the grid cell, so it stretches the Payment column by default
-     and the centred group drifted to the middle of the column -- out of line
-     with the header and with the Paid / Refunded badges in the rows above.
-     justify-self: start shrinks it to its content and pins it to the column's
-     left edge; align-items: center above still centres the caption under the
-     button INSIDE that box. */
-  justify-self: start;
   line-height: 1.2;
 }
 
-/* Geometry comes from the .ghost buttons this sits beside in the same row --
-   --radius-sm and the shared 42px min-height -- not from the base button's
-   fully rounded pill, which read as a different species of control next to the
-   neat rectangles of View Details and Rate Seller. The fill stays solid teal:
-   it is the one primary action in the row and should still lead the eye. */
+/* Geometry comes from the ghost buttons it sits beside in the footer --
+   --radius-sm rather than the base button's fully rounded pill, so the Pay Now
+   control reads as the same species as Close and Cancel Order. The fill stays
+   solid teal: it is the primary action in the footer and should lead the eye. */
 .order-pay-cell > button {
   border-radius: var(--radius-sm);
   padding: 0.65rem 1rem;
@@ -4455,6 +4431,19 @@ body.modal-open {
 .order-pay-countdown.urgent {
   color: var(--color-warning);
   font-weight: var(--fw-medium);
+}
+
+/* The countdown lives on the navy modal footer now, where the mist grey above
+   disappears entirely. Muted white for the normal case, and a light amber for
+   the warning -- --color-warning is a dark amber chosen to sit on white, and
+   is unreadable here. */
+.modal-footer .order-pay-countdown {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.modal-footer .order-pay-countdown.urgent {
+  color: #f2c14e;
+  font-weight: var(--fw-semibold);
 }
 
 /* Buyer Turnout / ROI -- the farmer's investment view. */

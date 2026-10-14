@@ -105,6 +105,11 @@ Route::middleware(['auth:sanctum', 'verified', 'role:buyer'])->group(function ()
     // Completing is what releases the payment into the LGU earnings queue,
     // so it belongs to whoever paid. See OrderController::confirmReceived.
     Route::patch('orders/{order}/confirm-received', [OrderController::class, 'confirmReceived']);
+    // The buyer can cancel their own order while it is still fully in their
+    // control: unpaid, or paid but not yet confirmed by the seller (a reason
+    // is then required). Once the seller confirms, the fish may be prepared or
+    // on their way -- see OrderController::cancel.
+    Route::patch('orders/{order}/cancel', [OrderController::class, 'cancel']);
 });
 
 Route::middleware(['auth:sanctum', 'verified', 'role:seller'])->group(function () {

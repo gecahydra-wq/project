@@ -132,6 +132,12 @@ class MessageController extends Controller
         return response()->json([
             'user' => self::counterpartPayload($user),
             'messages' => $messages,
+            // A system thread is read-only, so the UI links to the human who
+            // can actually help ("Message the Super Admin") instead of a
+            // reply box.
+            'support_contact' => $user->role === 'system'
+                ? User::where('role', 'super_admin')->orderBy('id')->first(['id', 'name'])
+                : null,
         ]);
     }
 
@@ -152,6 +158,12 @@ class MessageController extends Controller
 
         $sender = $request->user();
         $receiver = User::findOrFail($data['receiver_id']);
+
+        // AbaiMarket's system account (see App\Support\SystemMessenger) only
+        // ever sends automatic messages -- there is no one behind it to reply
+        // to, so the messages UI offers "Message the Super Admin" and
+        // "Contact Support" instead of a reply box.
+        abort_if($receiver->role === 'system', 422, 'This is an automated message from AbaiMarket, so replies are not possible. Message the Super Admin or contact Support instead.');
 
         // A suspended account may still message its LGU and the Super Admin --
         // that is how it asks for a second look -- but not other traders.
@@ -232,6 +244,12 @@ class MessageController extends Controller
 
     private static function notificationTitle(User $sender): string
     {
+        // The system account's name is already the platform's, so
+        // "New message from AbaiMarket (AbaiMarket)" would just read twice.
+        if ($sender->role === 'system') {
+            return 'New message from AbaiMarket';
+        }
+
         $role = ['buyer' => 'Buyer', 'seller' => 'Seller', 'lgu_admin' => 'LGU', 'super_admin' => 'Super Admin'][$sender->role] ?? 'User';
 
         return "New message from {$sender->name} ({$role})";

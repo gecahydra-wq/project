@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Mail\NewOrderReceivedMail;
+use App\Mail\OrderCancelledByBuyerMail;
 use App\Mail\OrderConfirmedMail;
 use App\Mail\OrderDeliveredMail;
 use App\Mail\PaymentReceiptMail;
@@ -21,9 +22,11 @@ use App\Support\OrderCancellation;
 use App\Support\OrderTransactionPresenter;
 use App\Support\PaymentReturnToken;
 use App\Support\SafeMailer;
+use App\Support\SystemMessenger;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
@@ -42,7 +45,8 @@ use Illuminate\Support\Str;
  * seller being paid before the transaction is verified.
  *
  * Suspension: a suspended buyer cannot place orders or pay (guards below);
- * they can still browse and view past orders.
+ * they can still browse, view past orders, and cancel their own unfinished
+ * orders (see cancel()).
  */
 class OrderController extends Controller
 {
@@ -291,17 +295,16 @@ class OrderController extends Controller
             return response()->json(['message' => "This order is already {$previousStatus} and can no longer be changed."], 422);
         }
 
-        // Out for delivery is the point of no return for the seller. The fish
-        // have left the farm, so restocking the listing would credit stock that
-        // is not there and, on a paid order, refund a buyer who is about to
-        // take delivery. The seller's own screen stops offering Cancel Order at
-        // in_transit (ORDER_STATUS_TRANSITIONS); this is the same rule enforced
-        // where it counts, so it cannot be skipped by calling the API directly.
-        if ($statusChanged && $previousStatus === 'in_transit' && $data['status'] === 'cancelled') {
-            return response()->json([
-                'message' => 'This order is already out for delivery and can no longer be cancelled.',
-            ], 422);
-        }
+        // The seller may cancel even an order that is already out for
+        // delivery: deliveries fail and buyers refuse deliveries, and the
+        // seller has no other way to wind the order down while it is on the
+        // road (the buyer's own cancel stops at in_transit too, telling them
+        // to take it up with the seller instead). The cancellation runs
+        // through OrderCancellation::cancel like every other one: the
+        // order's reserved stock goes back to the listing and a captured
+        // payment goes to the refund queue. The seller's screen keeps
+        // offering Cancel Order here for the same reason
+        // (ORDER_STATUS_TRANSITIONS).
 
         // Advancing an unpaid order is a one-way trap: once it leaves 'placed',
         // checkout() refuses it (so the buyer can never pay) and
@@ -364,9 +367,158 @@ class OrderController extends Controller
                 'Out for delivery',
                 "Order #{$order->order_number} is on its way to you."
             );
+
+            // Plus one automatic message from the AbaiMarket system account
+            // (see App\Support\SystemMessenger) -- the messages thread is
+            // where the buyer can actually reach the seller if the drop-off
+            // goes quiet. $statusChanged covers re-saving in_transit; the extra
+            // exists() check covers an order moved back to confirmed and out
+            // again later, which would otherwise send a second copy.
+            $order->loadMissing('buyer');
+            $alreadySent = Message::where('message_type', 'order_out_for_delivery')
+                ->where('receiver_id', $order->buyer_id)
+                ->where('body', 'like', '%'.$order->order_number.'%')
+                ->exists();
+
+            if ($order->buyer && ! $alreadySent) {
+                SystemMessenger::send(
+                    $order->buyer,
+                    sprintf(
+                        'Your order #%s is now out for delivery. The seller may contact you to arrange the drop-off, so please keep your phone and messages available. If you haven\'t heard anything, you can message the seller from this order.',
+                        $order->order_number
+                    ),
+                    'order_out_for_delivery'
+                );
+            }
         }
 
         return response()->json($order->load('payment'));
+    }
+
+    /**
+     * Buyer cancels their own order (Buyer only).
+     *
+     * Allowed right up until the fish leave the farm:
+     *   - 'placed' with the payment still unpaid (pending / checkout_created):
+     *     no reason needed -- nothing was captured and the seller has no money
+     *     to send back.
+     *   - 'placed', 'paid' or 'confirmed' with the payment 'paid_held': money
+     *     is in escrow but the order is not out for delivery yet, so the buyer
+     *     can still back out -- but a reason is required, because the payment
+     *     now moves through the Super Admin's refund queue and the seller is
+     *     told why. 'confirmed' is the seller preparing the fish, not
+     *     delivering them, so it is still cancellable; 'placed' counts
+     *     alongside 'paid' because demo-mode checkout marks the payment
+     *     'paid_held' a moment before the order status flips.
+     * From 'in_transit' onwards ('in_transit', 'completed', 'cancelled',
+     * 'failed') the buyer can no longer cancel: the fish may already be on
+     * their way, so they are told to message the seller instead. This is a
+     * buyer-only rule now -- the seller can cancel an order that is already
+     * out for delivery (a delivery can fail or be refused), which is exactly
+     * the situation the buyer is told to take to the seller.
+     *
+     * The read-check-and-cancel runs in one transaction with the order row
+     * locked, so a seller confirming at the same moment is serialised: either
+     * this cancel sees 'confirmed' and refuses, or it commits first and the
+     * seller's confirm is the one that meets an already-cancelled order. The
+     * cancellation itself is the same App\Support\OrderCancellation::cancel as
+     * the seller path, so restock/close-checkout/refund-queue behaviour can
+     * never diverge. The buyer's other guards are untouched: a cancelled order
+     * already refuses to be paid (checkout()) and is invisible to
+     * orders:expire-unpaid.
+     *
+     * Deliberately no suspension guard: a suspended buyer cannot place new
+     * orders or pay, but cancelling an order they already have only winds
+     * something down -- leaving it stuck would strand reserved stock and (on a
+     * paid order) escrowed money.
+     */
+    public function cancel(Request $request, Order $order)
+    {
+        if ($order->buyer_id !== $request->user()->id) {
+            return response()->json(['message' => 'You can only cancel your own orders.'], 403);
+        }
+
+        $data = $request->validate([
+            'cancellation_reason' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $result = DB::transaction(function () use ($request, $order, $data) {
+            $order = Order::with('payment')->lockForUpdate()->findOrFail($order->id);
+
+            $payment = $order->payment;
+            $unpaid = $order->status === 'placed'
+                && ($payment === null || in_array($payment->status, OrderCancellation::UNPAID_PAYMENT_STATUSES, true));
+            $paidBeforeDelivery = in_array($order->status, ['placed', 'paid', 'confirmed'], true)
+                && $payment?->status === 'paid_held';
+
+            if (! $unpaid && ! $paidBeforeDelivery) {
+                return response()->json(['message' => $this->buyerCancelBlockedMessage($order)], 422);
+            }
+
+            $reason = trim((string) ($data['cancellation_reason'] ?? ''));
+
+            // Required-ness is decided here rather than in validate(): whether
+            // a reason is needed depends on the payment state, which was only
+            // trustworthy once the row was locked above.
+            if ($paidBeforeDelivery && $reason === '') {
+                throw ValidationException::withMessages([
+                    'cancellation_reason' => 'Tell the seller why you are cancelling this paid order.',
+                ]);
+            }
+
+            OrderCancellation::cancel($order, $reason !== '' ? $reason : null, $request->user(), false, true);
+
+            return $order;
+        });
+
+        if (! $result instanceof Order) {
+            return $result;
+        }
+
+        $order = $result->fresh()->load('payment');
+
+        // The seller is the party who has to react, so they get both the in-app
+        // notification and an email. Paid cancellations say the refund is
+        // coming; unpaid ones just say the stock is back. The reason is
+        // repeated verbatim for a paid cancellation, exactly what the seller
+        // sees on the order.
+        $sellerUserId = $result->sellerProfile?->user_id;
+        if ($sellerUserId) {
+            $reason = $order->cancellation_reason;
+            $refundQueued = in_array($order->payment?->status, [OrderCancellation::REFUND_PENDING, OrderCancellation::REFUNDED], true);
+
+            $this->notifyOnce(
+                $sellerUserId,
+                "order_cancelled_by_buyer:{$order->id}",
+                'Order cancelled by buyer',
+                ($refundQueued
+                    ? "The buyer cancelled order #{$order->order_number} after paying it. The stock is back in your listing and their payment will be refunded."
+                    : "The buyer cancelled order #{$order->order_number} before paying. The reserved stock is back in your listing.")
+                .($reason ? " Reason: {$reason}" : '')
+            );
+
+            $order->loadMissing(['buyer', 'listing', 'sellerProfile.user']);
+            SafeMailer::send($order->sellerProfile?->user?->email, new OrderCancelledByBuyerMail($order, $reason));
+        }
+
+        return response()->json($order);
+    }
+
+    /**
+     * Why a buyer's cancellation was refused, said in terms of what they can
+     * do next -- the order's own status already says what happened. Kept
+     * beside cancel() so the frontend's eligibility rule (buyerCancelMode in
+     * App.jsx) and these messages stay in step.
+     */
+    protected function buyerCancelBlockedMessage(Order $order): string
+    {
+        return match ($order->status) {
+            'in_transit' => 'This order is already out for delivery and can no longer be cancelled. The fish may be on their way -- message the seller if you need help with the delivery.',
+            'completed' => 'This order is already completed and can no longer be cancelled.',
+            'cancelled' => 'This order is already cancelled.',
+            'failed' => 'This order was not paid in time, so it was already cancelled and there is nothing left to cancel.',
+            default => 'This order can no longer be cancelled. Message the seller if you need help.',
+        };
     }
 
     /**
@@ -389,8 +541,9 @@ class OrderController extends Controller
      *
      * Shared by the buyer's own confirmation and the LGU/Super Admin backstop,
      * so the two can never drift into completing an order by different rules.
-     * $confirmedBy names the admin acting for a silent buyer, or the Super
-     * Admin account used for automatic system messages. Null means the buyer
+     * $confirmedBy names the admin acting for a silent buyer, or, on an
+     * automatic run, the AbaiMarket system account (see App\Support\
+     * SystemMessenger) so the activity log has an actor. Null means the buyer
      * confirmed it themselves.
      */
     public function completeDelivery(Order $order, ?User $confirmedBy = null, bool $automatic = false): Order
@@ -478,18 +631,12 @@ class OrderController extends Controller
                 'Order #%s was automatically marked as received after the buyer confirmation window expired.',
                 $order->order_number
             );
+            // Sent by the AbaiMarket system account, never the acting admin --
+            // see App\Support\SystemMessenger.
             foreach ([[$order->buyer, $buyerBody], [$order->sellerProfile?->user, $sellerBody]] as [$recipient, $body]) {
-                if (! $recipient) {
-                    continue;
+                if ($recipient) {
+                    SystemMessenger::send($recipient, $body, 'order_auto_completed');
                 }
-
-                Message::create([
-                    'sender_id' => $confirmedBy->id,
-                    'receiver_id' => $recipient->id,
-                    'body' => $body,
-                    'message_type' => 'order_auto_completed',
-                ]);
-                MessageController::notifyReceiver($confirmedBy, $recipient, $body);
             }
         }
 

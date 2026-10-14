@@ -12,8 +12,8 @@ use App\Services\PayMongoService;
 
 /**
  * The single place an order that will never be fulfilled is wound down, so
- * seller cancellation, unpaid-order expiry, and a payment that arrives after
- * either of those can never disagree about stock or money.
+ * seller cancellation, buyer cancellation, unpaid-order expiry, and a payment
+ * that arrives after any of those can never disagree about stock or money.
  *
  *   - Stock reserved by OrderController::store is always given back.
  *   - Unpaid (pending / checkout_created): the payment is simply closed.
@@ -40,9 +40,8 @@ class OrderCancellation
     /**
      * A suspended seller cannot fulfil anything (they cannot even update an
      * order), so every order still on its way is cancelled exactly as if the
-     * seller had cancelled it: stock back (unless it was already out for
-     * delivery -- those fingerlings have left the farm), unpaid links closed,
-     * paid money to the refund queue. Completed orders are left alone -- the buyer already
+     * seller had cancelled it: stock back, unpaid links closed, paid money to
+     * the refund queue. Completed orders are left alone -- the buyer already
      * received the fish. Called on suspension (AccountModeration::suspendSeller)
      * and by the orders:cancel-suspended-seller-orders backstop.
      */
@@ -62,17 +61,22 @@ class OrderCancellation
 
     /** Seller cancels an order (OrderController::updateStatus). */
     /**
-     * $reason is why the SELLER cancelled. It is null for expiry and for any
-     * automated cancellation -- the order's own status already distinguishes
-     * those -- and is passed straight through to the buyer, who otherwise
-     * learned only that their order had vanished. $sellerSuspended marks the
-     * cancellation that follows a suspension, so the buyer is not told the
-     * seller chose to cancel.
+     * $reason is why the order was cancelled from the side the buyer did not
+     * control -- for a seller cancellation it is required, for expiry and any
+     * automated cancellation it is null (the order's own status already
+     * distinguishes those), and it is passed straight through to the buyer,
+     * who otherwise learned only that their order had vanished.
+     * $sellerSuspended marks the cancellation that follows a suspension, so
+     * the buyer is not told the seller chose to cancel.
+     * $cancelledByBuyer marks a buyer cancelling their own order
+     * (OrderController::cancel): the buyer's own confirmation notification is
+     * worded as their request, not a seller decision, and the refund queue's
+     * reason names the buyer. For the buyer's paid case $reason is required
+     * by the controller; for the unpaid case it stays null.
      */
-    public static function cancel(Order $order, ?string $reason = null, ?User $actor = null, bool $sellerSuspended = false): void
+    public static function cancel(Order $order, ?string $reason = null, ?User $actor = null, bool $sellerSuspended = false, bool $cancelledByBuyer = false): void
     {
         $payment = $order->payment;
-        $leftTheFarm = $order->status === 'in_transit';
 
         $order->update(array_filter([
             'status' => 'cancelled',
@@ -80,9 +84,11 @@ class OrderCancellation
         ], fn ($value) => $value !== null));
 
         // Recorded here rather than at the call site so an expired order and a
-        // seller cancellation both leave a trail, and so the LGU and Super
-        // Admin logs carry the reason without either dashboard having to go
-        // looking for it. $actor is null for the scheduler's expiry run.
+        // cancellation from either side all leave a trail, and so the LGU and
+        // Super Admin logs carry the reason without either dashboard having to
+        // go looking for it. $actor is the cancelling user, or null for the
+        // scheduler's expiry run; a buyer cancellation therefore shows the
+        // buyer as the actor in the Orders tab (action 'order_cancelled').
         $order->loadMissing('sellerProfile');
         ActivityLog::record([
             'actor_id' => $actor?->id,
@@ -92,18 +98,25 @@ class OrderCancellation
             'municipality_id' => $order->sellerProfile?->municipality_id,
             'reference_type' => 'ORD',
             'reference_number' => $order->order_number,
-            'description' => $reason
-                ? sprintf('Cancelled order %s. Reason: %s', $order->order_number, $reason)
-                : sprintf('Order %s was cancelled.', $order->order_number),
+            'description' => $cancelledByBuyer
+                ? sprintf('Buyer cancelled order %s.%s', $order->order_number, $reason ? " Reason: {$reason}" : '')
+                : ($reason
+                    ? sprintf('Cancelled order %s. Reason: %s', $order->order_number, $reason)
+                    : sprintf('Order %s was cancelled.', $order->order_number)),
         ]);
-        if (! $leftTheFarm) {
-            self::restock($order);
-        }
+        // Cancelling always releases the order's reserved stock. The listing
+        // was decremented when the order was placed (OrderController::store),
+        // and a cancelled order will never be fulfilled, so the quantity goes
+        // back -- including an order that was already out for delivery.
+        self::restock($order);
 
         if ($payment?->status === 'paid_held') {
             if ($sellerSuspended) {
                 self::notify($order->buyer_id, "order_cancelled:{$order->id}", 'Order cancelled',
                     "Order #{$order->order_number} was cancelled because the seller's account was suspended. Your payment is being refunded.");
+            } elseif ($cancelledByBuyer) {
+                self::notify($order->buyer_id, "order_cancelled:{$order->id}", 'Order cancelled',
+                    "Order #{$order->order_number} was cancelled at your request. Your refund is pending and is processed by the Super Admin.");
             }
 
             self::queueRefund(
@@ -112,7 +125,9 @@ class OrderCancellation
                 'order.cancelled',
                 $sellerSuspended
                     ? 'The seller\'s account was suspended after the order was paid.'
-                    : 'The seller cancelled the order after it was paid.'.($reason ? " Reason: {$reason}" : '')
+                    : ($cancelledByBuyer
+                        ? 'The buyer cancelled the order after it was paid.'.($reason ? " Reason: {$reason}" : '')
+                        : 'The seller cancelled the order after it was paid.'.($reason ? " Reason: {$reason}" : ''))
             );
 
             return;
@@ -126,6 +141,13 @@ class OrderCancellation
         if ($sellerSuspended) {
             self::notify($order->buyer_id, "order_cancelled:{$order->id}", 'Order cancelled',
                 "Order #{$order->order_number} was cancelled because the seller's account was suspended. No payment was captured.");
+
+            return;
+        }
+
+        if ($cancelledByBuyer) {
+            self::notify($order->buyer_id, "order_cancelled:{$order->id}", 'Order cancelled',
+                "Order #{$order->order_number} was cancelled at your request. No payment was captured.");
 
             return;
         }

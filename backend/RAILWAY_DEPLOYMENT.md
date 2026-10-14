@@ -46,6 +46,12 @@ PAYMONGO_SECRET_KEY=<PayMongo secret key>
 PAYMONGO_WEBHOOK_SECRET=<PayMongo webhook secret>
 PAYMONGO_ASSET_BASE_URL=https://api.teamabai.website
 
+# Receipt windows before automatic completion. Set explicitly so production
+# does not depend on APP_ENV: buyers get 3 days to confirm an out-for-delivery
+# order, payout recipients 7 days to confirm a sent payout.
+ORDER_AUTO_COMPLETE_AFTER_MINUTES=4320
+PAYOUT_AUTO_COMPLETE_AFTER_MINUTES=10080
+
 GEMINI_API_KEY=<Gemini API key>
 GEMINI_MODEL=gemini-2.5-flash
 ```

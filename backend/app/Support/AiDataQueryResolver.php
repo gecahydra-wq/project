@@ -523,7 +523,9 @@ class AiDataQueryResolver
     private static function resolveSuperAdmin(string $lower, User $user): ?array
     {
         if (self::matchesAny($lower, ['total users'])) {
-            $count = User::count();
+            // The AbaiMarket system account (automatic messages only) is not
+            // a user of the marketplace, so it is not counted here.
+            $count = User::where('role', '!=', 'system')->count();
             $context = "There are {$count} total user accounts on AbaiMarket (buyers, sellers, LGU admins, and Super Admin).";
 
             return ['subject' => 'super_total_users', 'context' => $context, 'fallback' => ['English' => $context, 'Tagalog' => $context, 'Bisaya' => $context]];

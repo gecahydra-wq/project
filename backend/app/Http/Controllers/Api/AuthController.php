@@ -122,7 +122,11 @@ class AuthController extends Controller
 
         $user = User::where('email', $data['email'])->first();
 
-        if (! $user || ! Hash::check($data['password'], $user->password)) {
+        // The AbaiMarket system account (see App\Support\SystemMessenger --
+        // the sender of every automatic message) has no usable password, but
+        // it is refused by role too so this never depends on the password
+        // staying unguessable.
+        if (! $user || $user->role === 'system' || ! Hash::check($data['password'], $user->password)) {
             return response()->json(['message' => 'Invalid credentials'], 422);
         }
 

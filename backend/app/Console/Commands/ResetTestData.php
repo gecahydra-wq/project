@@ -82,7 +82,9 @@ class ResetTestData extends Command
         }
         $keptSeller = $kept->first();
 
-        $keepUserIds = User::where('role', 'super_admin')->pluck('id')->push($keptSeller->user_id)->unique()->values();
+        // The AbaiMarket system account survives too -- it is not a test
+        // account, and its messages are wiped with the rest of the table.
+        $keepUserIds = User::whereIn('role', ['super_admin', 'system'])->pluck('id')->push($keptSeller->user_id)->unique()->values();
         $doomed = User::whereNotIn('id', $keepUserIds)->get(['id', 'email', 'role']);
         $municipalities = Municipality::orderBy('name')->get();
         $buyerCount = max(0, (int) $this->option('buyers'));

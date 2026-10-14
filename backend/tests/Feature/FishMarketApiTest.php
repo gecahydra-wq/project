@@ -10,6 +10,7 @@ use App\Mail\ListingRejectedMail;
 use App\Mail\LguWithdrawalApprovedMail;
 use App\Mail\LguWithdrawalReleasedMail;
 use App\Mail\NewOrderReceivedMail;
+use App\Mail\OrderCancelledByBuyerMail;
 use App\Mail\OrderConfirmedMail;
 use App\Mail\OrderDeliveredMail;
 use App\Mail\PaymentReceiptMail;
@@ -38,6 +39,7 @@ use App\Models\Settlement;
 use App\Models\User;
 use App\Models\WithdrawalRequest;
 use App\Support\AccountModeration;
+use App\Support\AiDataQueryResolver;
 use App\Support\CommissionCalculator;
 use App\Support\PaymentReturnToken;
 use App\Support\PayoutAccount;
@@ -327,9 +329,12 @@ class FishMarketApiTest extends TestCase
         $response->assertJson(['status' => 'ok', 'database' => 'reachable']);
     }
 
-    public function test_fresh_seed_contains_only_the_two_administrator_accounts(): void
+    public function test_fresh_seed_contains_only_the_two_administrators_and_the_system_account(): void
     {
-        $this->assertDatabaseCount('users', 2);
+        // The two seeded administrators, plus the AbaiMarket system account
+        // the create_system_user migration inserts as the sender of automatic
+        // messages (see App\Support\SystemMessenger).
+        $this->assertDatabaseCount('users', 3);
         $this->assertDatabaseCount('buyer_profiles', 0);
         $this->assertDatabaseCount('seller_profiles', 0);
 
@@ -340,6 +345,11 @@ class FishMarketApiTest extends TestCase
         $superAdmin = User::where('role', 'super_admin')->firstOrFail();
         $this->assertSame('superadmin@gmail.com', $superAdmin->email);
         $this->assertSame('active', $superAdmin->status);
+
+        $systemUser = User::where('role', 'system')->firstOrFail();
+        $this->assertSame('AbaiMarket', $systemUser->name);
+        $this->assertSame('system@abaimarket.com', $systemUser->email);
+        $this->assertSame('/logo-mark.png', $systemUser->profile_picture);
     }
 
     public function test_fresh_seed_contains_no_marketplace_listings(): void
@@ -352,6 +362,194 @@ class FishMarketApiTest extends TestCase
         $this->assertDatabaseCount('notifications', 0);
 
         $this->getJson('/api/listings')->assertOk()->assertJsonCount(0);
+    }
+
+    // ------------------------------------------------------------------
+    // The AbaiMarket system account (App\Support\SystemMessenger) -- the
+    // sender every automatic message comes from.
+    // ------------------------------------------------------------------
+
+    public function test_the_abaimarket_system_account_cannot_log_in(): void
+    {
+        $systemUser = User::where('role', 'system')->firstOrFail();
+
+        // Even if someone ever gave the account a known password, the role
+        // itself is refused -- the block never depends on the generated
+        // password staying unknown.
+        $systemUser->update(['password' => 'known-password']);
+
+        $this->postJson('/api/auth/login', [
+            'email' => 'system@abaimarket.com',
+            'password' => 'known-password',
+        ])->assertStatus(422)->assertJson(['message' => 'Invalid credentials']);
+    }
+
+    public function test_the_abaimarket_system_account_cannot_sign_in_with_google(): void
+    {
+        Socialite::fake('google', SocialiteUser::fake([
+            'id' => 'google-system-1',
+            'email' => 'system@abaimarket.com',
+            'name' => 'AbaiMarket',
+        ]));
+
+        $response = $this->get('/api/auth/google/callback');
+
+        $response->assertRedirect(rtrim(config('app.frontend_url'), '/').'/login?google_error=1');
+        $this->assertStringNotContainsString('token=', (string) $response->headers->get('Location'));
+        $this->assertNull(User::where('role', 'system')->firstOrFail()->google_id);
+    }
+
+    public function test_auto_completed_order_messages_come_from_the_abaimarket_system_account(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 900]);
+        $buyer = $this->makeBuyer();
+        $order = $this->makeOrder($buyer, $listing, [
+            'status' => 'in_transit',
+            'in_transit_at' => now()->subDays(3),
+        ]);
+        $this->makePayment($order, ['status' => 'paid_held']);
+
+        $this->artisan('orders:auto-complete-unconfirmed')->assertExitCode(0);
+
+        $systemUser = User::where('role', 'system')->firstOrFail();
+        $superAdmin = User::where('role', 'super_admin')->firstOrFail();
+
+        $buyerMessage = Message::where('message_type', 'order_auto_completed')
+            ->where('receiver_id', $buyer->id)
+            ->firstOrFail();
+        $this->assertSame($systemUser->id, $buyerMessage->sender_id);
+        $this->assertNotSame($superAdmin->id, $buyerMessage->sender_id);
+
+        $sellerMessage = Message::where('message_type', 'order_auto_completed')
+            ->where('receiver_id', $seller->user_id)
+            ->firstOrFail();
+        $this->assertSame($systemUser->id, $sellerMessage->sender_id);
+
+        // The bell reads "AbaiMarket", not the system email address.
+        $this->assertDatabaseHas('notifications', [
+            'user_id' => $buyer->id,
+            'type' => 'new_message',
+            'title' => 'New message from AbaiMarket',
+        ]);
+    }
+
+    public function test_auto_completed_payout_messages_come_from_the_abaimarket_system_account(): void
+    {
+        Mail::fake();
+        config(['payouts.auto_complete_after_minutes' => 1]);
+        $superAdmin = User::where('role', 'super_admin')->firstOrFail();
+        $seller = $this->makeSeller();
+        $withdrawal = $this->makeWithdrawal($seller, ['amount' => 40, 'status' => 'approved']);
+
+        // The Super Admin sends the payout the normal way: that receipt
+        // message stays theirs, because replies to it must reach a person.
+        Sanctum::actingAs($superAdmin);
+        $this->postJson("/api/super-admin/withdrawals/{$withdrawal->id}/send-receipt", [
+            'payout_sent' => true,
+            'note' => 'Transfer reference 123',
+        ])->assertOk()->assertJsonPath('withdrawal.status', 'sent');
+
+        $receipt = Message::where('withdrawal_type', 'seller')
+            ->where('withdrawal_id', $withdrawal->id)
+            ->where('message_type', 'payout_receipt')
+            ->firstOrFail();
+        $this->assertSame($superAdmin->id, $receipt->sender_id);
+
+        // Backdate the send so the receipt confirmation window has passed.
+        $withdrawal->update(['sent_at' => now()->subMinutes(2)]);
+
+        $this->artisan('withdrawals:auto-complete-sent')->assertExitCode(0);
+
+        $systemUser = User::where('role', 'system')->firstOrFail();
+        $auto = Message::where('withdrawal_type', 'seller')
+            ->where('withdrawal_id', $withdrawal->id)
+            ->where('message_type', 'payout_auto_completed')
+            ->firstOrFail();
+        $this->assertSame($systemUser->id, $auto->sender_id);
+        $this->assertStringContainsString('message the Super Admin or contact Support', $auto->body);
+        $this->assertStringNotContainsString('reply here', $auto->body);
+    }
+
+    public function test_replying_to_the_abaimarket_system_account_is_rejected_with_clear_guidance(): void
+    {
+        $buyer = $this->makeBuyer();
+        $systemUser = User::where('role', 'system')->firstOrFail();
+
+        Sanctum::actingAs($buyer);
+        $this->postJson('/api/messages', [
+            'receiver_id' => $systemUser->id,
+            'body' => 'Are you a real person?',
+        ])->assertStatus(422)->assertJsonPath('message', 'This is an automated message from AbaiMarket, so replies are not possible. Message the Super Admin or contact Support instead.');
+
+        // The thread itself still opens, and carries the id of the human the
+        // UI's "Message the Super Admin" button needs.
+        $thread = $this->getJson("/api/messages/thread/{$systemUser->id}")->assertOk()->json();
+        $this->assertSame($systemUser->id, $thread['user']['id']);
+        $this->assertSame('system', $thread['user']['role']);
+        $this->assertSame(User::where('role', 'super_admin')->firstOrFail()->id, $thread['support_contact']['id']);
+    }
+
+    public function test_marking_an_order_out_for_delivery_sends_one_system_message_to_the_buyer(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller);
+        $buyer = $this->makeBuyer();
+        $order = $this->makeOrder($buyer, $listing, ['status' => 'confirmed']);
+        $this->makePayment($order, ['status' => 'paid_held']);
+
+        Sanctum::actingAs($seller->user);
+        $this->patchJson("/api/orders/{$order->id}/status", ['status' => 'in_transit'])->assertOk();
+
+        $systemUser = User::where('role', 'system')->firstOrFail();
+        $messages = Message::where('message_type', 'order_out_for_delivery')
+            ->where('receiver_id', $buyer->id)
+            ->get();
+        $this->assertCount(1, $messages);
+        $this->assertSame($systemUser->id, $messages->first()->sender_id);
+        $this->assertSame(
+            "Your order #{$order->order_number} is now out for delivery. The seller may contact you to arrange the drop-off, so please keep your phone and messages available. If you haven't heard anything, you can message the seller from this order.",
+            $messages->first()->body
+        );
+
+        // Re-saving the same status cannot send a second copy...
+        $this->patchJson("/api/orders/{$order->id}/status", ['status' => 'in_transit'])->assertOk();
+        // ...and neither can bouncing back to confirmed and out again.
+        $this->patchJson("/api/orders/{$order->id}/status", ['status' => 'confirmed'])->assertOk();
+        $this->patchJson("/api/orders/{$order->id}/status", ['status' => 'in_transit'])->assertOk();
+
+        $this->assertSame(1, Message::where('message_type', 'order_out_for_delivery')
+            ->where('receiver_id', $buyer->id)
+            ->count());
+    }
+
+    public function test_the_system_account_is_absent_from_user_lists_counts_and_analytics(): void
+    {
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $superAdmin = User::where('role', 'super_admin')->firstOrFail();
+        $buyer = $this->makeBuyer(['municipality_id' => $lguAdmin->municipality_id]);
+        $seller = $this->makeSeller(
+            ['municipality_id' => $lguAdmin->municipality_id],
+            ['municipality_id' => $lguAdmin->municipality_id]
+        );
+
+        // Super Admin's user list (buyers only).
+        Sanctum::actingAs($superAdmin);
+        $adminUsers = $this->getJson('/api/super-admin/users')->assertOk()->json();
+        $this->assertSame([$buyer->id], array_column($adminUsers['buyers'], 'id'));
+
+        // LGU's user list (buyers + sellers of the municipality).
+        Sanctum::actingAs($lguAdmin);
+        $lguUsers = $this->getJson('/api/lgu/users')->assertOk()->json();
+        $this->assertSame([$buyer->id], array_column($lguUsers['buyers'], 'id'));
+        $this->assertSame([$seller->user_id], array_column($lguUsers['sellers'], 'id'));
+
+        // The AI's "total users" answer counts real accounts only: the seeded
+        // LGU admin + Super Admin, one buyer and one seller -- never the
+        // system account.
+        $answer = AiDataQueryResolver::resolve('How many total users does AbaiMarket have?', $superAdmin, null);
+        $this->assertNotNull($answer);
+        $this->assertStringContainsString('There are 4 total user accounts', $answer['context']);
     }
 
     public function test_buyers_can_filter_listings_by_species(): void
@@ -1423,6 +1621,90 @@ class FishMarketApiTest extends TestCase
         ]);
         Mail::assertSent(WithdrawalReleasedMail::class, fn ($mail) => $mail->hasTo($seller->user->email));
         Mail::assertSent(LguWithdrawalReleasedMail::class, fn ($mail) => $mail->hasTo($lguAdmin->email));
+    }
+
+    public function test_orders_auto_complete_after_three_days_out_for_delivery_without_buyer_confirmation(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 900]);
+        $buyer = $this->makeBuyer();
+        // Out for delivery three days ago: the buyer's confirmation window has
+        // expired, so the scheduler completes it for them.
+        $stale = $this->makeOrder($buyer, $listing, [
+            'status' => 'in_transit',
+            'in_transit_at' => now()->subDays(3),
+        ]);
+        $this->makePayment($stale, ['status' => 'paid_held']);
+        // Out for delivery two days ago: still inside the 3-day window, so it
+        // must be left alone even though it is paid and never confirmed.
+        $recent = $this->makeOrder($buyer, $listing, [
+            'status' => 'in_transit',
+            'in_transit_at' => now()->subDays(2),
+        ]);
+        $this->makePayment($recent, ['status' => 'paid_held']);
+
+        $this->artisan('orders:auto-complete-unconfirmed')->assertExitCode(0);
+
+        $this->assertSame('completed', $stale->fresh()->status);
+        $this->assertNotNull($stale->fresh()->auto_received_at);
+        $this->assertSame('in_transit', $recent->fresh()->status);
+        $this->assertNull($recent->fresh()->auto_received_at);
+    }
+
+    public function test_sent_payouts_auto_complete_after_seven_days_without_a_receipt_confirmation(): void
+    {
+        Mail::fake();
+        $superAdmin = User::where('role', 'super_admin')->firstOrFail();
+        $seller = $this->makeSeller();
+        // Sent seven days ago: the receipt window has expired, so it is marked
+        // paid without the seller's Money Received click.
+        $stale = $this->makeWithdrawal($seller, [
+            'amount' => 40,
+            'status' => 'sent',
+            'sent_at' => now()->subDays(7),
+            'sent_by' => $superAdmin->id,
+        ]);
+        // Sent six days ago: still inside the 7-day window, so nothing happens.
+        $recent = $this->makeWithdrawal($seller, [
+            'amount' => 20,
+            'status' => 'sent',
+            'sent_at' => now()->subDays(6),
+            'sent_by' => $superAdmin->id,
+        ]);
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $lguStale = $this->makeLguWithdrawal($lguAdmin->municipality_id, [
+            'requested_by' => $lguAdmin->id,
+            'amount' => 25,
+            'status' => 'sent',
+            'sent_at' => now()->subDays(7),
+            'sent_by' => $superAdmin->id,
+        ]);
+        $lguRecent = $this->makeLguWithdrawal($lguAdmin->municipality_id, [
+            'requested_by' => $lguAdmin->id,
+            'amount' => 15,
+            'status' => 'sent',
+            'sent_at' => now()->subDays(6),
+            'sent_by' => $superAdmin->id,
+        ]);
+
+        $this->artisan('withdrawals:auto-complete-sent')->assertExitCode(0);
+
+        $this->assertSame('paid', $stale->fresh()->status);
+        $this->assertNotNull($stale->fresh()->auto_completed_at);
+        $this->assertSame('sent', $recent->fresh()->status);
+        $this->assertNull($recent->fresh()->auto_completed_at);
+        $this->assertSame('paid', $lguStale->fresh()->status);
+        $this->assertNotNull($lguStale->fresh()->auto_completed_at);
+        $this->assertSame('sent', $lguRecent->fresh()->status);
+        $this->assertNull($lguRecent->fresh()->auto_completed_at);
+
+        // DurationLabel turns the 10080-minute window into "7 days" in the
+        // message the Super Admin's conversation sends the seller.
+        $body = Message::where('withdrawal_type', 'seller')
+            ->where('withdrawal_id', $stale->id)
+            ->where('message_type', 'payout_auto_completed')
+            ->value('body');
+        $this->assertStringContainsString('after the 7 days receipt confirmation window expired', $body);
     }
 
     public function test_marking_a_withdrawal_paid_does_not_return_the_amount_to_available_balance(): void
@@ -4805,23 +5087,253 @@ class FishMarketApiTest extends TestCase
         $this->assertSame('completed', $order->fresh()->status);
     }
 
-    public function test_a_seller_cannot_cancel_an_order_that_is_out_for_delivery(): void
+    public function test_a_seller_can_cancel_an_order_that_is_out_for_delivery(): void
     {
         $seller = $this->makeSeller();
         $listing = $this->makeListing($seller, ['quantity' => 900]);
-        $order = $this->makeOrder($this->makeBuyer(), $listing, ['quantity' => 100, 'status' => 'in_transit']);
+        $buyer = $this->makeBuyer();
+        $order = $this->makeOrder($buyer, $listing, ['quantity' => 100, 'status' => 'in_transit']);
         $payment = $this->makePayment($order, ['status' => 'paid_held']);
         Sanctum::actingAs($seller->user);
 
-        $this->patchJson("/api/orders/{$order->id}/status", ['status' => 'cancelled', 'cancellation_reason' => 'Changed my mind.'])
-            ->assertStatus(422)
-            ->assertJsonPath('message', 'This order is already out for delivery and can no longer be cancelled.');
+        // Deliveries fail and buyers refuse deliveries, so the seller keeps a
+        // way out until the order is actually completed.
+        $this->patchJson("/api/orders/{$order->id}/status", ['status' => 'cancelled', 'cancellation_reason' => 'The buyer refused to accept the delivery.'])
+            ->assertOk()
+            ->assertJsonPath('status', 'cancelled');
 
-        // Nothing moved: the stock was not credited back to a pond it is no
-        // longer in, and the buyer's held payment was not sent to refund.
-        $this->assertSame('in_transit', $order->fresh()->status);
-        $this->assertSame(900, (int) $listing->fresh()->quantity);
+        // Cancelling releases the reservation -- the reserved stock goes back
+        // to the listing exactly as it does for any other cancellation...
+        $this->assertSame('cancelled', $order->fresh()->status);
+        $this->assertSame(900 + (int) $order->quantity, (int) $listing->fresh()->quantity);
+
+        // ...and the captured payment goes to the refund queue, with the
+        // buyer and Super Admin told.
+        $this->assertSame('refund_pending', $payment->fresh()->status);
+        $this->assertDatabaseHas('notifications', ['user_id' => $buyer->id, 'title' => 'Refund pending']);
+        $superAdmin = User::where('role', 'super_admin')->firstOrFail();
+        $this->assertDatabaseHas('notifications', ['user_id' => $superAdmin->id, 'type' => "refund_pending:{$payment->id}"]);
+    }
+
+    public function test_buyer_cancelling_an_unpaid_order_restores_stock_and_closes_the_payment(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 900]);
+        $buyer = $this->makeBuyer();
+        $order = $this->makeOrder($buyer, $listing, ['quantity' => 100]);
+        $payment = $this->makePayment($order, ['status' => 'checkout_created', 'checkout_url' => 'https://checkout.paymongo.com/test']);
+        Sanctum::actingAs($buyer);
+
+        // Unpaid: no reason required.
+        $this->patchJson("/api/orders/{$order->id}/cancel")
+            ->assertOk()
+            ->assertJsonPath('status', 'cancelled');
+
+        $this->assertSame(1000, (int) $listing->fresh()->quantity);
+        $this->assertSame('cancelled', $payment->fresh()->status);
+        // The hosted checkout page was retired and our copy of its URL dropped,
+        // so a link left in the buyer's history can no longer collect money.
+        $this->assertNull($payment->fresh()->checkout_url);
+
+        // The buyer is told it was their own request, not a seller decision.
+        $this->assertDatabaseHas('notifications', [
+            'user_id' => $buyer->id,
+            'title' => 'Order cancelled',
+            'body' => "Order #{$order->order_number} was cancelled at your request. No payment was captured.",
+        ]);
+
+        // The audit trail carries the buyer as the actor under the same
+        // 'order_cancelled' action the seller's cancellations use, so the LGU
+        // and Super Admin Orders tab shows it without any new plumbing.
+        $this->assertDatabaseHas('activity_logs', [
+            'action' => 'order_cancelled',
+            'actor_id' => $buyer->id,
+            'actor_role' => 'buyer',
+            'reference_number' => $order->order_number,
+        ]);
+    }
+
+    public function test_buyer_cancelling_a_paid_order_needs_a_reason_and_queues_a_refund(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 900]);
+        $buyer = $this->makeBuyer();
+        $order = $this->makeOrder($buyer, $listing, ['quantity' => 100, 'status' => 'paid']);
+        $payment = $this->makePayment($order, ['status' => 'paid_held']);
+        Sanctum::actingAs($buyer);
+
+        // A paid cancellation moves money through the refund queue, so the
+        // reason is required -- and nothing moves without it.
+        $this->patchJson("/api/orders/{$order->id}/cancel")
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('cancellation_reason');
+        $this->assertSame('paid', $order->fresh()->status);
         $this->assertSame('paid_held', $payment->fresh()->status);
+        $this->assertSame(900, (int) $listing->fresh()->quantity);
+
+        $this->patchJson("/api/orders/{$order->id}/cancel", ['cancellation_reason' => 'Found the same stock nearer home.'])
+            ->assertOk()
+            ->assertJsonPath('status', 'cancelled');
+
+        $this->assertSame(1000, (int) $listing->fresh()->quantity);
+        $this->assertSame('refund_pending', $payment->fresh()->status);
+        // The reason stays on the order, exactly like a seller cancellation.
+        $this->assertSame('Found the same stock nearer home.', $order->fresh()->cancellation_reason);
+
+        // Buyer: cancelled at their request, refund pending via the Super Admin.
+        $this->assertDatabaseHas('notifications', [
+            'user_id' => $buyer->id,
+            'title' => 'Order cancelled',
+            'body' => "Order #{$order->order_number} was cancelled at your request. Your refund is pending and is processed by the Super Admin.",
+        ]);
+        $this->assertDatabaseHas('notifications', ['user_id' => $buyer->id, 'title' => 'Refund pending']);
+
+        // Super Admin: it lands in the refund queue with the buyer's reason.
+        $superAdmin = User::where('role', 'super_admin')->firstOrFail();
+        $this->assertDatabaseHas('notifications', ['user_id' => $superAdmin->id, 'type' => "refund_pending:{$payment->id}"]);
+        $this->assertDatabaseHas('payment_logs', [
+            'payment_id' => $payment->id,
+            'event' => 'order.cancelled',
+        ]);
+
+        // The refunded payment drops out of the seller's pending balance.
+        $this->assertSame(0.0, (float) \App\Support\SellerWallet::summary($seller)['pending_balance']);
+    }
+
+    public function test_a_buyer_can_still_cancel_an_order_the_seller_has_confirmed(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 900]);
+        $buyer = $this->makeBuyer();
+        $order = $this->makeOrder($buyer, $listing, ['quantity' => 100, 'status' => 'confirmed']);
+        $payment = $this->makePayment($order, ['status' => 'paid_held']);
+        Sanctum::actingAs($buyer);
+
+        // 'confirmed' is the seller preparing the fish, not delivering them --
+        // the order has not left the farm, so the paid rule still applies: the
+        // reason stays required and nothing moves without it.
+        $this->patchJson("/api/orders/{$order->id}/cancel")
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('cancellation_reason');
+        $this->assertSame('confirmed', $order->fresh()->status);
+        $this->assertSame('paid_held', $payment->fresh()->status);
+        $this->assertSame(900, (int) $listing->fresh()->quantity);
+
+        $this->patchJson("/api/orders/{$order->id}/cancel", ['cancellation_reason' => 'Found the same stock nearer home.'])
+            ->assertOk()
+            ->assertJsonPath('status', 'cancelled');
+
+        $this->assertSame('cancelled', $order->fresh()->status);
+        $this->assertSame(1000, (int) $listing->fresh()->quantity);
+        $this->assertSame('refund_pending', $payment->fresh()->status);
+        $this->assertSame('Found the same stock nearer home.', $order->fresh()->cancellation_reason);
+
+        // The seller is told the preparation can stop, with the reason.
+        $sellerNotice = AppNotification::where('user_id', $seller->user_id)
+            ->where('type', "order_cancelled_by_buyer:{$order->id}")
+            ->firstOrFail();
+        $this->assertStringContainsString('after paying it', $sellerNotice->body);
+        $this->assertStringContainsString('Found the same stock nearer home.', $sellerNotice->body);
+    }
+
+    public function test_a_buyer_cannot_cancel_an_order_that_is_out_for_delivery_or_completed(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 900]);
+        $buyer = $this->makeBuyer();
+
+        foreach (['in_transit', 'completed'] as $status) {
+            $order = $this->makeOrder($buyer, $listing, ['quantity' => 100, 'status' => $status]);
+            $payment = $this->makePayment($order, ['status' => 'paid_held']);
+            Sanctum::actingAs($buyer);
+
+            $this->patchJson("/api/orders/{$order->id}/cancel", ['cancellation_reason' => 'Changed my mind.'])->assertStatus(422);
+
+            $this->assertSame($status, $order->fresh()->status);
+            $this->assertSame('paid_held', $payment->fresh()->status);
+        }
+
+        // Nothing was ever restocked despite two refused attempts.
+        $this->assertSame(900, (int) $listing->fresh()->quantity);
+    }
+
+    public function test_another_buyer_cannot_cancel_someone_elses_order(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 900]);
+        $order = $this->makeOrder($this->makeBuyer(), $listing, ['quantity' => 100]);
+        $this->makePayment($order);
+        Sanctum::actingAs($this->makeBuyer());
+
+        $this->patchJson("/api/orders/{$order->id}/cancel")
+            ->assertStatus(403)
+            ->assertJsonPath('message', 'You can only cancel your own orders.');
+
+        $this->assertSame('placed', $order->fresh()->status);
+        $this->assertSame(900, (int) $listing->fresh()->quantity);
+    }
+
+    public function test_a_second_buyer_cancel_does_not_restock_twice(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 900]);
+        $buyer = $this->makeBuyer();
+        $order = $this->makeOrder($buyer, $listing, ['quantity' => 100]);
+        $this->makePayment($order);
+        Sanctum::actingAs($buyer);
+
+        $this->patchJson("/api/orders/{$order->id}/cancel")->assertOk();
+        $this->assertSame(1000, (int) $listing->fresh()->quantity);
+
+        $this->patchJson("/api/orders/{$order->id}/cancel")
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'This order is already cancelled.');
+        $this->assertSame(1000, (int) $listing->fresh()->quantity);
+    }
+
+    public function test_the_seller_is_notified_when_the_buyer_cancels(): void
+    {
+        Mail::fake();
+
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 900]);
+        $buyer = $this->makeBuyer();
+        $order = $this->makeOrder($buyer, $listing, ['quantity' => 100, 'status' => 'paid']);
+        $this->makePayment($order, ['status' => 'paid_held']);
+        Sanctum::actingAs($buyer);
+
+        $this->patchJson("/api/orders/{$order->id}/cancel", ['cancellation_reason' => 'Found the same stock nearer home.'])->assertOk();
+
+        // In-app: the seller hears it was the buyer's decision, with the reason.
+        $this->assertDatabaseHas('notifications', [
+            'user_id' => $seller->user_id,
+            'type' => "order_cancelled_by_buyer:{$order->id}",
+            'title' => 'Order cancelled by buyer',
+            'body' => "The buyer cancelled order #{$order->order_number} after paying it. The stock is back in your listing and their payment will be refunded. Reason: Found the same stock nearer home.",
+        ]);
+
+        // Email: the same facts, sent through the SafeMailer pattern.
+        Mail::assertSent(OrderCancelledByBuyerMail::class, function (OrderCancelledByBuyerMail $mail) use ($seller, $order) {
+            return $mail->hasTo($seller->user->email)
+                && $mail->order->is($order)
+                && $mail->reason === 'Found the same stock nearer home.';
+        });
+    }
+
+    public function test_a_suspended_buyer_can_still_cancel_their_own_order(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 900]);
+        // Suspension stops a buyer placing new orders, not winding down one
+        // they already have -- otherwise reserved stock and escrowed money
+        // would be stranded for as long as the suspension lasts.
+        $buyer = $this->makeBuyer(['status' => 'suspended']);
+        $order = $this->makeOrder($buyer, $listing, ['quantity' => 100]);
+        $this->makePayment($order);
+        Sanctum::actingAs($buyer);
+
+        $this->patchJson("/api/orders/{$order->id}/cancel")->assertOk()->assertJsonPath('status', 'cancelled');
+        $this->assertSame(1000, (int) $listing->fresh()->quantity);
     }
 
     public function test_unpaid_orders_expire_and_release_their_stock(): void
@@ -4991,9 +5503,9 @@ class FishMarketApiTest extends TestCase
         $this->assertSame('completed', $completed->fresh()->status);
         $this->assertSame('paid_held', $completedPayment->fresh()->status);
 
-        // Stock comes back for the three that never left the farm; the one
-        // out for delivery had already gone.
-        $this->assertSame(1000 + 3 * (int) $paid->quantity, (int) $listing->fresh()->quantity);
+        // Every cancelled order gets its reserved stock back, including the
+        // one that was already out for delivery.
+        $this->assertSame(1000 + 4 * (int) $paid->quantity, (int) $listing->fresh()->quantity);
 
         $this->assertStringContainsString('Your 4 unfinished orders were cancelled and the buyers refunded.',
             AppNotification::where('user_id', $seller->user_id)->where('type', 'account_suspended')->value('body'));

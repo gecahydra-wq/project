@@ -1880,19 +1880,36 @@ function MediaGallery({ media, title = 'Seller Care Photos & Videos' }) {
  * navigating away to a separate page. Dismisses on Escape or a backdrop
  * click; the panel swallows clicks so working inside the form never closes it.
  */
+/* Modals can stack (an order popup opens the cancel confirm or the review
+   form on top of it), so body.modal-open is tracked with a count -- otherwise
+   the first modal to unmount would unlock body scroll while another is still
+   on screen. */
+let openModalCount = 0
+
 function Modal({ title, subtitle, onClose, children, footer, className = '' }) {
+  const overlayRef = useRef(null)
+
   useEffect(() => {
-    const handleKey = (e) => { if (e.key === 'Escape') onClose() }
+    const handleKey = (e) => {
+      if (e.key !== 'Escape') return
+      /* Only the topmost modal reacts. Overlays are siblings in the DOM, so
+         the last one is the one the user sees; lower modals stay put. */
+      const overlays = document.querySelectorAll('.modal-overlay')
+      if (overlays[overlays.length - 1] !== overlayRef.current) return
+      onClose()
+    }
     window.addEventListener('keydown', handleKey)
+    openModalCount += 1
     document.body.classList.add('modal-open')
     return () => {
       window.removeEventListener('keydown', handleKey)
-      document.body.classList.remove('modal-open')
+      openModalCount -= 1
+      if (openModalCount === 0) document.body.classList.remove('modal-open')
     }
   }, [onClose])
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" ref={overlayRef} onClick={onClose}>
       <div className={`modal-panel ${className}`.trim()} role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}>
         <header className="modal-header">
           <div>
@@ -3052,6 +3069,10 @@ function BuyerDashboard() {
   const refreshOrders = () => {
     queryClient.invalidateQueries({ queryKey: ['buyer-dashboard'] })
     queryClient.invalidateQueries({ queryKey: ['buyer-orders'] })
+    /* The open View Order popup fetches the full transaction under this key;
+       an action taken inside it (confirm, cancel, review) must refresh the
+       panel it just changed. */
+    queryClient.invalidateQueries({ queryKey: ['order-detail'] })
   }
   const notifications = (data?.notifications || []).filter((notification) => !visibleNotificationIds.includes(notification.id))
   const handleMarkRead = (id) => {
@@ -3090,6 +3111,17 @@ function BuyerDashboard() {
     mutationFn: async (orderId) => (await api.patch(`/orders/${orderId}/confirm-received`)).data,
     onSettled: refreshOrders,
   })
+  // The buyer backs out of their own order while it is still fully in their
+  // control: unpaid, or paid but not yet confirmed by the seller (a reason is
+  // then required -- see OrderController::cancel, which enforces both). The
+  // refresh below is what makes the row show the Cancelled status, with the
+  // reason on View Details.
+  const cancelOrder = useMutation({
+    mutationFn: async ({ orderId, reason }) => (await api.patch(`/orders/${orderId}/cancel`, reason ? { cancellation_reason: reason } : {})).data,
+    onSuccess: refreshOrders,
+  })
+  const handleCancelOrder = (orderId, reason) => cancelOrder.mutateAsync({ orderId, reason })
+  const cancelPendingOrderId = cancelOrder.isPending ? cancelOrder.variables?.orderId : null
   const updateBuyerProfile = useMutation({
     mutationFn: async (form) => (await api.patch('/buyer/profile', {
       name: form.name,
@@ -3152,17 +3184,20 @@ function BuyerDashboard() {
           ]}
           />
           {/* Mirrors the Seller Dashboard's Recent Orders: the five most recent,
-              expandable, with the full list a click away. The Orders tab below
-              is still where every order lives. */}
+              with the full list a click away through View Order. The Orders tab
+              below is still where every order lives. */}
           <Section title="Recent Orders" actions={<Link className="ghost" to="/buyer/dashboard?tab=orders">View All Orders</Link>}>
             <OrderTable
               rows={(orders || []).slice(0, 5)}
               onReview={handleReview}
-              onConfirmReceived={(orderId) => confirmReceived.mutate(orderId)}
+              onConfirmReceived={(orderId) => confirmReceived.mutateAsync(orderId)}
               confirmPendingOrderId={confirmReceived.isPending ? confirmReceived.variables : null}
+              onPay={(orderId) => resumePayment.mutate(orderId)}
+              payPendingOrderId={resumePayment.isPending ? resumePayment.variables : null}
+              onCancelOrder={handleCancelOrder}
+              cancelPendingOrderId={cancelPendingOrderId}
               detailsEndpoint={(orderNumber) => `/orders/${orderNumber}`}
               paymentView="buyer"
-              showOrderDate
             />
           </Section>
         </>
@@ -3182,14 +3217,15 @@ function BuyerDashboard() {
                 <OrderTable
                   rows={shown}
                   onReview={handleReview}
-                  onConfirmReceived={(orderId) => confirmReceived.mutate(orderId)}
+                  onConfirmReceived={(orderId) => confirmReceived.mutateAsync(orderId)}
                   confirmPendingOrderId={confirmReceived.isPending ? confirmReceived.variables : null}
                   onPay={(orderId) => resumePayment.mutate(orderId)}
                   payPendingOrderId={resumePayment.isPending ? resumePayment.variables : null}
+                  onCancelOrder={handleCancelOrder}
+                  cancelPendingOrderId={cancelPendingOrderId}
                   detailsEndpoint={(orderNumber) => `/orders/${orderNumber}`}
-                  initialExpandedOrderNumber={searchParams.get('order')}
+                  initialOrderNumber={searchParams.get('order')}
                   paymentView="buyer"
-                  showOrderDate
                 />
               )}
             </PeriodFilteredRows>
@@ -3844,7 +3880,12 @@ function SellerDashboard() {
         ...(cancellationReason ? { cancellation_reason: cancellationReason } : {}),
       })
     ).data,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['seller-dashboard'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['seller-dashboard'] })
+      // Keeps the open View Order popup's detail panel in step with the
+      // status the seller just changed.
+      queryClient.invalidateQueries({ queryKey: ['order-detail'] })
+    },
   })
   // The listing currently open in the edit popup, resolved from the dashboard
   // data so photo changes made inside the popup re-render it immediately.
@@ -3913,7 +3954,6 @@ function SellerDashboard() {
               rows={(dashboard.data?.orders || []).slice(0, 5)}
               counterparty="buyer"
               detailsEndpoint={(orderNumber) => `/orders/${orderNumber}`}
-              showOrderDate
             />
           </Section>
         </>
@@ -3975,8 +4015,10 @@ function SellerDashboard() {
           <Section title="Order Management">
             <PeriodFilteredRows rows={dashboard.data?.orders || []}>
               {(shown) => (
-                <SellerOrderTable
+                <OrderTable
                   rows={shown}
+                  counterparty="buyer"
+                  detailsEndpoint={(orderNumber) => `/orders/${orderNumber}`}
                   onUpdateStatus={(orderId, status, cancellationReason) => updateOrderStatus.mutateAsync({ orderId, status, cancellationReason })}
                   lguContact={dashboard.data?.lgu_contact}
                 />
@@ -4358,13 +4400,14 @@ const ORDER_STATUS_TRANSITIONS = {
      OrderController::confirmReceived), with an LGU/Super Admin backstop for a
      buyer who goes silent. The API rejects 'completed' from this endpoint
      outright, so offering it here would only produce a validation error. */
-  /* Nothing here either. Once the order is out for delivery the fingerlings
-     have left the farm, so cancelling would hand the seller back stock that is
-     no longer in their pond and -- on a paid order -- refund a buyer who is
-     about to receive the fish. From here the order ends with the buyer
-     confirming receipt (or the LGU/Super Admin backstop). The API refuses a
-     cancellation from in_transit for the same reason. */
-  in_transit: [],
+  /* The last stop: a delivery can fail or be refused, so the seller keeps a
+     way out even after the fish leave the farm -- there is no other move
+     while the order is on the road. Cancelling here releases the order's
+     reserved stock back to the listing and refunds the buyer, exactly like
+     any other cancellation; the API and App\Support\OrderCancellation handle
+     both. Otherwise the order ends with the buyer confirming receipt (or the
+     LGU/Super Admin backstop). */
+  in_transit: [['cancelled', 'Cancel Order']],
 }
 
 /**
@@ -4456,158 +4499,6 @@ function RefundRow({ refund, onMarkRefunded }) {
           <input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Refund reference (optional)" />
           <button type="button" disabled={saving} onClick={submit}>{saving ? 'Saving...' : 'Mark Refunded'}</button>
         </div>
-      )}
-    </div>
-  )
-}
-
-function SellerOrderTable({ rows, onUpdateStatus, lguContact }) {
-  if (!rows?.length) return <EmptyState message="No orders yet." />
-  return <div className="item-list">{rows.map((order) => <SellerOrderRow key={order.id} order={order} onUpdateStatus={onUpdateStatus} lguContact={lguContact} />)}</div>
-}
-
-function SellerOrderRow({ order, onUpdateStatus, lguContact }) {
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-  const [showDetails, setShowDetails] = useState(false)
-  const [cancelling, setCancelling] = useState(false)
-  const [cancelReason, setCancelReason] = useState('')
-  const transitions = ORDER_STATUS_TRANSITIONS[order.status] || []
-
-  const applyStatus = async (status, cancellationReason = null) => {
-    // Cancelling needs a reason, which a confirm() dialog cannot collect, so
-    // it opens the inline form below instead of a browser prompt. The API
-    // requires the reason too, so this is not merely a UI courtesy.
-    if (status === 'cancelled' && !cancellationReason) {
-      setCancelling(true)
-      return
-    }
-    setSaving(true)
-    setError('')
-    try {
-      await onUpdateStatus(order.id, status, cancellationReason)
-      setCancelling(false)
-      setCancelReason('')
-    } catch (err) {
-      setError(err?.response?.data?.message || 'Could not update order.')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className={`card action${showDetails || cancelling ? ' action-stacked' : ''}`}>
-      <div>
-        <strong>{order.order_number}</strong>
-        <p>
-          {order.listing?.title || order.listing?.species || 'Listing'} ·{' '}
-          {order.buyer?.id ? <Link to={`/seller/buyers/${order.buyer.id}`}>{order.buyer.name}</Link> : (order.buyer?.name || 'Buyer')} ·{' '}
-          {formatQuantity(order.quantity, order.listing)} · {currency(order.total_amount)}
-        </p>
-        <p className="muted order-date-line"><CalendarDays size={14} /> Ordered {formatOrderDate(order.created_at)}</p>
-        <span className="seller-order-badges">
-          <Badge status={order.status}>{statusChartLabel(order.status)}</Badge>
-          {/* The escrow lifecycle -- paid_held until this seller's LGU approves
-              the earnings, then released. This is the seller's money, so this
-              is where the raw status belongs; the buyer sees a plain
-              Paid/Unpaid instead (see BUYER_PAYMENT_VIEW). */}
-          {order.payment?.status && (
-            <Badge status={order.payment.status}>{statusChartLabel(order.payment.status)}</Badge>
-          )}
-        </span>
-        {/* A rejected review leaves the payment in 'paid_held' too, so without
-            excluding it the card claimed to be waiting on an approval that had
-            already been refused -- directly contradicting the notice below. */}
-        {order.payment?.status === 'paid_held' && order.status === 'completed' && order.lgu_review_status !== 'rejected' && (
-          <p className="muted">
-            {order.auto_received_at
-              ? 'The system automatically marked this order as received because the buyer did not click Order Received within the confirmation window. Waiting for your LGU to approve the earnings before the payment is released.'
-              : 'The buyer confirmed delivery. Waiting for your LGU to approve the earnings before the payment is released.'}
-          </p>
-        )}
-        {order.status === 'placed' && (
-          <p className="muted">Waiting for the buyer's payment. You can confirm this order once the payment is held in escrow.</p>
-        )}
-        {order.lgu_review_status === 'rejected' && (
-          <div className="dispute-notice">
-            <p className="error">
-              Your LGU declined to approve the earnings for this order.
-              {order.lgu_review_reason ? ` Reason: ${order.lgu_review_reason}` : ''}
-            </p>
-            {/* One in-app dispute is allowed for a rejected earnings review. If
-                it is still open, show the waiting state; once it has been
-                decided, the next step is outside this flow: message the LGU or
-                send a support ticket. */}
-            {order.latestDispute?.status === 'open' ? (
-              <span className="dispute-submitted">
-                <Clock size={15} /> Dispute submitted -- waiting for your LGU's response.
-              </span>
-            ) : order.latestDispute ? (
-              <p className="helper-text dispute-outcome">
-                {order.latestDispute.status === 'accepted'
-                  ? 'Your previous dispute was accepted, but this earnings review was rejected again.'
-                  : 'Your previous dispute was reviewed and declined.'}
-                {order.latestDispute.resolution_note ? ` Note: ${order.latestDispute.resolution_note}` : ''}
-                {' '}If you want it reviewed again, message{' '}
-                {lguContact
-                  ? <Link to={`/seller/dashboard?tab=messages&with=${lguContact.id}`}>{lguContact.municipality ? `${lguContact.municipality} LGU` : 'your LGU'}</Link>
-                  : 'your LGU'}
-                {' '}or send a support ticket from{' '}
-                <Link to="/seller/dashboard?tab=support">Help &amp; Support</Link>.
-              </p>
-            ) : (
-              <DisputeAction
-                endpoint={`/orders/${order.id}/dispute-earnings`}
-                invalidateKeys={['seller-dashboard']}
-                label="Explain My Side"
-              />
-            )}
-          </div>
-        )}
-        {error && <p className="error">{error}</p>}
-      </div>
-      <div className="row-actions">
-        {transitions.map(([status, label]) => (
-          <button key={status} type="button" className={status === 'cancelled' ? 'ghost danger' : ''} disabled={saving} onClick={() => applyStatus(status)}>
-            {label}
-          </button>
-        ))}
-        {/* GET /orders/{order_number} is scoped to the caller in
-            OrderController::show, so a seller reads their own listings' orders
-            through the very same endpoint and panel the buyer uses. */}
-        <button type="button" className="ghost" onClick={() => setShowDetails((open) => !open)}>
-          {showDetails ? 'Hide Details' : 'View Details'}
-        </button>
-      </div>
-      {cancelling && (
-        <div className="card cancel-form">
-          <p className="helper-text">
-            {order.payment?.status === 'paid_held'
-              ? "Cancelling a paid order returns the stock to your listing and refunds the buyer. Tell them why -- they will see this reason."
-              : 'Cancelling returns the stock to your listing. Tell the buyer why -- they will see this reason.'}
-          </p>
-          <textarea
-            value={cancelReason}
-            onChange={(e) => setCancelReason(e.target.value)}
-            placeholder="e.g. Our pond had a fish kill overnight and we cannot fulfil this order."
-          />
-          <div className="row-actions">
-            <button
-              type="button"
-              className="danger"
-              disabled={!cancelReason.trim() || saving}
-              onClick={() => applyStatus('cancelled', cancelReason.trim())}
-            >
-              {saving ? 'Cancelling...' : 'Confirm Cancellation'}
-            </button>
-            <button type="button" className="ghost" onClick={() => { setCancelling(false); setCancelReason('') }}>
-              Keep Order
-            </button>
-          </div>
-        </div>
-      )}
-      {showDetails && (
-        <OrderTableDetailRow orderNumber={order.order_number} detailsEndpoint={(orderNumber) => `/orders/${orderNumber}`} />
       )}
     </div>
   )
@@ -5692,7 +5583,7 @@ function LguDashboard() {
       {tab === 'orders' && (
         <Section title="Orders">
           <p className="helper-text">Every order placed with a seller in your municipality. If a buyer never confirms a delivery that is Out for Delivery, you can mark it as received on their behalf once you have confirmed it arrived. It then moves to Seller Earnings for approval.</p>
-          <AdminOrderTable rows={lguOrders.data || []} base="/lgu" invalidateKeys={['lgu-orders', 'lgu-earnings', 'lgu-dashboard']} initialExpandedOrderNumber={searchParams.get('order')} />
+          <AdminOrderTable rows={lguOrders.data || []} base="/lgu" invalidateKeys={['lgu-orders', 'lgu-earnings', 'lgu-dashboard']} initialOrderNumber={searchParams.get('order')} />
         </Section>
       )}
       {tab === 'earnings' && <SellerEarningsPanel />}
@@ -7422,7 +7313,7 @@ const HELP_TOPICS = [
     items: [
       ['How do I buy fingerlings?', 'Open a listing, choose how many fish (or how many bulks) you want, and place your order. The minimum order is shown on the listing. You then pay through PayMongo with GCash, Maya or a card.'],
       ['Is my payment safe?', 'Yes. Your payment is held by AbaiMarket, not sent straight to the seller. The seller is only paid after you confirm you received your fingerlings and their LGU approves the earnings.'],
-      ['How long do I have to pay?', 'Unpaid orders are cancelled automatically after about 30 minutes, and the stock goes back to the listing. Until then, you can finish paying with the Pay Now button in My Orders.'],
+      ['How long do I have to pay?', 'Unpaid orders are cancelled automatically after about 30 minutes, and the stock goes back to the listing. Until then, open the order with View Order in My Orders and use the Pay Now button.'],
       ['I paid, but my order still says unpaid.', 'It can take a moment for the payment to be confirmed, so refresh My Orders after a minute or two. If it still says unpaid, send a support ticket under "Payment or refund". Include the order number and a screenshot of your receipt.'],
       ['What does the Cart do?', 'The Cart is a list of listings you want to buy later. It does not hold stock for you, and prices and stock always show their current values. You check out one item at a time.'],
     ],
@@ -7433,10 +7324,10 @@ const HELP_TOPICS = [
     audience: 'buyer',
     items: [
       ['What do the order statuses mean?', 'Placed: waiting for payment or for the seller. Confirmed: the seller accepted it. Out for Delivery: the fingerlings are on the way. Completed: you confirmed you received them. Cancelled: the order was stopped.'],
-      ['How do I confirm my delivery?', 'When your fingerlings arrive, open My Orders and click Confirm Received. Only do this after they have actually arrived, because it starts the seller\'s payment.'],
-      ['Can I cancel my order?', 'An unpaid order is cancelled automatically if you do not pay. For a paid order, message the seller. They can cancel it, with a reason, any time before it is out for delivery. If the seller\'s account is suspended, your unfinished order is cancelled and refunded automatically.'],
+      ['How do I confirm my delivery?', 'When your fingerlings arrive, open My Orders, click View Order on the order and click Confirm Received. Only do this after they have actually arrived, because it starts the seller\'s payment.'],
+      ['Can I cancel my order?', 'Yes. From My Orders, click View Order on your order and use Cancel Order -- any time before it is Out for Delivery. An unpaid order cancels right away. A paid order needs a reason, and your payment is then refunded (refunds are processed by the Super Admin). You can still cancel while the seller is preparing your order (status Confirmed); once it is Out for Delivery the Cancel Order button is greyed out, because the fish may already be on their way -- message the seller instead. Unpaid orders are also cancelled automatically if you do not pay in time, and if the seller\'s account is suspended, your unfinished order is cancelled and refunded automatically.'],
       ['How do refunds work?', 'If a paid order is cancelled or expires (including when the seller is suspended), its payment shows Refund Pending. The AbaiMarket support team sends the refund, and the payment then shows Refunded. If it takes too long, send a support ticket under "Payment or refund".'],
-      ['How do I rate a seller?', 'After an order is completed, use Rate Seller in My Orders. Your review appears on the seller\'s profile.'],
+      ['How do I rate a seller?', 'After an order is completed, use Rate Seller in the Rating column of My Orders -- a rating window also opens once you confirm receipt and close the order popup. If you close it, you can rate any time later, and your stars then show in that column. Your review appears on the seller\'s profile.'],
       ['A seller treated me unfairly. What do I do?', 'Use Report User on the seller\'s profile. Reports go to the seller\'s LGU and the Super Admin for review. Use a support ticket for problems with AbaiMarket itself, and a report for problems with a person.'],
     ],
   },
@@ -7449,7 +7340,7 @@ const HELP_TOPICS = [
       ['Do my listings need approval?', 'No. A listing goes live as soon as you post it. Your LGU can still review it and remove it if it breaks the rules.'],
       ['How do prices, bulks and minimum orders work?', 'You set a price per fish and say how many fish make up one bulk. Buyers can order by the fish or by the bulk. You can also set a minimum order so you never receive orders that are too small.'],
       ['Why can\'t I post a listing?', 'Your registration may still be waiting for LGU approval, your account may be suspended, or your listings may be paused because of an open Notice to Explain. Check your Notifications and Notices tab. If none of these apply, send a support ticket.'],
-      ['How do I handle an order?', 'In the Orders tab, move a paid order to Confirmed and then Out for Delivery. The buyer confirms when it arrives. You can cancel an order, with a reason, until it is out for delivery. Unpaid orders cannot be moved forward. If your account is suspended, all your unfinished orders are cancelled and the buyers refunded.'],
+      ['How do I handle an order?', 'In the Orders tab, open the order with View Order, then move a paid order to Confirmed and then Out for Delivery. The buyer confirms when it arrives. You can cancel an order, with a reason, at any time before it is completed -- even while it is Out for Delivery, if the delivery runs into trouble; cancelling refunds the buyer and returns the reserved stock to your listing. Unpaid orders cannot be moved forward. If your account is suspended, all your unfinished orders are cancelled and the buyers refunded.'],
     ],
   },
   {
@@ -9354,51 +9245,270 @@ function UserDirectoryList({ users, messageBasePath, emptyMessage = 'No users fo
  * once expanded, and renders it with OrderDetailPanel/OrderTimelineView
  * exactly like every other role's lookup view.
  */
-function OrderTableDetailRow({ orderNumber, detailsEndpoint, paymentView = 'escrow' }) {
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ['order-detail', detailsEndpoint, orderNumber],
-    queryFn: async () => (await api.get(detailsEndpoint(orderNumber))).data,
-    enabled: Boolean(orderNumber && detailsEndpoint),
+/**
+ * The order popup every role opens from an orders table -- "View Order" lists
+ * the rows, and this is where the order is read and acted on. One component
+ * for all four roles: the action props the caller passes decide the footer
+ * (Pay Now / Confirm Received / Cancel Order for the buyer, the status
+ * transitions for the seller, Mark as Received for the LGU and Super Admin),
+ * and the detail payload is the same OrderTransactionPresenter shape
+ * everywhere, so only the actions differ between roles. Rating deliberately
+ * does NOT happen in here: the buyer rates from the table's Rating column,
+ * or from the prompt that opens once a Confirm Received popup closes (see
+ * OrderTable and RateSellerModal).
+ *
+ * The Cancel Order dialog is a SIBLING of this dialog, never nested inside
+ * it: .modal-panel animates with `transform: scale(1)` that persists, and a
+ * transformed ancestor becomes the containing block for position: fixed
+ * children -- a nested overlay would anchor to the panel instead of the
+ * viewport. Modal itself keeps Escape on the topmost dialog and body scroll
+ * locked while any dialog is open.
+ */
+function OrderDetailsModal({
+  row, detailsEndpoint, paymentView = 'escrow', counterparty = 'seller',
+  onConfirmReceived, confirmPendingOrderId,
+  onPay, payPendingOrderId,
+  onCancelOrder, cancelPendingOrderId,
+  onMarkReceived, markReceivedPendingOrderId,
+  onUpdateStatus, lguContact,
+  onClose,
+}) {
+  const order = row.raw || {}
+  const sellerTransitions = onUpdateStatus ? (ORDER_STATUS_TRANSITIONS[order.status] || []) : []
+  const canCancelAsSeller = sellerTransitions.some(([status]) => status === 'cancelled')
+  const buyerMode = onCancelOrder ? buyerCancelMode(row) : null
+  const buyerCancelGreyed = Boolean(onCancelOrder) && !buyerMode && buyerCancelLocked(row)
+
+  const [cancelOpen, setCancelOpen] = useState(false)
+  const [cancelReason, setCancelReason] = useState('')
+  const [cancelError, setCancelError] = useState('')
+  const [savingStatus, setSavingStatus] = useState(null)
+  const [statusError, setStatusError] = useState('')
+
+  const details = useQuery({
+    queryKey: ['order-detail', detailsEndpoint, row.order_number],
+    queryFn: async () => (await api.get(detailsEndpoint(row.order_number))).data,
+    enabled: Boolean(row.order_number && detailsEndpoint),
   })
 
+  // A seller's forward transition runs straight away; cancelling needs a
+  // reason (the API requires one too), so it opens the shared Cancel dialog
+  // to collect it.
+  const applyStatus = async (status) => {
+    setSavingStatus(status)
+    setStatusError('')
+    try {
+      await onUpdateStatus(order.id, status)
+    } catch (err) {
+      setStatusError(err?.response?.data?.message || 'Could not update order.')
+    } finally {
+      setSavingStatus(null)
+    }
+  }
+
+  const submitCancel = async () => {
+    setCancelError('')
+    try {
+      if (onUpdateStatus) {
+        await onUpdateStatus(order.id, 'cancelled', cancelReason.trim())
+      } else {
+        // Only a paid buyer cancellation carries a reason; unpaid needs none.
+        await onCancelOrder(row.orderId, buyerMode === 'paid' ? cancelReason.trim() : null)
+      }
+      setCancelOpen(false)
+      setCancelReason('')
+    } catch (err) {
+      setCancelError(err?.response?.data?.message || 'Could not cancel this order.')
+    }
+  }
+
+  // The buyer's Confirm Received and the LGU/Super Admin's Mark as Received
+  // both act on the same state: payment captured and the order out for
+  // delivery. Confirm releases the payment into the seller's LGU earnings
+  // queue; Mark as Received is the backstop for a buyer who goes silent (see
+  // OrderController::confirmReceived / markOrderDelivered).
+  const outForDelivery = row.status === 'in_transit' && ['paid_held', 'released'].includes(row.payment_status)
+  const awaitingReceipt = Boolean(onConfirmReceived) && outForDelivery
+  const canMarkReceived = Boolean(onMarkReceived) && outForDelivery
+
+  const footer = (
+    <>
+      <button type="button" className="ghost" onClick={onClose}>Close</button>
+      {canMarkReceived && (
+        <button
+          type="button"
+          onClick={() => onMarkReceived(row)}
+          disabled={markReceivedPendingOrderId === row.orderId}
+          title="The buyer has not confirmed this delivery. Marking it received sends it to Seller Earnings for approval."
+        >
+          {markReceivedPendingOrderId === row.orderId ? 'Marking...' : 'Mark as Received'}
+        </button>
+      )}
+      {(buyerMode || canCancelAsSeller) && (
+        <button
+          type="button"
+          className="ghost danger"
+          onClick={() => setCancelOpen(true)}
+          disabled={cancelPendingOrderId === row.orderId}
+          title={onUpdateStatus
+            ? 'Cancelling returns the reserved stock to your listing and refunds the buyer if they already paid.'
+            : buyerMode === 'paid'
+              ? 'You can cancel until the order is out for delivery. Your payment is then refunded.'
+              : 'You have not paid yet -- cancelling returns the stock immediately.'}
+        >
+          Cancel Order
+        </button>
+      )}
+      {buyerCancelGreyed && (
+        <button
+          type="button"
+          className="ghost danger"
+          disabled
+          title="This order is already out for delivery, so it can no longer be cancelled. Message the seller if you need help with the delivery."
+        >
+          Cancel Order
+        </button>
+      )}
+      {sellerTransitions.filter(([status]) => status !== 'cancelled').map(([status, label]) => (
+        <button key={status} type="button" onClick={() => applyStatus(status)} disabled={savingStatus !== null}>
+          {label}
+        </button>
+      ))}
+      {awaitingReceipt && (
+        <button
+          type="button"
+          onClick={() => onConfirmReceived(row)}
+          disabled={confirmPendingOrderId === row.orderId}
+          title="Confirm you received the fingerlings. This releases the payment to your seller's LGU for approval."
+        >
+          {confirmPendingOrderId === row.orderId ? 'Confirming...' : 'Confirm Received'}
+        </button>
+      )}
+      {onPay && <PayNowAction row={row} pending={payPendingOrderId === row.orderId} onPay={onPay} />}
+    </>
+  )
+
   return (
-    <div className="order-table-detail-row">
-      {isLoading && <LoadingState label="Loading order details..." />}
-      {isError && <p className="error">Could not load order details.</p>}
-      {data && <OrderDetailPanel detail={data} paymentView={paymentView} />}
-    </div>
+    <>
+      <Modal title={`Order #${row.order_number}`} className="order-details-modal" onClose={onClose} footer={footer}>
+        <div className="review-modal-product">
+          <Avatar
+            src={counterparty === 'buyer' ? row.buyer_avatar : row.seller_avatar}
+            alt={counterparty === 'buyer' ? row.buyer_name : row.seller_name}
+            className="listing-seller-avatar"
+          />
+          <div>
+            <strong>{row.order_name}</strong>
+            <p className="muted">{row.quantity_label} · {counterparty === 'buyer' ? `Buyer: ${row.buyer_name}` : `Seller: ${row.seller_name}`}</p>
+          </div>
+        </div>
+
+        {/* The seller's waiting / rejection notices, moved here from the old
+            order cards. A rejected review leaves the payment in 'paid_held'
+            too, so without excluding it the notice would claim to be waiting
+            on an approval that had already been refused. */}
+        {onUpdateStatus && order.payment?.status === 'paid_held' && order.status === 'completed' && order.lgu_review_status !== 'rejected' && (
+          <p className="muted">
+            {order.auto_received_at
+              ? 'The system automatically marked this order as received because the buyer did not click Order Received within the confirmation window. Waiting for your LGU to approve the earnings before the payment is released.'
+              : 'The buyer confirmed delivery. Waiting for your LGU to approve the earnings before the payment is released.'}
+          </p>
+        )}
+        {onUpdateStatus && order.status === 'placed' && (
+          <p className="muted">Waiting for the buyer's payment. You can confirm this order once the payment is held in escrow.</p>
+        )}
+        {onUpdateStatus && order.lgu_review_status === 'rejected' && (
+          <div className="dispute-notice">
+            <p className="error">
+              Your LGU declined to approve the earnings for this order.
+              {order.lgu_review_reason ? ` Reason: ${order.lgu_review_reason}` : ''}
+            </p>
+            {/* One in-app dispute is allowed for a rejected earnings review. If
+                it is still open, show the waiting state; once it has been
+                decided, the next step is outside this flow: message the LGU or
+                send a support ticket. */}
+            {order.latestDispute?.status === 'open' ? (
+              <span className="dispute-submitted">
+                <Clock size={15} /> Dispute submitted -- waiting for your LGU's response.
+              </span>
+            ) : order.latestDispute ? (
+              <p className="helper-text dispute-outcome">
+                {order.latestDispute.status === 'accepted'
+                  ? 'Your previous dispute was accepted, but this earnings review was rejected again.'
+                  : 'Your previous dispute was reviewed and declined.'}
+                {order.latestDispute.resolution_note ? ` Note: ${order.latestDispute.resolution_note}` : ''}
+                {' '}If you want it reviewed again, message{' '}
+                {lguContact
+                  ? <Link to={`/seller/dashboard?tab=messages&with=${lguContact.id}`}>{lguContact.municipality ? `${lguContact.municipality} LGU` : 'your LGU'}</Link>
+                  : 'your LGU'}
+                {' '}or send a support ticket from{' '}
+                <Link to="/seller/dashboard?tab=support">Help &amp; Support</Link>.
+              </p>
+            ) : (
+              <DisputeAction
+                endpoint={`/orders/${order.id}/dispute-earnings`}
+                invalidateKeys={['seller-dashboard']}
+                label="Explain My Side"
+              />
+            )}
+          </div>
+        )}
+
+        {statusError && <p className="error">{statusError}</p>}
+
+        {details.isLoading && <LoadingState label="Loading order details..." />}
+        {details.isError && <p className="error">Could not load order details.</p>}
+        {details.data && <OrderDetailPanel detail={details.data} paymentView={paymentView} />}
+      </Modal>
+      {cancelOpen && (
+        <CancelOrderModal
+          row={row}
+          mode={onUpdateStatus ? (order.payment?.status === 'paid_held' ? 'paid' : 'unpaid') : buyerMode}
+          audience={onUpdateStatus ? 'seller' : 'buyer'}
+          reason={cancelReason}
+          error={cancelError}
+          submitting={cancelPendingOrderId === row.orderId}
+          onReasonChange={setCancelReason}
+          onSubmit={submitCancel}
+          onClose={() => { setCancelOpen(false); setCancelError('') }}
+        />
+      )}
+    </>
   )
 }
 
 /**
- * The shared order list, used by the Buyer's own orders and the Super Admin's
- * platform-wide transactions.
+ * The shared order list, used by every role's orders section: the Buyer's
+ * My Orders, the Seller's Recent Orders / Order Management, the LGU's Orders
+ * and the Super Admin's All Orders. Rows are deliberately minimal -- what,
+ * who, how many, when -- plus the Status badge every role needs at a glance,
+ * so a completed order reads as completed (and a fresh one as placed) without
+ * opening the popup. "View Order" opens the OrderDetailsModal popup, where
+ * the full details and the actions live, so one design holds across all four
+ * roles. The buyer's table adds one column the others do not have, Rating
+ * (rendered only when onReview is passed): mid-order rows show a dash, a
+ * completed unrated order offers Rate Seller, and a rated one shows the
+ * stars given. Rating deliberately does not live in the popup -- a rating
+ * prompt also opens when the details popup closes right after Confirm
+ * Received.
  *
- * paymentView picks WHOSE view of the payment the column shows. 'escrow' (the
- * default, used by the Super Admin) is the raw lifecycle: paid_held ->
- * released, i.e. when the SELLER's money is verified and released. 'buyer'
- * collapses that to what the buyer actually needs -- Paid / Unpaid / Refunded
- * -- because a buyer who has paid should not sit at "Paid Held" until their
- * LGU settles the order, which reads like something is still owed. See
- * BUYER_PAYMENT_VIEW.
+ * paymentView picks WHOSE view of the payment the popup's details panel
+ * shows. 'escrow' (the default, used by seller / LGU / Super Admin) is the
+ * raw lifecycle: paid_held -> released, i.e. when the SELLER's money is
+ * verified and released. 'buyer' collapses that to what the buyer actually
+ * needs -- Paid / Unpaid / Refunded -- because a buyer who has paid should not
+ * sit at "Paid Held" until their LGU settles the order, which reads like
+ * something is still owed. See BUYER_PAYMENT_VIEW.
  *
  * counterparty names the OTHER side of the transaction: 'seller' for a buyer
- * or admin reading the table, 'buyer' for the seller's own Recent Orders,
- * where the useful name is who bought it rather than who sold it.
+ * or admin reading the table, 'buyer' for the seller's own orders, where the
+ * useful name is who bought it rather than who sold it.
  *
- * showOrderDate adds an Order Date column to the row itself. It is on for the
- * Buyer Dashboard's Recent Orders, where the date should be readable at a
- * glance without expanding anything; the expandable View Details panel and
- * every other caller are unchanged.
- *
- * onPay adds the Payment column: a buyer whose checkout was abandoned or
- * declined keeps a reserved, payable order until its window closes, and this
- * is the way back into PayMongo. Buyer Dashboard only -- the Super Admin's
- * transaction list passes no handler and renders no column.
- *
- * onMarkReceived adds the Action column for the LGU / Super Admin backstop:
- * a paid order stuck Out for Delivery because the buyer never confirmed it.
- * See AdminOrderTable.
+ * The action props onPay, onCancelOrder, onConfirmReceived, onMarkReceived
+ * and onUpdateStatus are passed straight to the popup -- see OrderDetailsModal
+ * for what each one renders; onReview stays in this component and drives the
+ * Rating column and the rating dialog. A caller that passes none gets a
+ * read-only popup, which is what the dashboards' Recent Orders previews use.
  */
 /** 94.00 -> "94", 2.5 -> "2.5". */
 function percentLabel(value) {
@@ -9440,8 +9550,40 @@ function EarningsBreakdown({ breakdown, viewerIsSeller = false }) {
   )
 }
 
-function OrderTable({ rows, onReview, onConfirmReceived, confirmPendingOrderId, onMarkReceived, markReceivedPendingOrderId, onPay, payPendingOrderId, detailsEndpoint, initialExpandedOrderNumber, showPaymentStatus = true, paymentView = 'escrow', counterparty = 'seller', showOrderDate = false }) {
-  const [expandedOrderNumber, setExpandedOrderNumber] = useState(initialExpandedOrderNumber || null)
+/* Whether the buyer can still cancel this row, and under which rule --
+   mirrors OrderController::cancel, which is the authority:
+     'unpaid' -- 'placed' with nothing captured, cancels with no reason;
+     'paid'   -- money in escrow and the order has NOT left the farm yet, so
+                 the cancel needs a reason and sends the payment to the refund
+                 queue. 'confirmed' counts as still cancellable -- that is the
+                 seller preparing the fish, not delivering them -- and
+                 'placed' counts alongside 'paid' because a demo-mode checkout
+                 marks the payment 'paid_held' a moment before the order status
+                 flips.
+   An 'in_transit' order is past that line: buyerCancelLocked() greys the
+   button out (the API refuses it too, see buyerCancelBlockedMessage). Terminal
+   states (completed, cancelled, failed) show no button at all. */
+function buyerCancelMode(row) {
+  if (row.status === 'placed' && ['pending', 'checkout_created'].includes(row.payment_status)) return 'unpaid'
+  if (['placed', 'paid', 'confirmed'].includes(row.status) && row.payment_status === 'paid_held') return 'paid'
+  return null
+}
+
+/* Out for delivery: the fish are on their way, so cancelling is off the
+   table. The button stays visible but disabled -- greying it out says the
+   rule exists, where hiding it made the option look like it vanished. */
+function buyerCancelLocked(row) {
+  return row.status === 'in_transit'
+}
+
+function OrderTable({ rows, onReview, onConfirmReceived, confirmPendingOrderId, onMarkReceived, markReceivedPendingOrderId, onPay, payPendingOrderId, onCancelOrder, cancelPendingOrderId, onUpdateStatus, lguContact, detailsEndpoint, initialOrderNumber = null, paymentView = 'escrow', counterparty = 'seller' }) {
+  const [viewedOrderNumber, setViewedOrderNumber] = useState(initialOrderNumber || null)
+  // Rating lives here, not in the popup: ratingOrderNumber is the order whose
+  // rating dialog is open (from the Rating column or the post-confirm prompt),
+  // and ratingPromptOrderNumber is an order that was just confirmed and is
+  // waiting for its details popup to close before the prompt opens.
+  const [ratingOrderNumber, setRatingOrderNumber] = useState(null)
+  const [ratingPromptOrderNumber, setRatingPromptOrderNumber] = useState(null)
 
   const normalized = (rows || []).map((row) => {
     const sellerProfile = row.sellerProfile || row.listing?.sellerProfile || null
@@ -9458,6 +9600,7 @@ function OrderTable({ rows, onReview, onConfirmReceived, confirmPendingOrderId, 
       seller_profile_id: row.seller_profile_id || sellerProfile?.id || null,
       buyer_name: row.buyer?.name || 'Unknown buyer',
       buyer_avatar: row.buyer?.profile_picture || null,
+      buyer_id: row.buyer?.id || null,
       quantity: row.quantity,
       quantity_label: formatQuantity(row.quantity, row.listing),
       status: row.status,
@@ -9467,12 +9610,45 @@ function OrderTable({ rows, onReview, onConfirmReceived, confirmPendingOrderId, 
       review: row.review || null,
       // Appended by the Order model; null unless the order is awaiting payment.
       payment_expires_at: row.payment_expires_at || null,
+      // The full row as the API returned it -- the popup's seller notices and
+      // transition buttons read fields the flat row does not carry (the
+      // payment object, lgu_review_status, latestDispute, auto_received_at).
+      raw: row,
     }
   })
 
   if (!normalized.length) return <EmptyState message="No orders yet." />
 
-  const toggleExpanded = (orderNumber) => setExpandedOrderNumber((current) => (current === orderNumber ? null : orderNumber))
+  // The open popup follows the list: when an action refreshes the rows, the
+  // row found here is the fresh one, so the popup's status and buttons update
+  // with it (a cancelled order loses its Cancel button, and so on). The open
+  // rating dialog follows the list the same way -- it reads the row for
+  // display only, so it keeps working while the refetch is in flight.
+  const viewedRow = viewedOrderNumber ? normalized.find((row) => row.order_number === viewedOrderNumber) : null
+  const ratingRow = ratingOrderNumber ? normalized.find((row) => row.order_number === ratingOrderNumber) : null
+
+  // Confirm Received still happens in the popup; the rating it leads to does
+  // not. On success the order is queued below, so no failure can queue it.
+  const handleConfirmReceived = async (row) => {
+    try {
+      await onConfirmReceived(row.orderId)
+      setRatingPromptOrderNumber(row.order_number)
+    } catch {
+      // The parent's mutation state carries the error; nothing to prompt.
+    }
+  }
+
+  // Closing the details popup right after confirming swaps it for the rating
+  // prompt. Dismissing that is fine: the Rating column keeps its Rate Seller
+  // button until the order is actually rated.
+  const closeDetails = () => {
+    const closingNumber = viewedOrderNumber
+    setViewedOrderNumber(null)
+    if (closingNumber && closingNumber === ratingPromptOrderNumber) {
+      setRatingPromptOrderNumber(null)
+      setRatingOrderNumber(closingNumber)
+    }
+  }
 
   return (
     <div className="table">
@@ -9481,81 +9657,72 @@ function OrderTable({ rows, onReview, onConfirmReceived, confirmPendingOrderId, 
         <span>Order #</span>
         <span>{counterparty === 'buyer' ? 'Buyer' : 'Seller'}</span>
         <span>Qty</span>
-        {showOrderDate && <span>Order Date</span>}
+        <span>Order Date</span>
         <span>Status</span>
-        {(showPaymentStatus || onPay) && <span>Payment</span>}
-        {onReview && <span>Review</span>}{/* also holds Confirm Received -- see ReviewCell */}
-        {onMarkReceived && <span>Action</span>}
-        {detailsEndpoint && <span>Details</span>}
+        {onReview && <span>Rating</span>}
+        <span>Details</span>
       </div>
       {normalized.map((row) => (
-        <Fragment key={row.id}>
-          <div className="table-row">
-            <span>{row.order_name}</span>
-            <span>{row.order_number}</span>
-            {counterparty === 'buyer' ? (
-              <span className="order-seller-cell">
-                <Avatar src={row.buyer_avatar} alt={row.buyer_name} className="order-seller-avatar" />
-                {row.buyer_name}
-              </span>
-            ) : (
-              <span className="order-seller-cell">
-                <Avatar src={row.seller_avatar} alt={row.seller_name} className="order-seller-avatar" />
-                <SellerLink id={row.seller_profile_id} name={row.seller_name} />
-              </span>
-            )}
-            <span>{row.quantity_label}</span>
-            {showOrderDate && (
-              <span className="order-date-cell">
-                {formatOrderDate(row.created_at, { withTime: false })}
-                {row.created_at && <small>{new Date(row.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small>}
-              </span>
-            )}
-            <span><Badge status={row.status}>{statusChartLabel(row.status)}</Badge></span>
-            {(showPaymentStatus || onPay) && (
-              <PaymentCell
-                row={row}
-                view={paymentView}
-                onPay={onPay}
-                pending={payPendingOrderId === row.orderId}
-              />
-            )}
-            {onReview && (
-              <ReviewCell
-                row={row}
-                onReview={onReview}
-                onConfirmReceived={onConfirmReceived}
-                confirmPendingOrderId={confirmPendingOrderId}
-              />
-            )}
-            {onMarkReceived && (
-              row.status === 'in_transit' && ['paid_held', 'released'].includes(row.payment_status) ? (
-                <span>
-                  <button
-                    type="button"
-                    className="table-row-action"
-                    onClick={() => onMarkReceived(row)}
-                    disabled={markReceivedPendingOrderId === row.orderId}
-                    title="The buyer has not confirmed this delivery. Marking it received sends it to Seller Earnings for approval."
-                  >
-                    {markReceivedPendingOrderId === row.orderId ? 'Marking...' : 'Mark as Received'}
-                  </button>
-                </span>
-              ) : <span className="muted">—</span>
-            )}
-            {detailsEndpoint && (
-              <span>
-                <button type="button" className="ghost" onClick={() => toggleExpanded(row.order_number)}>
-                  {expandedOrderNumber === row.order_number ? 'Hide Details' : 'View Details'}
-                </button>
-              </span>
-            )}
-          </div>
-          {detailsEndpoint && expandedOrderNumber === row.order_number && (
-            <OrderTableDetailRow orderNumber={row.order_number} detailsEndpoint={detailsEndpoint} paymentView={paymentView} />
+        <div className="table-row" key={row.id}>
+          <span>{row.order_name}</span>
+          <span>{row.order_number}</span>
+          {counterparty === 'buyer' ? (
+            <span className="order-seller-cell">
+              <Avatar src={row.buyer_avatar} alt={row.buyer_name} className="order-seller-avatar" />
+              {row.buyer_id ? <Link to={`/seller/buyers/${row.buyer_id}`}>{row.buyer_name}</Link> : row.buyer_name}
+            </span>
+          ) : (
+            <span className="order-seller-cell">
+              <Avatar src={row.seller_avatar} alt={row.seller_name} className="order-seller-avatar" />
+              <SellerLink id={row.seller_profile_id} name={row.seller_name} />
+            </span>
           )}
-        </Fragment>
+          <span>{row.quantity_label}</span>
+          <span className="order-date-cell">
+            {formatOrderDate(row.created_at, { withTime: false })}
+            {row.created_at && <small>{new Date(row.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small>}
+          </span>
+          <span><Badge status={row.status}>{statusChartLabel(row.status)}</Badge></span>
+          {onReview && (
+            <span>
+              {row.review ? (
+                <span className="review-given" title={`You rated this seller ${row.review.rating}/5`}>
+                  {renderStars(row.review.rating)} ({row.review.rating}/5)
+                </span>
+              ) : row.status === 'completed' ? (
+                <button type="button" className="ghost" onClick={() => setRatingOrderNumber(row.order_number)}>Rate Seller</button>
+              ) : (
+                <span className="muted">—</span>
+              )}
+            </span>
+          )}
+          <span>
+            <button type="button" className="ghost" onClick={() => setViewedOrderNumber(row.order_number)}>View Order</button>
+          </span>
+        </div>
       ))}
+      {viewedRow && (
+        <OrderDetailsModal
+          row={viewedRow}
+          detailsEndpoint={detailsEndpoint}
+          paymentView={paymentView}
+          counterparty={counterparty}
+          onConfirmReceived={onConfirmReceived ? handleConfirmReceived : undefined}
+          confirmPendingOrderId={confirmPendingOrderId}
+          onPay={onPay}
+          payPendingOrderId={payPendingOrderId}
+          onCancelOrder={onCancelOrder}
+          cancelPendingOrderId={cancelPendingOrderId}
+          onMarkReceived={onMarkReceived}
+          markReceivedPendingOrderId={markReceivedPendingOrderId}
+          onUpdateStatus={onUpdateStatus}
+          lguContact={lguContact}
+          onClose={closeDetails}
+        />
+      )}
+      {ratingRow && (
+        <RateSellerModal row={ratingRow} onReview={onReview} onClose={() => setRatingOrderNumber(null)} />
+      )}
     </div>
   )
 }
@@ -9677,11 +9844,16 @@ function PeriodFilteredRows({ rows, children, noun = 'orders placed', dateKey })
   )
 }
 
-function AdminOrderTable({ rows, base, invalidateKeys, initialExpandedOrderNumber = null }) {
+function AdminOrderTable({ rows, base, invalidateKeys, initialOrderNumber = null }) {
   const queryClient = useQueryClient()
   const markReceived = useMutation({
     mutationFn: async (orderId) => (await api.patch(`${base}/orders/${orderId}/mark-delivered`)).data,
-    onSuccess: () => invalidateKeys.forEach((key) => queryClient.invalidateQueries({ queryKey: [key] })),
+    onSuccess: () => {
+      invalidateKeys.forEach((key) => queryClient.invalidateQueries({ queryKey: [key] }))
+      // Keeps the open View Order popup's detail panel in step -- without it
+      // the panel behind the button kept showing the order Out for Delivery.
+      queryClient.invalidateQueries({ queryKey: ['order-detail'] })
+    },
   })
   const handleMarkReceived = (row) => {
     if (!window.confirm(`Mark order ${row.order_number} as received on the buyer's behalf? Only do this once you have confirmed the fingerlings were delivered. The order will move to Seller Earnings for approval.`)) return
@@ -9696,10 +9868,9 @@ function AdminOrderTable({ rows, base, invalidateKeys, initialExpandedOrderNumbe
           <OrderTable
             rows={shown}
             detailsEndpoint={(orderNumber) => `${base}/orders/${orderNumber}`}
-            initialExpandedOrderNumber={initialExpandedOrderNumber}
+            initialOrderNumber={initialOrderNumber}
             onMarkReceived={handleMarkReceived}
             markReceivedPendingOrderId={markReceived.isPending ? markReceived.variables : null}
-            showOrderDate
           />
         )}
       </PeriodFilteredRows>
@@ -9848,16 +10019,14 @@ function PaymentStatusBadge({ status, view }) {
 }
 
 /**
- * The payment state, and -- only while the order can still be paid -- the way
- * to act on it.
- *
- * Pay Now used to be a column of its own. It was empty for every order that
- * was not mid-checkout, so for most buyers it was a column of dashes taking
- * width on a table that already scrolls sideways. Putting the action in the
- * cell it acts on means it is present exactly when it is useful and costs
- * nothing when it is not.
+ * The way back into PayMongo for an order whose checkout was abandoned or
+ * declined -- shown in the order popup's footer (OrderDetailsModal) while the
+ * payment window is open. The scheduler runs every five minutes, so an order
+ * can sit briefly after its window has closed; don't offer a payment the API
+ * would refuse. Renders nothing when there is no payment to offer: the
+ * details panel above already shows the order as Unpaid in that case.
  */
-function PaymentCell({ row, view, onPay, pending }) {
+function PayNowAction({ row, pending, onPay }) {
   const expiresAtMs = row.payment_expires_at ? Date.parse(row.payment_expires_at) : null
   const [now, setNow] = useState(() => Date.now())
 
@@ -9868,17 +10037,8 @@ function PaymentCell({ row, view, onPay, pending }) {
   }, [expiresAtMs])
 
   const minutesLeft = expiresAtMs === null ? null : Math.floor((expiresAtMs - now) / 60000)
-  // The scheduler runs every five minutes, so an order can sit here briefly
-  // after its window has closed. Don't offer a payment the API would refuse.
-  const payable = Boolean(onPay) && row.status === 'placed' && minutesLeft !== null && minutesLeft >= 0
+  if (row.status !== 'placed' || minutesLeft === null || minutesLeft < 0) return null
 
-  if (!payable) return <span><PaymentStatusBadge status={row.payment_status} view={view} /></span>
-
-  // No "Unpaid" badge here: a Pay Now button with a countdown beside it already
-  // says the order is unpaid, and saying it twice in one cell just adds height.
-  // The badge is still the whole story in the branch above, where there is no
-  // button to carry the meaning -- including an order that is still unpaid but
-  // whose window has closed.
   return (
     <span className="order-pay-cell">
       <button type="button" onClick={() => onPay(row.orderId)} disabled={pending}>
@@ -9894,18 +10054,6 @@ function PaymentCell({ row, view, onPay, pending }) {
   )
 }
 
-/**
- * The buyer's end of an order: confirm it arrived, then rate the seller.
- *
- * Confirming receipt lives here rather than in its own column because the two
- * actions are strictly sequential -- an order cannot be rated until it is
- * confirmed -- so one cell is never asking for both at once, and the orders
- * table (which already scrolls sideways) gains no extra width.
- *
- * Only the buyer sees this: completing an order is what releases its payment
- * into the LGU earnings queue, so the seller must not be able to declare their
- * own delivery complete. See OrderController::confirmReceived.
- */
 /**
  * Appeal a rejection.
  *
@@ -10247,49 +10395,26 @@ function ReviewModal({ row, rating, title, comment, error, submitting, onRatingC
   )
 }
 
-function ReviewCell({ row, onReview, onConfirmReceived, confirmPendingOrderId }) {
-  const [open, setOpen] = useState(false)
+/**
+ * The stateful rating dialog behind OrderTable's Rating column and its
+ * post-Confirm-Received prompt; ReviewModal above stays purely presentational
+ * so both entry points share one form. Skipping is always safe -- the column
+ * keeps its Rate Seller button until the order is actually rated.
+ */
+function RateSellerModal({ row, onReview, onClose }) {
   const [rating, setRating] = useState(5)
   const [title, setTitle] = useState('')
   const [comment, setComment] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  if (row.status !== 'completed') {
-    // Paid and marked Out for Delivery, so the buyer can confirm it arrived.
-    // The payment must actually have reached escrow, not merely have a
-    // checkout session open -- the API refuses to complete an unpaid order,
-    // so offering the button would only produce an error. 'paid_held' and
-    // 'released' are the only two captured states (see MockPayment).
-    const awaitingReceipt = onConfirmReceived
-      && row.status === 'in_transit'
-      && ['paid_held', 'released'].includes(row.payment_status)
-    if (!awaitingReceipt) return <span className="muted">Not yet eligible</span>
-
-    return (
-      <span>
-        <button
-          type="button"
-          className="table-row-action"
-          onClick={() => onConfirmReceived(row.orderId)}
-          disabled={confirmPendingOrderId === row.orderId}
-          title="Confirm you received the fingerlings. This releases the payment to your seller's LGU for approval."
-        >
-          {confirmPendingOrderId === row.orderId ? 'Confirming...' : 'Confirm Received'}
-        </button>
-      </span>
-    )
-  }
-  if (row.review) return <span className="review-given">Reviewed: {'★'.repeat(row.review.rating)}{'☆'.repeat(5 - row.review.rating)} ({row.review.rating}/5)</span>
-  if (!open) return <span><button type="button" className="ghost" onClick={() => setOpen(true)}>Rate Seller</button></span>
-
   const submit = async () => {
     setSubmitting(true)
     setError('')
     try {
       await onReview(row.orderId, { rating, title, comment })
-      setOpen(false)
       setSubmitting(false)
+      onClose()
     } catch (err) {
       setError(err?.response?.data?.message || 'Could not submit review.')
       setSubmitting(false)
@@ -10297,24 +10422,86 @@ function ReviewCell({ row, onReview, onConfirmReceived, confirmPendingOrderId })
   }
 
   return (
-    <span>
-      <button type="button" className="ghost" onClick={() => setOpen(true)}>Rate Seller</button>
-      {open && (
-        <ReviewModal
-          row={row}
-          rating={rating}
-          title={title}
-          comment={comment}
-          error={error}
-          submitting={submitting}
-          onRatingChange={setRating}
-          onTitleChange={setTitle}
-          onCommentChange={setComment}
-          onSubmit={submit}
-          onClose={() => setOpen(false)}
-        />
+    <ReviewModal
+      row={row}
+      rating={rating}
+      title={title}
+      comment={comment}
+      error={error}
+      submitting={submitting}
+      onRatingChange={setRating}
+      onTitleChange={setTitle}
+      onCommentChange={setComment}
+      onSubmit={submit}
+      onClose={onClose}
+    />
+  )
+}
+
+/**
+ * Cancelling an order, from either side of it (see OrderDetailsModal, the one
+ * caller). An unpaid order needs only a confirmation -- there is nothing to
+ * explain and no money to move. A paid order -- including one the seller has
+ * confirmed but not yet shipped -- requires a reason, because it pushes the
+ * payment into the Super Admin's refund queue and the other party is told why.
+ * The seller always gives a reason, paid or not (the API requires it, and the
+ * buyer deserves to know why their order stopped).
+ */
+function CancelOrderModal({ row, mode, audience = 'buyer', reason, error, submitting, onReasonChange, onSubmit, onClose }) {
+  const needsReason = audience === 'seller' || mode === 'paid'
+  return (
+    <Modal
+      title="Cancel Order"
+      subtitle={`Order #${row.order_number}`}
+      onClose={submitting ? () => {} : onClose}
+      footer={(
+        <>
+          <button type="button" className="ghost" onClick={onClose} disabled={submitting}>Keep Order</button>
+          <button
+            type="button"
+            className="danger"
+            onClick={onSubmit}
+            disabled={submitting || (needsReason && !reason.trim())}
+          >
+            {submitting ? 'Cancelling...' : 'Cancel Order'}
+          </button>
+        </>
       )}
-    </span>
+    >
+      <div className="review-modal-product">
+        <div>
+          <strong>{row.order_name}</strong>
+          <p className="muted">{row.quantity_label} · {audience === 'seller' ? `Buyer: ${row.buyer_name}` : `Seller: ${row.seller_name}`}</p>
+        </div>
+      </div>
+
+      {needsReason ? (
+        <div className="cancel-form">
+          <p className="helper-text">
+            {audience === 'seller'
+              ? (mode === 'paid'
+                ? 'Cancelling a paid order returns the stock to your listing and refunds the buyer. Tell them why -- they will see this reason.'
+                : 'Cancelling returns the stock to your listing. Tell the buyer why -- they will see this reason.')
+              : 'Your payment will be refunded. Refunds are processed by the Super Admin. Tell the seller why you are cancelling -- they will see this reason.'}
+          </p>
+          <textarea
+            value={reason}
+            onChange={(e) => onReasonChange(e.target.value)}
+            placeholder={audience === 'seller'
+              ? 'e.g. Our pond had a fish kill overnight and we cannot fulfil this order.'
+              : 'e.g. I found the same fingerlings closer to my farm.'}
+            autoFocus
+          />
+        </div>
+      ) : (
+        <p className="helper-text">
+          The reserved stock goes back to the seller&apos;s listing. You have not paid for this
+          order, so nothing needs refunding, and you can place a new order at any time.
+        </p>
+      )}
+
+      {error && <p className="error">{error}</p>}
+    </Modal>
   )
 }
 
@@ -10876,21 +11063,34 @@ function MessagesPanel({ initialUserId }) {
                   key={message.id}
                   message={message}
                   isMine={message.sender_id === session?.id}
+                  automated={thread.data?.user?.role === 'system'}
                   onEdit={(body) => editMessage.mutateAsync({ id: message.id, body })}
                   onDelete={() => deleteMessage.mutateAsync(message.id)}
                 />
               ))}
               {!thread.data?.messages?.length && <p className="helper-text">Say hello to start the conversation.</p>}
             </div>
-            <div className="compose-bar">
-              <input
-                placeholder="Type a message..."
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && draft.trim() && !sendMessage.isPending) { e.preventDefault(); sendMessage.mutate() } }}
-              />
-              <button type="button" onClick={() => sendMessage.mutate()} disabled={!draft.trim() || sendMessage.isPending}>Send</button>
-            </div>
+            {thread.data?.user?.role === 'system' ? (
+              // A system thread is one-way: AbaiMarket only ever sends here.
+              // There is nothing to type, so the bar offers the two places a
+              // human can actually answer instead of a reply box.
+              <div className="compose-bar">
+                {thread.data.support_contact && (
+                  <button type="button" className="button" onClick={() => openThread(thread.data.support_contact.id)}>Message the Super Admin</button>
+                )}
+                <Link className="ghost" to={`${roleRoutes[session?.role] || '/buyer/dashboard'}?tab=support`}>Contact Support</Link>
+              </div>
+            ) : (
+              <div className="compose-bar">
+                <input
+                  placeholder="Type a message..."
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && draft.trim() && !sendMessage.isPending) { e.preventDefault(); sendMessage.mutate() } }}
+                />
+                <button type="button" onClick={() => sendMessage.mutate()} disabled={!draft.trim() || sendMessage.isPending}>Send</button>
+              </div>
+            )}
           </>
         )}
       </div>
@@ -10927,7 +11127,7 @@ function formatMessageTimestamp(value) {
   return `${day}, ${time}`
 }
 
-function MessageBubble({ message, isMine, onEdit, onDelete }) {
+function MessageBubble({ message, isMine, onEdit, onDelete, automated = false }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(message.body)
   const [error, setError] = useState('')
@@ -11029,6 +11229,10 @@ function MessageBubble({ message, isMine, onEdit, onDelete }) {
         </div>
       )}
       <div className="message-meta">
+        {/* One-way messages from AbaiMarket carry a tag of their own: the
+            reader should know at a glance that no person wrote (or can
+            answer) this, whatever the message type. */}
+        {automated && <span className="automated-tag">Automated message</span>}
         {/* Date and time on every message, for whoever is reading it -- this
             bubble renders identically for the sender and the receiver, so both
             sides see the same stamp. Read straight from messages.created_at,
@@ -11054,7 +11258,6 @@ function PaymentSuccessPage() {
   const [searchParams] = useSearchParams()
   const session = getSession()
   const orderNumber = searchParams.get('order')
-  const listingId = searchParams.get('listing_id')
   const returnToken = searchParams.get('t')
   const acknowledgedKey = orderNumber ? `fishmarket_payment_success_${orderNumber}` : null
   const acknowledgedRef = useRef(false)
@@ -11064,7 +11267,15 @@ function PaymentSuccessPage() {
     // to report as one -- so unwrap it into the same shape as a 200.
     mutationFn: async () => {
       try {
-        return (await api.post(`/orders/${orderNumber}/payment-success`, { t: returnToken })).data
+        const data = (await api.post(`/orders/${orderNumber}/payment-success`, { t: returnToken })).data
+        // Land on the plain orders list straight from the response. The
+        // dashboard turns an ?order= param into an auto-opened order popup;
+        // the buyer just paid and should arrive at their orders, not be
+        // pulled into a dialog they did not ask for. Navigating here, from
+        // the promise itself, also survives the dev-only StrictMode remount
+        // that can leave a hook's rendered mutation state stale.
+        if (data?.status === 'success') navigate('/buyer/dashboard?tab=orders', { replace: true })
+        return data
       } catch (err) {
         if (err?.response?.status === 410) return err.response.data
         throw err
@@ -11085,11 +11296,6 @@ function PaymentSuccessPage() {
     if (acknowledgedKey) sessionStorage.setItem(acknowledgedKey, '1')
     acknowledge.mutate()
   }, [session, orderNumber, acknowledgedKey, acknowledge])
-  useEffect(() => {
-    if (acknowledge.data?.status === 'success' && orderNumber) {
-      navigate(`/buyer/dashboard?tab=orders&order=${orderNumber}${listingId ? `&listing_id=${listingId}` : ''}`, { replace: true })
-    }
-  }, [acknowledge.data?.status, orderNumber, listingId, navigate])
   if (!session) return <Navigate to="/login" replace />
   const status = acknowledge.data?.status
   const processing = status === 'processing'
@@ -11104,7 +11310,7 @@ function PaymentSuccessPage() {
         <h1>{spent ? 'This payment link has expired' : processing ? 'Almost there' : 'Order received'}</h1>
         <p>{spent || processing ? acknowledge.data.message : orderNumber ? `Payment for order #${orderNumber} was successful and is now held in escrow.` : 'Your payment returned from PayMongo and your session is still active.'}</p>
         <div className="success-actions">
-          <Link className="button" to={`/buyer/dashboard?tab=orders${orderNumber ? `&order=${orderNumber}` : ''}`}>View Orders</Link>
+          <Link className="button" to="/buyer/dashboard?tab=orders">View Orders</Link>
           <Link className="ghost" to="/buyer/dashboard?tab=notifications">Open Notifications</Link>
         </div>
       </section>

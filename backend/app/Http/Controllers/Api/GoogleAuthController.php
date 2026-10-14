@@ -115,6 +115,15 @@ class GoogleAuthController extends Controller
         $user = User::where('email', $email)->first();
 
         if ($user) {
+            // The AbaiMarket system account (see App\Support\SystemMessenger)
+            // has no owner and no usable password; no Google account can log
+            // into it, even if one somehow owns the same address.
+            if ($user->role === 'system') {
+                Log::warning('Google sign-in was attempted for the AbaiMarket system account.');
+
+                return redirect($frontend.'/login?google_error=1');
+            }
+
             if (! $user->google_id) {
                 $user->update(['google_id' => $googleUser->getId()]);
             }

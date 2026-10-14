@@ -56,7 +56,7 @@ The system emphasizes correctness of money movement, strict role permissions, a 
 - Buy-later **Cart** — buyers save listings to purchase later (a bookmark, not a stock reservation; price and availability are re-checked at checkout)
 - Seller profiles with a "Farm Posts" social feed (likes + comments), ratings and reviews
 - Buyer ↔ Seller two-way feedback (buyers review sellers; sellers rate buyers)
-- Direct messaging between all roles
+- Direct messaging between all roles. Automatic messages -- out-for-delivery notices and auto-completed order/payout notices -- are sent by a one-way **AbaiMarket system account** instead of a Super Admin: its threads have no reply box, each message carries an **Automated message** tag, and two buttons replace the input ("Message the Super Admin" and "Contact Support"). The Super Admin's payout receipt stays a personal message, so replies to it reach them
 - In-app notifications, with a bell pop-up in the top bar (open one to jump to the right page, or mark one or all as read). Every new request notifies whoever has to act on it: withdrawal requests reach the Super Admin, new seller registrations reach the municipality's LGU, and so on. Read notifications are not lost: every role's Notifications page has a **Notification History** (newest first, the latest 200) under the unread list, with date and notification-type filters (such as messages and reports)
 - **User reports:** the reporter must choose a reason from a fixed list (nothing is pre-selected) and describe what happened. The reported person is notified **right away** -- "You Were Reported", with the reason and what the reporter wrote -- before any decision, without the reporter's name
 - **New reviews:** every buyer review (1 to 5 stars) notifies the seller -- who rated them, the stars, the comment and their new average -- and clicking it opens that review, highlighted, on their profile
@@ -65,6 +65,7 @@ The system emphasizes correctness of money movement, strict role permissions, a 
 - Unified Order Numbers (`ORD-####` presentation; `FG-XXXXXX` internal reference)
 - PayMongo Checkout (with an automatic demo fallback when keys are absent)
 - Escrow-style payment holding until LGU verification
+- **Buyer cancellation:** from My Orders, a buyer can cancel their own order any time before it is out for delivery -- an unpaid order cancels immediately; a paid order requires a reason and its payment goes to the refund queue (stock is returned either way). This stays open while the seller is still preparing the order (status Confirmed); once it is out for delivery the button is greyed out and the buyer is told to message the seller
 - Order lifecycle tracking with a visual timeline and global order lookup
 - Every history list, for every role, can be filtered to Today, This Week, This Month or This Year: orders, withdrawal requests, payment and revenue history, reviews, reports, support tickets, notices, registrations, disputes, refunds, the moderation log and announcements
 
@@ -228,7 +229,7 @@ php artisan serve --host=127.0.0.1 --port=8000
 
 The API is served under `http://127.0.0.1:8000/api`.
 
-**Scheduler:** the app schedules `announcements:publish` and `orders:expire-unpaid` every five minutes and `withdrawals:finalize-rejections` hourly. In production, add the Laravel scheduler to cron:
+**Scheduler:** the app schedules `announcements:publish`, `orders:expire-unpaid` and `orders:cancel-suspended-seller-orders` every five minutes and `withdrawals:finalize-rejections` hourly. `orders:auto-complete-unconfirmed` and `withdrawals:auto-complete-sent` run every minute to enforce the confirmation windows -- 3 days for a buyer to confirm an out-for-delivery order, 7 days for a seller or LGU to confirm a sent payout -- both configurable via `ORDER_AUTO_COMPLETE_AFTER_MINUTES` / `PAYOUT_AUTO_COMPLETE_AFTER_MINUTES`. In production, add the Laravel scheduler to cron:
 
 ```cron
 * * * * * cd /path/to/backend && php artisan schedule:run >> /dev/null 2>&1
@@ -291,12 +292,13 @@ Fish farmers who purchase fingerlings.
 - Browse and search the marketplace; view seller profiles, farm posts, ratings, and reviews
 - Save listings to a **cart** to buy later
 - Place and pay for orders (PayMongo)
+- **Cancel their own order** from My Orders any time before it is out for delivery: unpaid orders cancel with no reason; paid orders require a reason and are refunded through the Super Admin's queue. This includes orders the seller has confirmed but not yet shipped; once out for delivery the button is greyed out and the buyer is told to message the seller
 - Track orders and look them up by order number
 - Review and rate sellers after completed orders
 - Like and comment on seller farm posts
 - Message sellers; receive notifications
 - Personal purchase analytics
-- A suspended buyer can still log in and browse but **cannot** order, pay, message, or review.
+- A suspended buyer can still log in and browse but **cannot** order, pay, message, or review. They can still **cancel their own orders** -- winding down an existing order only releases stock and escrowed money.
 
 ### Seller (Hatchery)
 - Create and manage listings (with photos/videos), pending LGU approval
@@ -340,7 +342,7 @@ Buyer pays via PayMongo  ──►  funds marked "paid_held" (escrow)
         │
         ▼
 Seller marks order out for delivery  ──►  Buyer confirms receipt; order is completed
-        │
+        │                                 (no confirmation within 3 days: completed automatically)
         ▼
 LGU verifies the transaction  ──►  approves earnings
         │            (creates an immutable Settlement; splits revenue)
@@ -352,11 +354,13 @@ Seller requests payout (PAY-##)  ──►  Super Admin approves & sends payout
                                       Seller confirms Money Received ──► Paid
 LGU requests payout   (LGU-##)   ──►  Super Admin approves & sends payout
                                       LGU confirms Money Received ──► Paid
-                                      (No confirmation: auto-paid after the configured window)
+                                      (No confirmation within 7 days: auto-paid)
 ```
 
+- **Confirmation windows:** once an order is out for delivery, the buyer has **3 days** to confirm receipt before the scheduler (`orders:auto-complete-unconfirmed`) completes it automatically; a payout that the Super Admin has sent gives the seller or LGU **7 days** to click Money Received before the scheduler (`withdrawals:auto-complete-sent`) marks it paid. Both windows are configurable (`ORDER_AUTO_COMPLETE_AFTER_MINUTES` / `PAYOUT_AUTO_COMPLETE_AFTER_MINUTES`, defaults 4320 / 10080 minutes).
 - **Demo mode:** if PayMongo keys are blank, checkout returns a demo session that immediately marks the payment held, so the full flow can be exercised end-to-end without real keys.
 - **Idempotency:** the PayMongo webhook and the buyer's post-redirect confirmation can both arrive; only the first transition captures the payment and sends receipts.
+- **Cancellation:** a buyer cancels their own order while it is unpaid, or after paying until it is out for delivery (a reason is then required, including after the seller confirms); the seller can cancel at any point before completion, including an order that is already out for delivery (deliveries fail or get refused, and the seller has no other way to wind the order down on the road). Either way the order's reserved stock goes back to the listing, an unpaid checkout page is retired, and a captured payment becomes Refund Pending for the Super Admin -- one cancellation path for both sides (`App\Support\OrderCancellation`).
 
 ---
 
@@ -374,7 +378,7 @@ The seller and LGU shares are rounded to the centavo first; the platform absorbs
 
 **Withdrawals carry no fee** — a seller receives the full amount they withdraw.
 
-**Payout confirmation:** after approving a seller or LGU withdrawal, the Super Admin sends the payout through Messages (an optional screenshot can be included). Once the funds arrive, the seller or an LGU admin clicks **Money Received** in their Wallet, immediately completing the withdrawal. If they do not confirm before the configured inactivity window, the scheduler marks it paid automatically and notifies them.
+**Payout confirmation:** after approving a seller or LGU withdrawal, the Super Admin sends the payout through Messages (an optional screenshot can be included). Once the funds arrive, the seller or an LGU admin clicks **Money Received** in their Wallet, immediately completing the withdrawal. If they do not confirm within **7 days** (configurable via `PAYOUT_AUTO_COMPLETE_AFTER_MINUTES`), the scheduler marks it paid automatically and notifies them. The receipt is the Super Admin's own message, so replies reach a person; the automatic completion notice comes from the one-way AbaiMarket system account instead.
 
 **The seller sees the split.** Order details, the Wallet's Payment History and the "earnings approved" email all show the same breakdown, e.g. order total ₱600 − platform fee 4% (₱24) − LGU share 2% (₱12) = **you receive ₱564** (an estimate until the LGU approves, then the frozen settlement figures). The LGU Wallet's Revenue History shows each order number, seller and "2% of ₱600". Each withdrawal (seller or LGU) must be at least **₱100**.
 
@@ -458,7 +462,7 @@ abaimarket/
 - **Storage:** run `php artisan storage:link` so uploaded media (`storage/app/public`) is served from `public/storage`. For scale, switch `FILESYSTEM_DISK` to S3.
 - **Media upload limits:** photos and videos are both capped at **25 MB** (`ImageUploader::MAX_IMAGE_KB` / `MAX_VIDEO_KB`); the same rule covers profile and cover pictures. PHP's own defaults (`upload_max_filesize=2M`, `post_max_size=8M`) are lower than that and reject the request *before* Laravel runs — PHP then discards the body, so the app reports a missing-file error rather than a size error. The Dockerfile therefore writes `/etc/php/8.3/cli/conf.d/99-uploads.ini` with `upload_max_filesize=30M`, `post_max_size=60M` and `memory_limit=256M`. Any other host needs the same `php.ini` values, kept above the 25 MB ceiling so the application returns its own message.
 - **Caching:** `php artisan config:cache` and `route:cache` after each deploy.
-- **Scheduler & queues:** add `schedule:run` to cron (scheduled announcements, expiring unpaid orders, and releasing rejected withdrawals after the 7-day dispute window). `QUEUE_CONNECTION` defaults to `database`; run `php artisan queue:work` if you move mail/notifications onto the queue.
+- **Scheduler & queues:** add `schedule:run` to cron (scheduled announcements, expiring unpaid orders, releasing rejected withdrawals after the 7-day dispute window, and auto-completing delivered orders and unconfirmed payouts after their 3-day and 7-day confirmation windows). `QUEUE_CONNECTION` defaults to `database`; run `php artisan queue:work` if you move mail/notifications onto the queue.
 - **CORS / Sanctum:** ensure the frontend origin is allowed and `FRONTEND_URL` is correct for OAuth and email links.
 - **PayMongo webhook:** register `POST {APP_URL}/api/paymongo/webhook` in the PayMongo dashboard.
 - **Google OAuth:** register `GOOGLE_REDIRECT_URI` in the Google Cloud console.

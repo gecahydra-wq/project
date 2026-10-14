@@ -447,7 +447,7 @@ class SuperAdminController extends Controller
     {
         $admin = $request->user();
         $attachmentPath = $request->file('attachment')?->store('payout-receipts', 'local');
-        $minutes = (int) config('payouts.auto_complete_after_minutes', 1440);
+        $minutes = (int) config('payouts.auto_complete_after_minutes');
         $amount = $type === 'seller' ? $withdrawal->net_amount : (float) $withdrawal->amount;
         $amountLabel = number_format($amount, 2);
         $messageBody = sprintf(
