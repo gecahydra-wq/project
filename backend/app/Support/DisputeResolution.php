@@ -197,6 +197,32 @@ class DisputeResolution
             $nextStep
         ));
 
+        if ($subject instanceof WithdrawalRequest || $subject instanceof LguWithdrawalRequest) {
+            $recipient = $dispute->filedBy;
+
+            if ($recipient) {
+                $requestLabel = $subject instanceof LguWithdrawalRequest
+                    ? 'LGU withdrawal request'
+                    : 'seller withdrawal request';
+                $availableBalance = number_format((float) $subject->amount, 2);
+
+                SystemMessenger::send(
+                    $recipient,
+                    sprintf(
+                        'The Super Admin rejected your dispute for %s #%d. The rejection is final, and ₱%s has been returned to your Available Balance. If you still disagree with this decision, message the Super Admin or contact Support.',
+                        $requestLabel,
+                        $subject->getKey(),
+                        $availableBalance
+                    ),
+                    'payout_dispute_rejected',
+                    [
+                        'withdrawal_type' => $subject instanceof LguWithdrawalRequest ? 'lgu' : 'seller',
+                        'withdrawal_id' => $subject->getKey(),
+                    ]
+                );
+            }
+        }
+
         self::log($dispute, $subject, $actor, 'dispute_rejected', 'Rejected a dispute; the original decision on the %s stands.');
 
         return $dispute->fresh();
