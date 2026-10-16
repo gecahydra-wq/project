@@ -230,7 +230,7 @@ php artisan serve --host=127.0.0.1 --port=8000
 
 The API is served under `http://127.0.0.1:8000/api`.
 
-**Scheduler:** the app schedules `announcements:publish`, `orders:expire-unpaid` and `orders:cancel-suspended-seller-orders` every five minutes, `orders:expire-refund-windows` hourly (it only records expired refund windows), and `withdrawals:finalize-rejections` hourly. `orders:auto-complete-unconfirmed` and `withdrawals:auto-complete-sent` run every minute to enforce the confirmation windows -- 3 days for a buyer to confirm an out-for-delivery order, 7 days for a seller or LGU to confirm a sent payout -- both configurable via `ORDER_AUTO_COMPLETE_AFTER_MINUTES` / `PAYOUT_AUTO_COMPLETE_AFTER_MINUTES`. In production, add the Laravel scheduler to cron:
+**Scheduler:** the app schedules `announcements:publish`, `orders:expire-unpaid` and `orders:cancel-suspended-seller-orders` every five minutes, `orders:expire-refund-windows` hourly (it only records expired refund windows), and `withdrawals:finalize-rejections` hourly. `orders:auto-complete-unconfirmed` and `withdrawals:auto-complete-sent` run every minute to enforce the confirmation windows -- 5 days for a buyer to confirm an out-for-delivery order, 7 days for a seller or LGU to confirm a sent payout -- both configurable via `ORDER_AUTO_COMPLETE_AFTER_MINUTES` / `PAYOUT_AUTO_COMPLETE_AFTER_MINUTES`. In production, add the Laravel scheduler to cron:
 
 ```cron
 * * * * * cd /path/to/backend && php artisan schedule:run >> /dev/null 2>&1
@@ -345,7 +345,7 @@ Buyer pays via PayMongo  ──►  funds marked "paid_held" (escrow)
         │
         ▼
 Seller marks order out for delivery  ──►  Buyer confirms receipt; order is completed
-        │                                 (no confirmation within 3 days: completed automatically)
+        │                                 (no confirmation within 5 days: completed automatically)
         ▼
 LGU verifies the transaction  ──►  approves earnings
         │            (creates an immutable Settlement; splits revenue)
@@ -360,7 +360,7 @@ LGU requests payout   (LGU-##)   ──►  Super Admin approves & sends payout
                                       (No confirmation within 7 days: auto-paid)
 ```
 
-- **Confirmation windows:** once an order is out for delivery, the buyer has **3 days** to confirm receipt before the scheduler (`orders:auto-complete-unconfirmed`) completes it automatically; a payout that the Super Admin has sent gives the seller or LGU **7 days** to click Money Received before the scheduler (`withdrawals:auto-complete-sent`) marks it paid. Both windows are configurable (`ORDER_AUTO_COMPLETE_AFTER_MINUTES` / `PAYOUT_AUTO_COMPLETE_AFTER_MINUTES`, defaults 4320 / 10080 minutes).
+- **Confirmation windows:** once an order is out for delivery, the buyer has **5 days** to confirm receipt before the scheduler (`orders:auto-complete-unconfirmed`) completes it automatically; a payout that the Super Admin has sent gives the seller or LGU **7 days** to click Money Received before the scheduler (`withdrawals:auto-complete-sent`) marks it paid. Both windows are configurable (`ORDER_AUTO_COMPLETE_AFTER_MINUTES` / `PAYOUT_AUTO_COMPLETE_AFTER_MINUTES`, defaults 7200 / 10080 minutes).
 - **Demo mode:** if PayMongo keys are blank, checkout returns a demo session that immediately marks the payment held, so the full flow can be exercised end-to-end without real keys.
 - **Idempotency:** the PayMongo webhook and the buyer's post-redirect confirmation can both arrive; only the first transition captures the payment and sends receipts.
 - **Cancellation:** a buyer cancels their own order while it is unpaid, or after paying until it is out for delivery (a reason is then required, including after the seller confirms); the seller can cancel at any point before completion, including an order that is already out for delivery (deliveries fail or get refused, and the seller has no other way to wind the order down on the road). Either way the order's reserved stock goes back to the listing, an unpaid checkout page is retired, and a captured payment becomes Refund Pending for the Super Admin -- one cancellation path for both sides (`App\Support\OrderCancellation`).

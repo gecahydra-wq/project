@@ -439,7 +439,7 @@ class FishMarketApiTest extends TestCase
         $buyer = $this->makeBuyer();
         $order = $this->makeOrder($buyer, $listing, [
             'status' => 'in_transit',
-            'in_transit_at' => now()->subDays(3),
+            'in_transit_at' => now()->subDays(6),
         ]);
         $this->makePayment($order, ['status' => 'paid_held']);
 
@@ -1806,23 +1806,23 @@ class FishMarketApiTest extends TestCase
         Mail::assertSent(LguWithdrawalReleasedMail::class, fn ($mail) => $mail->hasTo($lguAdmin->email));
     }
 
-    public function test_orders_auto_complete_after_three_days_out_for_delivery_without_buyer_confirmation(): void
+    public function test_orders_auto_complete_after_five_days_out_for_delivery_without_buyer_confirmation(): void
     {
         $seller = $this->makeSeller();
         $listing = $this->makeListing($seller, ['quantity' => 900]);
         $buyer = $this->makeBuyer();
-        // Out for delivery three days ago: the buyer's confirmation window has
+        // Out for delivery six days ago: the buyer's confirmation window has
         // expired, so the scheduler completes it for them.
         $stale = $this->makeOrder($buyer, $listing, [
             'status' => 'in_transit',
-            'in_transit_at' => now()->subDays(3),
+            'in_transit_at' => now()->subDays(6),
         ]);
         $this->makePayment($stale, ['status' => 'paid_held']);
-        // Out for delivery two days ago: still inside the 3-day window, so it
+        // Out for delivery four days ago: still inside the 5-day window, so it
         // must be left alone even though it is paid and never confirmed.
         $recent = $this->makeOrder($buyer, $listing, [
             'status' => 'in_transit',
-            'in_transit_at' => now()->subDays(2),
+            'in_transit_at' => now()->subDays(4),
         ]);
         $this->makePayment($recent, ['status' => 'paid_held']);
 
