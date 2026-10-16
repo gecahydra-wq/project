@@ -572,9 +572,9 @@ class RefundRequests
                 'user_id' => $seller->user_id,
                 'type' => "earnings_reversed:{$order->id}",
             ], [
-                'title' => 'Earnings reversed for a refund',
+                'title' => 'Earnings reversed for approved refund',
                 'body' => sprintf(
-                    'Order #%s was refunded, so the seller share of %s was taken back out of your earnings.%s',
+                    'The refund for order #%s was approved, so the seller share of %s was reversed from your recorded earnings. The buyer refund is still being processed.%s',
                     $order->order_number,
                     self::money($settlement->seller_share),
                     self::shortfallNote(SellerWallet::repaymentDue($seller))
@@ -591,9 +591,9 @@ class RefundRequests
                 'user_id' => $adminId,
                 'type' => "earnings_reversed_lgu:{$order->id}",
             ], [
-                'title' => 'Earnings reversed for a refund',
+                'title' => 'Earnings reversed for approved refund',
                 'body' => sprintf(
-                    'Order #%s was refunded, so the LGU share of %s was taken back out of municipal revenue.%s',
+                    'The refund for order #%s was approved, so the LGU share of %s was reversed from municipal revenue. The buyer refund is still being processed.%s',
                     $order->order_number,
                     self::money($settlement->lgu_share),
                     self::shortfallNote(LguWallet::repaymentDue($settlement->municipality_id))

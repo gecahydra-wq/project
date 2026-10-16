@@ -6,9 +6,13 @@ use App\Models\AppNotification;
 use App\Models\MockPayment;
 use App\Models\Order;
 use App\Models\PaymentLog;
+use App\Models\Settlement;
 use App\Models\SellerProfile;
 use App\Models\User;
 use App\Services\PayMongoService;
+use App\Support\LguWallet;
+use App\Support\SellerWallet;
+use App\Support\SystemMessenger;
 
 /**
  * The single place an order that will never be fulfilled is wound down, so
@@ -278,6 +282,10 @@ class OrderCancellation
             self::refundNoticeLead($order, $completed)
             ." Your payment of ₱{$amount} has been refunded to your original payment method.");
 
+        if ($completed) {
+            self::notifyCompletedRefundEarnings($order);
+        }
+
         ActivityLog::record([
             'actor_id' => null,
             'actor_role' => null,
@@ -314,6 +322,14 @@ class OrderCancellation
                     number_format((float) $payment->amount, 2),
                     $order->order_number,
                     $reference ? " (reference {$reference})" : ''));
+
+            // Completed-order refund requests reverse released earnings. Tell
+            // the seller and municipality only after the buyer's refund was
+            // actually marked sent; ordinary cancellations/expiry refunds do
+            // not represent an earnings reversal.
+            if ($order->refundRequest?->status === 'approved') {
+                self::notifyCompletedRefundEarnings($order);
+            }
         }
 
         ActivityLog::record([
@@ -339,5 +355,73 @@ class OrderCancellation
     private static function notify(int $userId, string $type, string $title, string $body): void
     {
         AppNotification::firstOrCreate(['user_id' => $userId, 'type' => $type, 'title' => $title], ['body' => $body]);
+    }
+
+    /** Tell both earnings recipients when an approved completed-order refund is sent. */
+    private static function notifyCompletedRefundEarnings(Order $order): void
+    {
+        $order->loadMissing('sellerProfile');
+        $settlement = Settlement::where('order_id', $order->id)->first();
+        $seller = $order->sellerProfile;
+
+        if ($seller?->user) {
+            $seller->loadMissing('user');
+            SystemMessenger::send(
+                $seller->user,
+                self::refundEarningsMessage(
+                    $order,
+                    'seller',
+                    $settlement ? (float) $settlement->seller_share : null,
+                    $settlement ? SellerWallet::repaymentDue($seller) : 0
+                ),
+                'refund_earnings_reversed'
+            );
+        }
+
+        if ($settlement) {
+            $lguMessage = self::refundEarningsMessage(
+                $order,
+                'LGU',
+                (float) $settlement->lgu_share,
+                LguWallet::repaymentDue($settlement->municipality_id)
+            );
+
+            User::where('role', 'lgu_admin')
+                ->where('municipality_id', $settlement->municipality_id)
+                ->get()
+                ->each(fn (User $lguAdmin) => SystemMessenger::send($lguAdmin, $lguMessage, 'refund_earnings_reversed'));
+        } else {
+            $lguMessage = self::refundEarningsMessage($order, 'LGU', null, 0);
+            User::where('role', 'lgu_admin')
+                ->where('municipality_id', $seller?->municipality_id)
+                ->get()
+                ->each(fn (User $lguAdmin) => SystemMessenger::send($lguAdmin, $lguMessage, 'refund_earnings_reversed'));
+        }
+    }
+
+    private static function refundEarningsMessage(Order $order, string $recipient, ?float $share, float $repaymentDue): string
+    {
+        if ($share === null) {
+            return sprintf(
+                'The buyer refund for order #%s was approved and sent. No %s earnings had been credited for this order, so there was no share to reverse.',
+                $order->order_number,
+                $recipient
+            );
+        }
+
+        $roleShare = $recipient === 'seller' ? 'seller share' : 'LGU share';
+        $message = sprintf(
+            'The buyer refund for order #%s was approved and sent. The %s of ₱%s has been reversed from the order earnings.',
+            $order->order_number,
+            $roleShare,
+            number_format($share, 2)
+        );
+        $message .= ' If any of that money had already been withdrawn, it is not taken directly from your bank or e-wallet; the app records any remaining repayment due and future earnings cover it before more can be withdrawn.';
+
+        if ($repaymentDue > 0) {
+            $message .= sprintf(' Your current repayment due is ₱%s.', number_format($repaymentDue, 2));
+        }
+
+        return $message;
     }
 }

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Clock, Timer } from 'lucide-react'
+import { Clock, Timer, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { renderStars } from './stars.jsx'
 import { EmptyState, LoadingState } from './states.jsx'
@@ -104,8 +104,6 @@ function OrderDetailsModal({
   onClose,
 }) {
   const order = row.raw || {}
-  const sellerTransitions = onUpdateStatus ? (ORDER_STATUS_TRANSITIONS[order.status] || []) : []
-  const canCancelAsSeller = sellerTransitions.some(([status]) => status === 'cancelled')
   const buyerMode = onCancelOrder ? buyerCancelMode(row) : null
   const buyerCancelGreyed = Boolean(onCancelOrder) && !buyerMode && buyerCancelLocked(row)
   // Post-completion refunds: only the buyer passes onRequestRefund, so this is
@@ -127,7 +125,15 @@ function OrderDetailsModal({
     queryKey: ['order-detail', detailsEndpoint, row.order_number],
     queryFn: async () => (await api.get(detailsEndpoint(row.order_number))).data,
     enabled: Boolean(row.order_number && detailsEndpoint),
+    // Seller status changes happen in a separate session from the buyer.
+    // Refresh an open buyer detail view so its receipt action appears as soon
+    // as the seller marks the order out for delivery.
+    refetchInterval: getSession()?.role === 'buyer' ? 5000 : false,
   })
+  const currentOrderStatus = details.data?.order_status || order.status
+  const currentPaymentStatus = details.data?.payment_status || order.payment?.status || row.payment_status
+  const currentSellerTransitions = onUpdateStatus ? (ORDER_STATUS_TRANSITIONS[currentOrderStatus] || []) : []
+  const canCancelAsSeller = currentSellerTransitions.some(([status]) => status === 'cancelled')
 
   // A seller's forward transition runs straight away; cancelling needs a
   // reason (the API requires one too), so it opens the shared Cancel dialog
@@ -181,7 +187,7 @@ function OrderDetailsModal({
   // delivery. Confirm releases the payment into the seller's LGU earnings
   // queue; Mark as Received is the backstop for a buyer who goes silent (see
   // OrderController::confirmReceived / markOrderDelivered).
-  const outForDelivery = row.status === 'in_transit' && ['paid_held', 'released'].includes(row.payment_status)
+  const outForDelivery = currentOrderStatus === 'in_transit' && ['paid_held', 'released'].includes(currentPaymentStatus)
   const awaitingReceipt = Boolean(onConfirmReceived) && outForDelivery
   const canMarkReceived = Boolean(onMarkReceived) && outForDelivery
 
@@ -247,7 +253,7 @@ function OrderDetailsModal({
           Request Refund
         </button>
       )}
-      {sellerTransitions.filter(([status]) => status !== 'cancelled').map(([status, label]) => (
+      {currentSellerTransitions.filter(([status]) => status !== 'cancelled').map(([status, label]) => (
         <button key={status} type="button" onClick={() => applyStatus(status)} disabled={savingStatus !== null}>
           {label}
         </button>
@@ -1062,6 +1068,7 @@ function RequestRefundModal({ row, reason, evidence, error, submitting, onReason
 export function RefundRequestRow({ request, onApprove, onDeny, onReopen }) {
   const [denyOpen, setDenyOpen] = useState(false)
   const [denyReason, setDenyReason] = useState('')
+  const [selectedEvidence, setSelectedEvidence] = useState(null)
   const [busy, setBusy] = useState(null)
   const [error, setError] = useState('')
   const pending = request.status === 'pending'
@@ -1087,6 +1094,7 @@ export function RefundRequestRow({ request, onApprove, onDeny, onReopen }) {
   }
 
   return (
+    <>
     <div className="card action">
       <div>
         <div className="card-row">
@@ -1107,9 +1115,9 @@ export function RefundRequestRow({ request, onApprove, onDeny, onReopen }) {
         {request.evidence?.length > 0 && (
           <div className="refund-evidence-preview">
             {request.evidence.map((item) => (
-              <a key={item.id} className="refund-evidence-thumb" href={item.url} target="_blank" rel="noreferrer">
+              <button key={item.id} type="button" className="refund-evidence-thumb" onClick={() => setSelectedEvidence(item.url)} aria-label="View refund evidence">
                 <img src={item.url} alt="Refund evidence" />
-              </a>
+              </button>
             ))}
           </div>
         )}
@@ -1147,5 +1155,12 @@ export function RefundRequestRow({ request, onApprove, onDeny, onReopen }) {
         </div>
       ) : null}
     </div>
+    {selectedEvidence && (
+      <div className="lightbox-overlay" onClick={() => setSelectedEvidence(null)}>
+        <button type="button" className="lightbox-close" onClick={() => setSelectedEvidence(null)} aria-label="Close preview"><X size={22} /></button>
+        <img className="lightbox-image" src={selectedEvidence} alt="Full-size refund evidence" onClick={(event) => event.stopPropagation()} />
+      </div>
+    )}
+    </>
   )
 }

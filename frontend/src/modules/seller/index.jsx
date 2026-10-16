@@ -175,11 +175,26 @@ export function SellerDashboard() {
         ...(cancellationReason ? { cancellation_reason: cancellationReason } : {}),
       })
     ).data,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['seller-dashboard'] })
+    onSuccess: (updatedOrder) => {
+      // Update the visible order row immediately from the server response.
+      // The detail modal derives its available actions from this row, so a
+      // background refetch alone could leave its buttons showing the old
+      // status until the dashboard request completed.
+      queryClient.setQueryData(['seller-dashboard'], (current) => {
+        if (!current || !Array.isArray(current.orders)) return current
+        return {
+          ...current,
+          orders: current.orders.map((order) => order.id === updatedOrder.id
+            ? { ...order, ...updatedOrder }
+            : order),
+        }
+      })
       // Keeps the open View Order popup's detail panel in step with the
       // status the seller just changed.
-      queryClient.invalidateQueries({ queryKey: ['order-detail'] })
+      return Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['seller-dashboard'] }),
+        queryClient.invalidateQueries({ queryKey: ['order-detail'] }),
+      ])
     },
   })
   // The listing currently open in the edit popup, resolved from the dashboard

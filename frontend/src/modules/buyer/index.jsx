@@ -214,7 +214,10 @@ export function BuyerDashboard() {
     queryFn: async () => (await api.get('/orders')).data,
     enabled: tab === 'orders',
     retry: false,
-    refetchInterval: 30000,
+    // Delivery changes are made from the seller's separate session. Keep the
+    // buyer's order list current so its status follows shortly after the
+    // seller marks it out for delivery.
+    refetchInterval: 5000,
   })
   const refreshOrders = () => {
     queryClient.invalidateQueries({ queryKey: ['buyer-dashboard'] })

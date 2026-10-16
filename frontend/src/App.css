@@ -4820,11 +4820,15 @@ body.modal-open {
 }
 
 .refund-evidence-thumb {
+  background: transparent;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-md);
+  cursor: zoom-in;
   display: block;
   height: 72px;
   overflow: hidden;
+  min-height: 0;
+  padding: 0;
   position: relative;
   width: 72px;
 }
