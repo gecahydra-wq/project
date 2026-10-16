@@ -32,6 +32,7 @@ use App\Models\MockPayment;
 use App\Models\Municipality;
 use App\Models\Order;
 use App\Models\PaymentLog;
+use App\Models\RefundRequest;
 use App\Models\Review;
 use App\Models\SellerNotice;
 use App\Models\SellerProfile;
@@ -41,11 +42,14 @@ use App\Models\WithdrawalRequest;
 use App\Support\AccountModeration;
 use App\Support\AiDataQueryResolver;
 use App\Support\CommissionCalculator;
+use App\Support\LguWallet;
 use App\Support\PaymentReturnToken;
 use App\Support\PayoutAccount;
+use App\Support\RefundRequests;
 use App\Support\SellerApproval;
 use App\Support\SellerReputation;
 use App\Support\SellerSanctions;
+use App\Support\SellerWallet;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Auth\Notifications\VerifyEmail;
@@ -319,6 +323,35 @@ class FishMarketApiTest extends TestCase
         ], $overrides));
     }
 
+    /**
+     * Give a seller real settled earnings to withdraw against.
+     *
+     * makeWithdrawal() writes a request straight to the table, but no request
+     * like that can exist in the app: SellerController::requestWithdrawal
+     * refuses anything above the available balance, so every real request is
+     * backed by a settlement. Tests that approve one have to say where the
+     * money came from, or the balance looks short and the approval is refused
+     * (SellerWallet::repaymentDue).
+     */
+    protected function giveSellerEarnings(SellerProfile $seller, float $gross = 1000): Settlement
+    {
+        $order = $this->makeOrder($this->makeBuyer(), $this->makeListing($seller), [
+            'status' => 'completed',
+            'total_amount' => $gross,
+        ]);
+        $payment = $this->makePayment($order, ['status' => 'released', 'amount' => $gross]);
+
+        return $this->makeSettlement($order, $payment);
+    }
+
+    /** The same, for an LGU's shared municipal revenue pool. */
+    protected function giveMunicipalRevenue(int $municipalityId, float $gross = 5000): Settlement
+    {
+        $seller = $this->makeSeller([], ['municipality_id' => $municipalityId]);
+
+        return $this->giveSellerEarnings($seller, $gross);
+    }
+
     public function test_database_heartbeat_endpoint_reports_a_reachable_connection(): void
     {
         // An external uptime pinger hits this every few minutes so the free
@@ -432,6 +465,10 @@ class FishMarketApiTest extends TestCase
             'type' => 'new_message',
             'title' => 'New message from AbaiMarket',
         ]);
+
+        // The receipt acknowledgement belongs to a buyer who confirmed
+        // themselves; the backstop never sends it.
+        $this->assertSame(0, Message::where('message_type', 'order_received')->count());
     }
 
     public function test_auto_completed_payout_messages_come_from_the_abaimarket_system_account(): void
@@ -469,6 +506,77 @@ class FishMarketApiTest extends TestCase
         $this->assertSame($systemUser->id, $auto->sender_id);
         $this->assertStringContainsString('message the Super Admin or contact Support', $auto->body);
         $this->assertStringNotContainsString('reply here', $auto->body);
+
+        // The acknowledgement is for a recipient who confirmed themselves; the
+        // automatic run sends the version above instead, never both.
+        $this->assertSame(0, Message::where('message_type', 'payout_received')->count());
+    }
+
+    /**
+     * The payout half of the buyer's receipt acknowledgement: a seller who
+     * clicks Money Received is told the withdrawal is complete, and where to
+     * go if something about it is wrong (see WithdrawalNotifications).
+     */
+    public function test_a_seller_confirming_a_payout_gets_one_acknowledgement_from_the_abaimarket_account(): void
+    {
+        Mail::fake();
+        $superAdmin = User::where('role', 'super_admin')->firstOrFail();
+        $seller = $this->makeSeller();
+        $this->giveSellerEarnings($seller);
+        $withdrawal = $this->makeWithdrawal($seller, ['method' => 'gcash', 'amount' => 100]);
+
+        Sanctum::actingAs($superAdmin);
+        $this->patchJson("/api/super-admin/withdrawals/{$withdrawal->id}/approve")->assertOk();
+
+        $this->sendAndConfirmSellerPayout($withdrawal, $seller);
+
+        $systemUser = User::where('role', 'system')->firstOrFail();
+        $messages = Message::where('message_type', 'payout_received')
+            ->where('receiver_id', $seller->user_id)
+            ->get();
+
+        $this->assertCount(1, $messages);
+        $this->assertSame($systemUser->id, $messages->first()->sender_id);
+        $this->assertSame('seller', $messages->first()->withdrawal_type);
+        $this->assertSame($withdrawal->id, $messages->first()->withdrawal_id);
+        $this->assertSame(
+            sprintf(
+                'Thank you for confirming that you received your withdrawal payout of ₱%s via GCash. Your withdrawal is now complete and marked paid in your Wallet. If something about the payout is wrong -- the amount, or the account it was sent to -- message the Super Admin or contact Support.',
+                number_format((float) $withdrawal->fresh()->net_amount, 2)
+            ),
+            $messages->first()->body
+        );
+    }
+
+    public function test_an_lgu_confirming_a_payout_gets_one_acknowledgement_from_the_abaimarket_account(): void
+    {
+        Mail::fake();
+        $superAdmin = User::where('role', 'super_admin')->firstOrFail();
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $this->giveMunicipalRevenue($lguAdmin->municipality_id, 50000);
+        $withdrawal = $this->makeLguWithdrawal($lguAdmin->municipality_id, ['method' => 'bank_transfer', 'amount' => 100]);
+
+        Sanctum::actingAs($superAdmin);
+        $this->patchJson("/api/super-admin/lgu-withdrawals/{$withdrawal->id}/approve")->assertOk();
+
+        $this->sendAndConfirmLguPayout($withdrawal, $lguAdmin);
+
+        $systemUser = User::where('role', 'system')->firstOrFail();
+        $messages = Message::where('message_type', 'payout_received')
+            ->where('receiver_id', $lguAdmin->id)
+            ->get();
+
+        $this->assertCount(1, $messages);
+        $this->assertSame($systemUser->id, $messages->first()->sender_id);
+        $this->assertSame('lgu', $messages->first()->withdrawal_type);
+        $this->assertSame($withdrawal->id, $messages->first()->withdrawal_id);
+        $this->assertSame(
+            sprintf(
+                'Thank you for confirming that your municipality received the withdrawal payout of ₱%s via Bank Transfer. The withdrawal is now complete and marked paid in the LGU Wallet. If something about the payout is wrong -- the amount, or the account it was sent to -- message the Super Admin or contact Support.',
+                number_format((float) $withdrawal->amount, 2)
+            ),
+            $messages->first()->body
+        );
     }
 
     public function test_replying_to_the_abaimarket_system_account_is_rejected_with_clear_guidance(): void
@@ -520,6 +628,49 @@ class FishMarketApiTest extends TestCase
 
         $this->assertSame(1, Message::where('message_type', 'order_out_for_delivery')
             ->where('receiver_id', $buyer->id)
+            ->count());
+    }
+
+    /**
+     * Confirming receipt also hands the buyer their next steps: what to do if
+     * the delivery went wrong, and how a refund is asked for. It is scoped to
+     * the buyer's own confirmation -- the automatic backstop sends its own
+     * message, and an admin marking receipt for a silent buyer is not the buyer
+     * acknowledging anything (see OrderController::completeDelivery).
+     */
+    public function test_a_buyer_confirming_receipt_gets_one_system_message_about_the_refund_process(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller);
+        $buyer = $this->makeBuyer();
+        $order = $this->makeOrder($buyer, $listing, ['status' => 'in_transit']);
+        $this->makePayment($order, ['status' => 'paid_held']);
+
+        $this->buyerConfirmsReceipt($order);
+
+        $systemUser = User::where('role', 'system')->firstOrFail();
+        $messages = Message::where('message_type', 'order_received')
+            ->where('receiver_id', $buyer->id)
+            ->get();
+
+        $this->assertCount(1, $messages);
+        $this->assertSame($systemUser->id, $messages->first()->sender_id);
+        $this->assertSame(
+            sprintf(
+                'Thank you for confirming that you received order #%s. If something is wrong with it, message the seller for listing "%s": [%s](/sellers/%d), or contact Support. To request a refund, open this order within %d days of receiving it and give a valid reason -- photos of the problem help -- because every request is reviewed by a Super Admin before any money is returned.',
+                $order->order_number,
+                $listing->title,
+                $seller->hatchery_name,
+                $seller->id,
+                RefundRequests::windowDays()
+            ),
+            $messages->first()->body
+        );
+
+        // The seller hears about receipt from their own notification; this
+        // acknowledgement exists to guide the buyer, so it goes nowhere else.
+        $this->assertSame(0, Message::where('message_type', 'order_received')
+            ->where('receiver_id', '!=', $buyer->id)
             ->count());
     }
 
@@ -594,6 +745,34 @@ class FishMarketApiTest extends TestCase
             'id' => $listing->id,
             'quantity' => $listing->quantity - 100,
         ]);
+    }
+
+    public function test_the_seller_is_notified_when_a_buyer_places_an_unpaid_order(): void
+    {
+        $buyer = $this->makeBuyer();
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 900]);
+        Sanctum::actingAs($buyer);
+
+        $order = $this->postJson('/api/orders', [
+            'fingerling_listing_id' => $listing->id,
+            'quantity' => 100,
+        ])->assertCreated()->json();
+
+        // Placement takes the stock out of the seller's listing right away, so
+        // that is when they hear about it -- and the wording says plainly that
+        // nothing has been paid, so it cannot be mistaken for a sale.
+        $this->assertDatabaseHas('notifications', [
+            'user_id' => $seller->user_id,
+            'type' => "order_placed:{$order['id']}",
+            'title' => 'Order placed',
+            'body' => "A buyer has placed order #{$order['order_number']}: 100 x Bangus Fingerlings, ₱350.00. The stock is reserved for them but the order is not paid yet -- you will be notified again once the payment is received.",
+        ]);
+
+        // Not a replacement for the money-side notice: with no payment made,
+        // 'Order paid' must not exist yet, and the buyer gets nothing here.
+        $this->assertDatabaseMissing('notifications', ['user_id' => $seller->user_id, 'title' => 'Order paid']);
+        $this->assertDatabaseMissing('notifications', ['user_id' => $buyer->id]);
     }
 
     public function test_order_creation_rejects_out_of_stock_listing_even_if_the_frontend_guard_is_bypassed(): void
@@ -1110,7 +1289,9 @@ class FishMarketApiTest extends TestCase
         $seller = $sellerProfile->user;
         $buyer = $this->makeBuyer(['name' => 'Nina Buyer']);
         $listing = $this->makeListing($sellerProfile, ['species' => 'Bangus']);
-        $order = $this->makeOrder($buyer, $listing, ['order_number' => 'FG-DELIVERED1']);
+        // Out for delivery: the buyer can only confirm receipt on a delivery
+        // that is actually on its way (OrderController::completeDelivery).
+        $order = $this->makeOrder($buyer, $listing, ['order_number' => 'FG-DELIVERED1', 'status' => 'in_transit']);
         $this->makePayment($order, ['status' => 'paid_held']);
 
         $this->buyerConfirmsReceipt($order, $seller);
@@ -1144,7 +1325,7 @@ class FishMarketApiTest extends TestCase
         $seller = $sellerProfile->user;
         $buyer = $this->makeBuyer();
         $listing = $this->makeListing($sellerProfile);
-        $order = $this->makeOrder($buyer, $listing);
+        $order = $this->makeOrder($buyer, $listing, ['status' => 'in_transit']);
         $this->makePayment($order, ['status' => 'paid_held']);
 
         $this->buyerConfirmsReceipt($order);
@@ -1162,7 +1343,7 @@ class FishMarketApiTest extends TestCase
         $seller = $sellerProfile->user;
         $buyer = $this->makeBuyer();
         $listing = $this->makeListing($sellerProfile);
-        $order = $this->makeOrder($buyer, $listing);
+        $order = $this->makeOrder($buyer, $listing, ['status' => 'in_transit']);
         $this->makePayment($order, ['status' => 'paid_held']);
 
         $this->buyerConfirmsReceipt($order);
@@ -1445,6 +1626,7 @@ class FishMarketApiTest extends TestCase
     public function test_super_admin_can_approve_and_reject_withdrawal_requests(): void
     {
         $seller = $this->makeSeller();
+        $this->giveSellerEarnings($seller);
         $withdrawal = WithdrawalRequest::create([
             'seller_profile_id' => $seller->id,
             'method' => 'bank_transfer',
@@ -1499,6 +1681,7 @@ class FishMarketApiTest extends TestCase
     public function test_seller_money_received_confirmation_completes_an_approved_withdrawal(): void
     {
         $seller = $this->makeSeller();
+        $this->giveSellerEarnings($seller);
         $withdrawal = WithdrawalRequest::create([
             'seller_profile_id' => $seller->id,
             'method' => 'maya',
@@ -1893,6 +2076,9 @@ class FishMarketApiTest extends TestCase
         $this->assertEquals(112.8, $wallet['pending_balance'], 'Pending Balance must project the Seller Share (94% of ₱120), not the gross amount.');
         $this->assertEquals(0, $wallet['available_balance']);
 
+        // Out for delivery first -- the buyer can only confirm receipt once the
+        // seller has dispatched the order.
+        $this->patchJson("/api/orders/{$order['id']}/status", ['status' => 'in_transit'])->assertOk();
         $this->buyerConfirmsReceipt($order['id'], $seller->user);
 
         $payment = MockPayment::whereHas('order', fn ($q) => $q->where('id', $order['id']))->firstOrFail();
@@ -5063,15 +5249,33 @@ class FishMarketApiTest extends TestCase
         $this->assertDatabaseHas('notifications', ['user_id' => $superAdmin->id, 'type' => "refund_pending:{$payment->id}"]);
 
         Sanctum::actingAs($superAdmin);
-        $this->getJson('/api/super-admin/refunds')->assertOk()
+        $queued = $this->getJson('/api/super-admin/refunds')->assertOk()
             ->assertJsonPath('0.order_number', $order->order_number)
-            ->assertJsonPath('0.status', 'refund_pending');
+            ->assertJsonPath('0.status', 'refund_pending')
+            // The order's own facts travel with the refund, so the queue can be
+            // read as a record of what was bought and when -- not just as a row
+            // of money with an opaque order number.
+            ->assertJsonPath('0.quantity', 100)
+            ->assertJsonPath('0.unit_price', (float) $order->unit_price)
+            ->assertJsonPath('0.listing_title', $listing->title)
+            ->assertJsonPath('0.order_placed_at', $order->created_at->toJSON())
+            // Nothing has been refunded yet, so there is no completion date.
+            ->assertJsonPath('0.refunded_at', null)
+            ->json();
+        $this->assertNotNull($queued[0]['flagged_at']);
 
         $this->patchJson("/api/super-admin/refunds/{$payment->id}/refunded", ['reference' => 'RF-123'])->assertOk();
         $this->assertSame('refunded', $payment->fresh()->status);
         $this->assertDatabaseHas('notifications', ['user_id' => $buyer->id, 'title' => 'Refund sent']);
         $this->assertDatabaseHas('activity_logs', ['action' => 'order_refunded']);
-        $this->getJson('/api/super-admin/refunds')->assertJsonPath('0.refund_reference', 'RF-123');
+
+        $completed = $this->getJson('/api/super-admin/refunds')
+            ->assertJsonPath('0.refund_reference', 'RF-123')
+            ->assertJsonPath('0.automatic_refund', false)
+            ->json();
+        // Now that it is done, the queue says when -- the fact the Super Admin
+        // needs to reconcile the row against the PayMongo dashboard.
+        $this->assertNotNull($completed[0]['refunded_at']);
 
         $this->patchJson("/api/super-admin/refunds/{$payment->id}/refunded")->assertStatus(422);
     }
@@ -5626,13 +5830,23 @@ class FishMarketApiTest extends TestCase
         }
 
         // 'completed' is not even a status this endpoint accepts any more --
-        // only the buyer can confirm receipt -- and the same money-first rule
-        // holds there, or an unpaid order would reach the LGU earnings queue.
+        // only the buyer can confirm receipt. For a 'placed' order the
+        // out-for-delivery guard answers first: an undispatched order cannot be
+        // received, whatever its payment says.
         $this->patchJson("/api/orders/{$order->id}/status", ['status' => 'completed'])->assertStatus(422);
         Sanctum::actingAs($buyer);
         $this->patchJson("/api/orders/{$order->id}/confirm-received")
             ->assertStatus(422)
+            ->assertJsonPath('message', 'This order is not out for delivery yet, so receipt cannot be confirmed.');
+
+        // The money-first rule itself: an order that HAS been dispatched but
+        // whose payment never reached escrow is still refused, or it would push
+        // an unpaid order into the LGU earnings queue.
+        $order->update(['status' => 'in_transit']);
+        $this->patchJson("/api/orders/{$order->id}/confirm-received")
+            ->assertStatus(422)
             ->assertJsonPath('message', 'This order has not been paid yet, so it cannot be marked as received.');
+        $order->update(['status' => 'placed']);
         Sanctum::actingAs($sellerProfile->user);
 
         $this->assertSame('placed', $order->fresh()->status);
@@ -5725,6 +5939,7 @@ class FishMarketApiTest extends TestCase
     {
         Mail::fake();
         $seller = $this->makeSeller();
+        $this->giveSellerEarnings($seller);
         $withdrawal = $this->makeWithdrawal($seller);
         Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
 
@@ -6465,6 +6680,7 @@ class FishMarketApiTest extends TestCase
         $seller = $this->makeSeller();
         $buyer = $this->makeBuyer();
         $listing = $this->makeListing($seller);
+        $this->giveSellerEarnings($seller);
 
         // A payment awaiting LGU earnings approval must NOT count as a pending payout.
         $order = $this->makeOrder($buyer, $listing, ['status' => 'completed']);
@@ -6976,6 +7192,7 @@ class FishMarketApiTest extends TestCase
         Mail::fake();
 
         $seller = $this->makeSeller();
+        $this->giveSellerEarnings($seller);
         // A request from before 2026-10-09 still carries (and shows) its 6% fee.
         $withdrawal = $this->makeWithdrawal($seller, ['amount' => 25, 'platform_fee' => 1.50]);
         Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
@@ -7184,6 +7401,8 @@ class FishMarketApiTest extends TestCase
         Sanctum::actingAs($buyer);
         $order = $this->postJson('/api/orders', ['fingerling_listing_id' => $listing->id, 'quantity' => 1])->assertCreated()->json();
         $this->postJson("/api/orders/{$order['order_number']}/payment-success")->assertOk();
+        Sanctum::actingAs($seller->user);
+        $this->patchJson("/api/orders/{$order['id']}/status", ['status' => 'in_transit'])->assertOk();
         $this->buyerConfirmsReceipt($order['id'], $seller->user);
         $payment = MockPayment::whereHas('order', fn ($q) => $q->where('id', $order['id']))->firstOrFail();
         Sanctum::actingAs($lguAdmin);
@@ -7519,6 +7738,7 @@ class FishMarketApiTest extends TestCase
     public function test_super_admin_can_approve_and_reject_lgu_withdrawal_requests(): void
     {
         $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $this->giveMunicipalRevenue($lguAdmin->municipality_id);
         $withdrawal = $this->makeLguWithdrawal($lguAdmin->municipality_id, ['amount' => 30]);
         $otherWithdrawal = $this->makeLguWithdrawal($lguAdmin->municipality_id, ['amount' => 15, 'method' => 'maya']);
 
@@ -11552,5 +11772,727 @@ class FishMarketApiTest extends TestCase
         $this->assertStringContainsString('Refund Pending', $refund['English']);
         $this->assertStringContainsString('Payment or refund', $refund['English']);
         $this->assertStringContainsString('refund queue', \App\Support\AiIntentClassifier::topicContext($refund, 'super_admin'));
+    }
+
+    /* ---------------------------------------------------------------------
+       Post-completion refund requests (App\Support\RefundRequests)
+
+       A separate flow from cancellation refunds, and the tests are kept
+       separate for the same reason: a cancellation refund is queued by the
+       app the moment an order is wound down, while this one is a buyer
+       asking for money back after receiving the order and a Super Admin
+       deciding. The two share only the final money step.
+       --------------------------------------------------------------------- */
+
+    /** A completed order whose money is still in escrow, with the payment returned. */
+    protected function receivedOrder(User $buyer, FingerlingListing $listing, array $orderOverrides = [], array $paymentOverrides = []): array
+    {
+        $order = $this->makeOrder($buyer, $listing, array_merge([
+            'status' => 'completed',
+            'completed_at' => now(),
+        ], $orderOverrides));
+
+        $payment = $this->makePayment($order, array_merge([
+            'status' => 'paid_held',
+            'amount' => $order->total_amount,
+        ], $paymentOverrides));
+
+        return [$order, $payment];
+    }
+
+    /** File a refund request as the order's own buyer, through the API. */
+    protected function fileRefundRequest(Order $order, string $reason = 'Most of the fingerlings died within two days of delivery.')
+    {
+        Sanctum::actingAs(User::findOrFail($order->buyer_id));
+
+        return $this->post("/api/orders/{$order->id}/refund-request", ['reason' => $reason], ['Accept' => 'application/json']);
+    }
+
+    /**
+     * A completed order whose earnings the LGU already released, with a live
+     * refund request against it -- the state every reversal test starts from.
+     *
+     * Released earnings are the only ones a refund can reverse, so the LGU
+     * approval is part of the fixture: without a Settlement there is nothing
+     * for a refund to take back and the tests below would prove nothing.
+     *
+     * @return array{0: SellerProfile, 1: User, 2: Order, 3: MockPayment, 4: Settlement}
+     */
+    protected function releasedOrderWithRefundRequest(): array
+    {
+        Storage::fake('public');
+        Mail::fake();
+
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $seller = $this->makeSeller([], ['municipality_id' => $lguAdmin->municipality_id]);
+        $listing = $this->makeListing($seller, ['quantity' => 900, 'price_per_piece' => 70]);
+        $buyer = $this->makeBuyer();
+        [$order, $payment] = $this->receivedOrder($buyer, $listing);
+
+        Sanctum::actingAs($lguAdmin);
+        $this->patchJson("/api/lgu/payments/{$payment->id}/approve")->assertOk();
+
+        $settlement = Settlement::where('order_id', $order->id)->firstOrFail();
+        $this->assertGreaterThan(0, (float) $settlement->seller_share);
+
+        $this->fileRefundRequest($order)->assertCreated();
+
+        return [$seller, $buyer, $order, $payment, $settlement];
+    }
+
+    public function test_a_buyer_can_request_a_refund_within_seven_days_of_receiving_the_order(): void
+    {
+        Storage::fake('public');
+        Mail::fake();
+
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 900]);
+        $buyer = $this->makeBuyer(['name' => 'Nina Buyer']);
+        [$order, $payment] = $this->receivedOrder($buyer, $listing);
+
+        Sanctum::actingAs($buyer);
+        $response = $this->post("/api/orders/{$order->id}/refund-request", [
+            'reason' => 'Most of the fingerlings died within two days of delivery despite following the handling advice.',
+            'evidence' => [UploadedFile::fake()->image('damage.jpg')->size(300)],
+        ], ['Accept' => 'application/json']);
+
+        $response->assertCreated()
+            ->assertJsonPath('refund_request.status', RefundRequest::PENDING)
+            ->assertJsonPath('refund_request.order_number', $order->order_number)
+            ->assertJsonPath('refund_request.buyer.name', 'Nina Buyer')
+            ->assertJsonPath('refund_request.quantity', 100)
+            ->assertJsonCount(1, 'refund_request.evidence');
+
+        // The amount is the payment's own -- nothing in this request can
+        // influence what the buyer is asking for.
+        $this->assertEquals((float) $payment->amount, (float) $response->json('refund_request.amount'));
+
+        $refundRequest = RefundRequest::where('order_id', $order->id)->firstOrFail();
+        $this->assertSame($payment->id, $refundRequest->payment_id);
+        $this->assertSame($buyer->id, $refundRequest->buyer_id);
+        $this->assertNull($refundRequest->decided_at);
+        $this->assertDatabaseHas('refund_request_media', ['refund_request_id' => $refundRequest->id, 'type' => 'photo']);
+
+        // Filing asks; it does not refund. The order stays completed and the
+        // money stays exactly where it was.
+        $this->assertSame('completed', $order->fresh()->status);
+        $this->assertSame('paid_held', $payment->fresh()->status);
+
+        $this->assertDatabaseHas('activity_logs', [
+            'action' => 'refund_request_filed',
+            'reference_number' => $order->order_number,
+        ]);
+
+        $superAdmin = User::where('role', 'super_admin')->firstOrFail();
+        $this->assertDatabaseHas('notifications', [
+            'user_id' => $superAdmin->id,
+            'type' => "refund_request:{$refundRequest->id}",
+        ]);
+    }
+
+    public function test_the_buyers_own_order_payload_carries_the_refund_window_and_their_request(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 900]);
+        $buyer = $this->makeBuyer();
+        [$order] = $this->receivedOrder($buyer, $listing);
+
+        Sanctum::actingAs($buyer);
+        $row = $this->getJson('/api/orders')->assertOk()->json()[0];
+
+        // The window the frontend draws the button from, derived server-side
+        // from completed_at -- there is no deadline column behind it.
+        $this->assertSame(
+            $order->fresh()->completed_at->copy()->addDays(7)->toIso8601String(),
+            $row['refund_request_deadline']
+        );
+        $this->assertNull($row['refundRequest']);
+
+        $this->fileRefundRequest($order)->assertCreated();
+
+        // Relation names stay camelCase in this API (see AppServiceProvider).
+        $row = $this->getJson('/api/orders')->assertOk()->json()[0];
+        $this->assertSame('pending', $row['refundRequest']['status']);
+    }
+
+    public function test_a_refund_request_is_refused_once_the_seven_day_window_has_closed(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 900]);
+        $buyer = $this->makeBuyer();
+        [$order, $payment] = $this->receivedOrder($buyer, $listing, ['completed_at' => now()->subDays(8)]);
+
+        $this->fileRefundRequest($order)
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'The refund window for this order has closed. You have 7 days from the day it was completed to request a refund.');
+
+        $this->assertDatabaseCount('refund_requests', 0);
+        $this->assertSame('paid_held', $payment->fresh()->status);
+    }
+
+    public function test_a_refund_request_is_refused_for_an_order_that_was_never_received(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 900]);
+        $buyer = $this->makeBuyer();
+
+        foreach (['in_transit', 'confirmed', 'cancelled'] as $status) {
+            $order = $this->makeOrder($buyer, $listing, ['status' => $status]);
+            $this->makePayment($order, ['status' => 'paid_held']);
+
+            $this->fileRefundRequest($order)
+                ->assertStatus(422)
+                ->assertJsonPath('message', 'Only an order you have already received can be refunded.');
+        }
+
+        // A completed order with no completion timestamp has no window to be
+        // inside either, so it is refused the same way.
+        $order = $this->makeOrder($buyer, $listing, ['status' => 'completed', 'completed_at' => null]);
+        $this->makePayment($order, ['status' => 'paid_held']);
+        $this->fileRefundRequest($order)->assertStatus(422);
+
+        $this->assertDatabaseCount('refund_requests', 0);
+    }
+
+    public function test_only_the_buyer_who_owns_the_order_can_request_a_refund(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 900]);
+        $buyer = $this->makeBuyer();
+        [$order] = $this->receivedOrder($buyer, $listing);
+
+        $stranger = $this->makeBuyer(['name' => 'Someone Else']);
+        Sanctum::actingAs($stranger);
+        $this->postJson("/api/orders/{$order->id}/refund-request", ['reason' => 'I want this refunded please.'])
+            ->assertStatus(403);
+
+        // The seller and the Super Admin have their own paths to a refund and
+        // cannot file the buyer's request for them.
+        foreach ([$seller->user, User::where('role', 'super_admin')->firstOrFail()] as $other) {
+            Sanctum::actingAs($other);
+            $this->postJson("/api/orders/{$order->id}/refund-request", ['reason' => 'Filing this on their behalf.'])
+                ->assertStatus(403);
+        }
+
+        $this->assertDatabaseCount('refund_requests', 0);
+    }
+
+    public function test_a_second_refund_request_for_the_same_order_is_refused(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 900]);
+        $buyer = $this->makeBuyer();
+        [$order] = $this->receivedOrder($buyer, $listing);
+
+        $this->fileRefundRequest($order, 'The fingerlings arrived weak and most died.')->assertCreated();
+
+        $this->fileRefundRequest($order, 'Asking again because the first one was ignored.')
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'A refund has already been requested for this order.');
+
+        $this->assertDatabaseCount('refund_requests', 1);
+    }
+
+    public function test_a_refund_request_needs_a_reason(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 900]);
+        $buyer = $this->makeBuyer();
+        [$order] = $this->receivedOrder($buyer, $listing);
+
+        Sanctum::actingAs($buyer);
+        $this->postJson("/api/orders/{$order->id}/refund-request", [])
+            ->assertStatus(422)
+            ->assertJsonPath('errors.reason.0', 'Tell us why you are requesting a refund.');
+
+        $this->assertDatabaseCount('refund_requests', 0);
+    }
+
+    public function test_a_refund_request_is_refused_when_the_payment_is_not_refundable(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 900]);
+        $buyer = $this->makeBuyer();
+
+        // Every state a completed order's payment can be in other than escrow
+        // or released -- including the cancellation flow's own refund states,
+        // so money already being returned cannot be asked for twice.
+        foreach (['pending', 'checkout_created', 'refund_pending', 'refunded', 'failed', 'cancelled'] as $status) {
+            $order = $this->makeOrder($buyer, $listing, [
+                'status' => 'completed',
+                'completed_at' => now(),
+                'order_number' => 'FG-NR-'.strtoupper($status),
+            ]);
+            $this->makePayment($order, ['status' => $status]);
+
+            $this->fileRefundRequest($order)
+                ->assertStatus(422)
+                ->assertJsonPath('message', 'This order\'s payment is not in a state that can be refunded.');
+        }
+
+        $this->assertDatabaseCount('refund_requests', 0);
+    }
+
+    public function test_a_super_admin_approving_a_refund_request_queues_the_refund(): void
+    {
+        Mail::fake();
+
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 900]);
+        $buyer = $this->makeBuyer();
+        [$order, $payment] = $this->receivedOrder($buyer, $listing);
+
+        $this->fileRefundRequest($order, 'Half the fingerlings were dead on arrival.')->assertCreated();
+        $refundRequest = RefundRequest::where('order_id', $order->id)->firstOrFail();
+
+        $superAdmin = User::where('role', 'super_admin')->firstOrFail();
+        Sanctum::actingAs($superAdmin);
+        $this->patchJson("/api/super-admin/refund-requests/{$refundRequest->id}/approve")
+            ->assertOk()
+            ->assertJsonPath('status', RefundRequest::APPROVED);
+
+        $refundRequest->refresh();
+        $this->assertSame(RefundRequest::APPROVED, $refundRequest->status);
+        $this->assertSame($superAdmin->id, $refundRequest->decided_by);
+        $this->assertNotNull($refundRequest->decided_at);
+        $this->assertNull($refundRequest->denial_reason);
+
+        // The money step is the same one a cancellation uses: the payment joins
+        // the Super Admin's refund queue (test keys are pinned to the manual
+        // path in phpunit.xml) rather than being marked refunded by the hand.
+        $this->assertSame('refund_pending', $payment->fresh()->status);
+        $this->assertDatabaseHas('notifications', ['user_id' => $buyer->id, 'title' => 'Refund pending']);
+        $this->assertDatabaseHas('notifications', [
+            'user_id' => $buyer->id,
+            'type' => "refund_request_decided:{$refundRequest->id}",
+            'title' => 'Refund request approved',
+        ]);
+
+        $this->assertDatabaseHas('activity_logs', ['action' => 'refund_request_approved', 'reference_number' => $order->order_number]);
+
+        // The Super Admin's own "a request came in" notification is answered.
+        $this->assertNotNull(AppNotification::where('user_id', $superAdmin->id)->where('type', "refund_request:{$refundRequest->id}")->value('read_at'));
+
+        // It lands in the queue the refunds tab already shows, so the two
+        // refund flows are worked from one place.
+        Sanctum::actingAs($superAdmin);
+        $this->getJson('/api/super-admin/refunds')->assertOk()
+            ->assertJsonPath('0.order_number', $order->order_number)
+            ->assertJsonPath('0.status', 'refund_pending');
+
+        $this->patchJson("/api/super-admin/refunds/{$payment->id}/refunded", ['reference' => 'RF-900'])->assertOk();
+        $this->assertSame('refunded', $payment->fresh()->status);
+    }
+
+    public function test_approving_a_refund_request_reverses_earnings_that_were_already_released(): void
+    {
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $seller = $this->makeSeller([], ['municipality_id' => $lguAdmin->municipality_id]);
+        $listing = $this->makeListing($seller, ['quantity' => 900]);
+        $buyer = $this->makeBuyer();
+        [$order, $payment] = $this->receivedOrder($buyer, $listing);
+
+        $this->fileRefundRequest($order)->assertCreated();
+        $refundRequest = RefundRequest::where('order_id', $order->id)->firstOrFail();
+
+        // The LGU approves the earnings first, so the seller's share is now real
+        // money credited by an immutable settlement.
+        Sanctum::actingAs($lguAdmin);
+        $this->patchJson("/api/lgu/payments/{$payment->id}/approve")->assertOk()->assertJsonPath('status', 'released');
+
+        $settlement = Settlement::where('order_id', $order->id)->firstOrFail();
+        $share = (float) $settlement->seller_share;
+        $settledAt = $settlement->settled_at->copy();
+        $this->assertGreaterThan(0, $share);
+        $this->assertSame($share, (float) \App\Support\SellerWallet::availableBalance($seller));
+
+        $superAdmin = User::where('role', 'super_admin')->firstOrFail();
+        Sanctum::actingAs($superAdmin);
+        $this->patchJson("/api/super-admin/refund-requests/{$refundRequest->id}/approve")->assertOk();
+
+        $settlement->refresh();
+        $this->assertNotNull($settlement->reversed_at);
+        // Reversing is not the same as un-settling: the order's own date has to
+        // survive, because the ledger, the period filters and the revenue charts
+        // all date a settlement by settled_at. (On MySQL/MariaDB this is a real
+        // trap -- a NOT NULL TIMESTAMP carries an implicit ON UPDATE
+        // CURRENT_TIMESTAMP that rewrites the column on any update that omits
+        // it, in the database server's timezone rather than UTC.)
+        $this->assertTrue($settledAt->equalTo($settlement->settled_at));
+        $this->assertSame($superAdmin->id, $settlement->reversed_by);
+        // Reversed, never deleted -- the row is the history of a payout that
+        // had to be taken back.
+        $this->assertDatabaseHas('settlements', ['id' => $settlement->id]);
+
+        // The share stops counting toward every balance derived from it.
+        $this->assertSame(0.0, (float) \App\Support\SellerWallet::availableBalance($seller));
+        $this->assertSame(0.0, (float) \App\Support\SellerWallet::summary($seller)['total_earnings']);
+        $this->assertDatabaseHas('activity_logs', ['action' => 'seller_earnings_reversed', 'reference_number' => $order->order_number]);
+        $this->assertSame('refund_pending', $payment->fresh()->status);
+    }
+
+    public function test_approving_a_refund_request_after_the_share_was_withdrawn_carries_the_shortfall(): void
+    {
+        [$seller, $buyer, $order, $payment, $settlement] = $this->releasedOrderWithRefundRequest();
+
+        // Both parties withdraw their whole share before the request is decided.
+        // The money is gone, and that no longer blocks the refund: the refund
+        // is the buyer's, and each balance carries what it cannot cover.
+        Sanctum::actingAs($seller->user);
+        $this->postJson('/api/seller/withdrawals', [
+            'method' => 'gcash',
+            'account_name' => 'Test Seller',
+            'account_number' => '09171234567',
+            'amount' => (float) $settlement->seller_share,
+        ])->assertCreated();
+
+        Sanctum::actingAs(User::where('role', 'lgu_admin')->firstOrFail());
+        $this->postJson('/api/lgu/withdrawals', [
+            'method' => 'gcash',
+            'account_name' => 'Test Municipality',
+            'account_number' => '09171234567',
+            'amount' => (float) $settlement->lgu_share,
+        ])->assertCreated();
+
+        $refundRequest = RefundRequest::where('order_id', $order->id)->firstOrFail();
+
+        Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
+        $this->patchJson("/api/super-admin/refund-requests/{$refundRequest->id}/approve")->assertOk();
+
+        // The decision, the reversal and the money step all landed.
+        $this->assertSame(RefundRequest::APPROVED, $refundRequest->fresh()->status);
+        $this->assertNotNull($settlement->fresh()->reversed_at);
+        $this->assertSame('refund_pending', $payment->fresh()->status);
+
+        // Both balances stay at zero rather than going negative, and the
+        // shortfall is stated instead of hidden inside the floored zero.
+        $this->assertSame(0.0, SellerWallet::availableBalance($seller));
+        $this->assertEquals((float) $settlement->seller_share, SellerWallet::repaymentDue($seller));
+        $this->assertSame(0.0, LguWallet::availableBalance($seller->municipality_id));
+        $this->assertEquals((float) $settlement->lgu_share, LguWallet::repaymentDue($seller->municipality_id));
+    }
+
+    public function test_new_earnings_pay_the_shortfall_down_before_a_reserved_withdrawal_can_be_paid(): void
+    {
+        [$seller, $buyer, $order, $payment, $settlement] = $this->releasedOrderWithRefundRequest();
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+
+        // A withdrawal reserved while the balance still covered it.
+        Sanctum::actingAs($seller->user);
+        $withdrawalId = $this->postJson('/api/seller/withdrawals', [
+            'method' => 'gcash',
+            'account_name' => 'Test Seller',
+            'account_number' => '09171234567',
+            'amount' => (float) $settlement->seller_share,
+        ])->assertCreated()->json('id');
+
+        $refundRequest = RefundRequest::where('order_id', $order->id)->firstOrFail();
+
+        Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
+        $this->patchJson("/api/super-admin/refund-requests/{$refundRequest->id}/approve")->assertOk();
+
+        // Paying it now would hand over money the seller no longer has.
+        $this->patchJson("/api/super-admin/withdrawals/{$withdrawalId}/approve")
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'This seller\'s earnings are short from a refunded order, so withdrawals cannot be paid until new earnings cover the difference.');
+
+        // New earnings clear the shortfall, and the reserved withdrawal is
+        // payable again without anyone editing it. Deliberately larger than the
+        // reversed order, so there is something left over after the debt.
+        $listing = FingerlingListing::findOrFail($order->listing_id);
+        [$secondOrder, $secondPayment] = $this->receivedOrder($buyer, $listing, [
+            'quantity' => 200,
+            'total_amount' => 200 * $listing->price_per_piece,
+        ]);
+
+        Sanctum::actingAs($lguAdmin);
+        $this->patchJson("/api/lgu/payments/{$secondPayment->id}/approve")->assertOk();
+
+        $this->assertSame(0.0, SellerWallet::repaymentDue($seller));
+        $this->assertGreaterThan(0, SellerWallet::availableBalance($seller));
+
+        Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
+        $this->patchJson("/api/super-admin/withdrawals/{$withdrawalId}/approve")
+            ->assertOk()
+            ->assertJsonPath('status', 'approved');
+
+        $this->assertSame('completed', $secondOrder->fresh()->status);
+    }
+
+    public function test_reversing_released_earnings_notifies_the_seller_and_the_lgu(): void
+    {
+        [$seller, , $order] = $this->releasedOrderWithRefundRequest();
+        $lguAdmin = User::where('role', 'lgu_admin')->firstOrFail();
+        $refundRequest = RefundRequest::where('order_id', $order->id)->firstOrFail();
+
+        // The seller already took the share out, so the reversal leaves a debt
+        // and the notice has to say so rather than leave a stuck zero.
+        $settlement = Settlement::where('order_id', $order->id)->firstOrFail();
+        Sanctum::actingAs($seller->user);
+        $this->postJson('/api/seller/withdrawals', [
+            'method' => 'gcash',
+            'account_name' => 'Test Seller',
+            'account_number' => '09171234567',
+            'amount' => (float) $settlement->seller_share,
+        ])->assertCreated();
+
+        Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
+        $this->patchJson("/api/super-admin/refund-requests/{$refundRequest->id}/approve")->assertOk();
+
+        $this->assertDatabaseHas('notifications', [
+            'user_id' => $seller->user_id,
+            'type' => "earnings_reversed:{$order->id}",
+        ]);
+        $this->assertDatabaseHas('notifications', [
+            'user_id' => $lguAdmin->id,
+            'type' => "earnings_reversed_lgu:{$order->id}",
+        ]);
+
+        // The shortfall is spelt out, because a floored balance with no reason
+        // attached is indistinguishable from a bug.
+        $notice = AppNotification::where('type', "earnings_reversed:{$order->id}")->firstOrFail();
+        $this->assertStringContainsString('short of what has already been withdrawn', $notice->body);
+    }
+
+    public function test_a_refund_of_earnings_still_in_escrow_notifies_nobody_about_a_reversal(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 900]);
+        $buyer = $this->makeBuyer();
+        [$order] = $this->receivedOrder($buyer, $listing);
+
+        // Never approved by the LGU, so no Settlement exists and neither the
+        // seller nor the LGU was ever credited.
+        $this->fileRefundRequest($order)->assertCreated();
+        $refundRequest = RefundRequest::where('order_id', $order->id)->firstOrFail();
+
+        Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
+        $this->patchJson("/api/super-admin/refund-requests/{$refundRequest->id}/approve")->assertOk();
+
+        $this->assertSame(RefundRequest::APPROVED, $refundRequest->fresh()->status);
+        $this->assertDatabaseMissing('notifications', ['type' => "earnings_reversed:{$order->id}"]);
+        $this->assertDatabaseMissing('notifications', ['type' => "earnings_reversed_lgu:{$order->id}"]);
+        $this->assertSame(0.0, SellerWallet::repaymentDue($seller));
+    }
+
+    public function test_the_platform_revenue_ledger_is_super_admin_only_and_shows_reversals(): void
+    {
+        Sanctum::actingAs($this->makeBuyer());
+        $this->getJson('/api/super-admin/platform-revenue')->assertForbidden();
+
+        [$seller, , $order, , $settlement] = $this->releasedOrderWithRefundRequest();
+        $superAdmin = User::where('role', 'super_admin')->firstOrFail();
+
+        Sanctum::actingAs($superAdmin);
+        $before = $this->getJson('/api/super-admin/platform-revenue')->assertOk();
+
+        $before->assertJsonPath('reversed_settlements', 0);
+        $before->assertJsonPath('ledger.0.reversed', false);
+        $before->assertJsonPath('ledger.0.order_number', $order->order_number);
+
+        $refundRequest = RefundRequest::where('order_id', $order->id)->firstOrFail();
+        $this->patchJson("/api/super-admin/refund-requests/{$refundRequest->id}/approve")->assertOk();
+
+        $after = $this->getJson('/api/super-admin/platform-revenue')->assertOk();
+
+        // The platform's own 4% is deducted as well -- not only the seller and
+        // LGU shares -- because every aggregate sums non-reversed settlements.
+        $after->assertJsonPath('reversed_settlements', 1);
+        $this->assertEquals(
+            (float) $settlement->platform_share,
+            (float) $after->json('reversed_platform_share')
+        );
+        $this->assertEquals(
+            (float) $before->json('total_platform_revenue') - (float) $settlement->platform_share,
+            (float) $after->json('total_platform_revenue')
+        );
+
+        // The row stays in the ledger, marked, rather than vanishing.
+        $reversedRow = collect($after->json('ledger'))->firstWhere('order_number', $order->order_number);
+        $this->assertTrue($reversedRow['reversed']);
+        $this->assertNotNull($reversedRow['reversed_at']);
+    }
+
+    public function test_a_super_admin_can_deny_a_refund_request_only_with_a_reason(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 900]);
+        $buyer = $this->makeBuyer();
+        [$order, $payment] = $this->receivedOrder($buyer, $listing);
+
+        $this->fileRefundRequest($order, 'I changed my mind about the purchase.')->assertCreated();
+        $refundRequest = RefundRequest::where('order_id', $order->id)->firstOrFail();
+
+        $superAdmin = User::where('role', 'super_admin')->firstOrFail();
+        Sanctum::actingAs($superAdmin);
+
+        $this->patchJson("/api/super-admin/refund-requests/{$refundRequest->id}/deny", [])
+            ->assertStatus(422)
+            ->assertJsonPath('errors.reason.0', 'Tell the buyer why this refund is being denied.');
+
+        $this->patchJson("/api/super-admin/refund-requests/{$refundRequest->id}/deny", [
+            'reason' => 'The fingerlings were delivered on time and the delivery was accepted.',
+        ])->assertOk()->assertJsonPath('status', RefundRequest::DENIED);
+
+        $refundRequest->refresh();
+        $this->assertSame(RefundRequest::DENIED, $refundRequest->status);
+        $this->assertSame('The fingerlings were delivered on time and the delivery was accepted.', $refundRequest->denial_reason);
+        $this->assertSame($superAdmin->id, $refundRequest->decided_by);
+
+        $this->assertDatabaseHas('notifications', [
+            'user_id' => $buyer->id,
+            'type' => "refund_request_decided:{$refundRequest->id}",
+            'title' => 'Refund request denied',
+        ]);
+        $this->assertDatabaseHas('activity_logs', ['action' => 'refund_request_denied', 'reference_number' => $order->order_number]);
+
+        // A denial returns no money: the payment is untouched.
+        $this->assertSame('paid_held', $payment->fresh()->status);
+    }
+
+    public function test_a_decided_refund_request_cannot_be_decided_again(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 900]);
+        $buyer = $this->makeBuyer();
+        [$order, $payment] = $this->receivedOrder($buyer, $listing);
+
+        $this->fileRefundRequest($order)->assertCreated();
+        $refundRequest = RefundRequest::where('order_id', $order->id)->firstOrFail();
+
+        $superAdmin = User::where('role', 'super_admin')->firstOrFail();
+        Sanctum::actingAs($superAdmin);
+
+        $this->patchJson("/api/super-admin/refund-requests/{$refundRequest->id}/approve")->assertOk();
+        $this->assertSame('refund_pending', $payment->fresh()->status);
+
+        // A second approval -- the second tab, or a double click -- must not
+        // refund twice, and must not flip an approved request to denied.
+        $this->patchJson("/api/super-admin/refund-requests/{$refundRequest->id}/approve")
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'This refund request has already been decided.');
+        $this->patchJson("/api/super-admin/refund-requests/{$refundRequest->id}/deny", ['reason' => 'Never mind.'])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'This refund request has already been decided.');
+
+        $this->assertSame(RefundRequest::APPROVED, $refundRequest->fresh()->status);
+        $this->assertSame('refund_pending', $payment->fresh()->status);
+        // One hand-off, one log line: the approved request reached the refund
+        // queue exactly once.
+        $this->assertDatabaseHas('payment_logs', ['payment_id' => $payment->id, 'event' => 'refund.request_approved']);
+        $this->assertDatabaseCount('payment_logs', 1);
+    }
+
+    public function test_a_refund_request_is_refused_when_the_money_was_already_refunded_somewhere_else(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 900]);
+        $buyer = $this->makeBuyer();
+        [$order, $payment] = $this->receivedOrder($buyer, $listing);
+
+        $this->fileRefundRequest($order)->assertCreated();
+        $refundRequest = RefundRequest::where('order_id', $order->id)->firstOrFail();
+
+        // The refund already went out through another path (the cancellation
+        // queue, or the Super Admin's own refunds list) between the request and
+        // the decision.
+        $payment->update(['status' => 'refunded']);
+
+        Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
+        $this->patchJson("/api/super-admin/refund-requests/{$refundRequest->id}/approve")
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'This order\'s payment is no longer in a state that can be refunded.');
+
+        $this->assertSame(RefundRequest::PENDING, $refundRequest->fresh()->status);
+    }
+
+    public function test_the_refund_window_command_records_expiry_without_touching_pending_requests(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 900]);
+        $buyer = $this->makeBuyer();
+
+        // Asked in time, then the deadline passes with the request undecided.
+        [$asked, $askedPayment] = $this->receivedOrder($buyer, $listing, ['order_number' => 'FG-ASKED1']);
+        $this->fileRefundRequest($asked)->assertCreated();
+        $refundRequest = RefundRequest::where('order_id', $asked->id)->firstOrFail();
+
+        // Never asked, and now past the window.
+        [$silent] = $this->receivedOrder($buyer, $listing, [
+            'order_number' => 'FG-SILENT1',
+            'completed_at' => now()->subDays(8),
+        ]);
+
+        $this->travel(8)->days();
+
+        $this->artisan('orders:expire-refund-windows')->assertSuccessful();
+
+        $this->assertDatabaseHas('activity_logs', [
+            'action' => 'refund_request_window_expired',
+            'reference_number' => $silent->order_number,
+        ]);
+        // A request that was filed in time is not a lapsed window.
+        $this->assertDatabaseMissing('activity_logs', [
+            'action' => 'refund_request_window_expired',
+            'reference_number' => $asked->order_number,
+        ]);
+
+        // Nothing decided, deleted or denied: the request is still pending and
+        // still the Super Admin's to answer.
+        $this->assertSame(RefundRequest::PENDING, $refundRequest->fresh()->status);
+        $this->assertSame('paid_held', $askedPayment->fresh()->status);
+        $this->assertDatabaseCount('refund_requests', 1);
+
+        // Running it again changes nothing -- one expiry entry per order.
+        $this->artisan('orders:expire-refund-windows')->assertSuccessful();
+        $this->assertSame(1, ActivityLogEntry::where('action', 'refund_request_window_expired')
+            ->where('reference_number', $silent->order_number)->count());
+        $this->assertSame(RefundRequest::PENDING, $refundRequest->fresh()->status);
+    }
+
+    public function test_a_pending_request_past_its_deadline_is_still_the_super_admins_to_decide(): void
+    {
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 900]);
+        $buyer = $this->makeBuyer();
+        [$order, $payment] = $this->receivedOrder($buyer, $listing);
+
+        $this->fileRefundRequest($order)->assertCreated();
+        $refundRequest = RefundRequest::where('order_id', $order->id)->firstOrFail();
+
+        $this->travel(8)->days();
+
+        // The deadline only closes the door on new requests.
+        $this->fileRefundRequest($order)
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'A refund has already been requested for this order.');
+
+        Sanctum::actingAs(User::where('role', 'super_admin')->firstOrFail());
+        $this->patchJson("/api/super-admin/refund-requests/{$refundRequest->id}/approve")->assertOk();
+
+        $this->assertSame(RefundRequest::APPROVED, $refundRequest->fresh()->status);
+        $this->assertSame('refund_pending', $payment->fresh()->status);
+    }
+
+    public function test_a_cancellation_refund_is_still_queued_by_the_app_with_no_request_involved(): void
+    {
+        // Regression guard for the flow this feature must never disturb: a
+        // cancellation still queues its refund outright, with no refund_requests
+        // row anywhere and no decision to wait for.
+        $seller = $this->makeSeller();
+        $listing = $this->makeListing($seller, ['quantity' => 900]);
+        $buyer = $this->makeBuyer();
+        $order = $this->makeOrder($buyer, $listing, ['status' => 'paid']);
+        $payment = $this->makePayment($order, ['status' => 'paid_held']);
+
+        Sanctum::actingAs($seller->user);
+        $this->patchJson("/api/orders/{$order->id}/status", [
+            'status' => 'cancelled',
+            'cancellation_reason' => 'Stock died before dispatch.',
+        ])->assertOk();
+
+        $this->assertSame('refund_pending', $payment->fresh()->status);
+        $this->assertDatabaseCount('refund_requests', 0);
+        $this->assertDatabaseHas('notifications', ['user_id' => $buyer->id, 'title' => 'Refund pending']);
     }
 }

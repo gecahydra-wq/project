@@ -17,6 +17,7 @@ use App\Models\ModerationLog;
 use App\Http\Controllers\Api\OrderController;
 use App\Models\Order;
 use App\Models\PaymentLog;
+use App\Models\RefundRequest;
 use App\Models\SellerProfile;
 use App\Models\Municipality;
 use App\Models\Review;
@@ -29,13 +30,16 @@ use App\Support\AccountModeration;
 use App\Support\ActivityLog;
 use App\Support\AuthValidation;
 use App\Support\ListingModeration;
+use App\Support\LguWallet;
 use App\Support\OrderCancellation;
 use App\Support\ImageUploader;
 use App\Support\OrderTransactionPresenter;
+use App\Support\RefundRequests as RefundRequestService;
 use App\Support\ReviewModeration;
 use App\Support\RevenueReport;
 use App\Support\SafeMailer;
 use App\Support\SellerApproval;
+use App\Support\SellerWallet;
 use App\Support\DurationLabel;
 use App\Support\UserReports;
 use App\Support\WithdrawalRejection;
@@ -211,6 +215,14 @@ class SuperAdminController extends Controller
     {
         abort_unless($withdrawal->status === 'pending', 422, 'Only pending withdrawal requests can be approved.');
 
+        // Same reasoning as approveWithdrawal(): a reversal can leave the
+        // municipality's revenue short of what its reservations cover.
+        abort_if(
+            LguWallet::repaymentDue($withdrawal->municipality_id) > 0,
+            422,
+            'This municipality\'s revenue is short from a refunded order, so withdrawals cannot be paid until new earnings cover the difference.'
+        );
+
         $withdrawal->update(['status' => 'approved', 'reviewed_at' => Carbon::now()]);
         $withdrawal->load('requestedBy', 'municipality');
 
@@ -290,8 +302,19 @@ class SuperAdminController extends Controller
     {
         abort_unless($withdrawal->status === 'pending', 422, 'Only pending withdrawal requests can be approved.');
 
-        $withdrawal->update(['status' => 'approved', 'reviewed_at' => Carbon::now()]);
         $withdrawal->load('sellerProfile');
+
+        // A refund that reversed already-released earnings can leave a balance
+        // that no longer covers what was reserved before it. Paying now would
+        // hand over money the seller no longer has, so it waits until new
+        // earnings clear the shortfall -- see SellerWallet::repaymentDue.
+        abort_if(
+            $withdrawal->sellerProfile && SellerWallet::repaymentDue($withdrawal->sellerProfile) > 0,
+            422,
+            'This seller\'s earnings are short from a refunded order, so withdrawals cannot be paid until new earnings cover the difference.'
+        );
+
+        $withdrawal->update(['status' => 'approved', 'reviewed_at' => Carbon::now()]);
 
         AppNotification::firstOrCreate([
             'user_id' => $withdrawal->sellerProfile->user_id,
@@ -313,8 +336,27 @@ class SuperAdminController extends Controller
     }
 
     /**
+     * Platform Earnings: the platform's own revenue, platform-wide, plus the
+     * settled orders it came from. Read-only -- the platform share is derived
+     * from settlements and this app holds no platform balance to withdraw from
+     * (App\Support\RevenueReport::platformRevenueLedger).
+     */
+    public function platformRevenue()
+    {
+        return response()->json(RevenueReport::platformRevenueLedger());
+    }
+
+    /**
      * Refund queue: payments captured for orders that were then cancelled or
      * expired (see App\Support\OrderCancellation). Pending first.
+     *
+     * Each row carries the order's own facts (what, how many, when it was
+     * placed) plus the two refund timestamps, because the queue is read as a
+     * record of money -- "when was this ordered" and "when was this refunded"
+     * are different questions and only the second one is the refund's own.
+     * `flagged_at` is when the cancellation first asked for a refund, which is
+     * what separates a row still waiting on the Super Admin from one already
+     * sent; `refunded_at` is null until the refund actually completed.
      */
     public function refunds()
     {
@@ -330,20 +372,38 @@ class SuperAdminController extends Controller
             ->get()
             ->groupBy('payment_id');
 
-        return response()->json($payments->map(fn (MockPayment $payment) => [
-            'id' => $payment->id,
-            'status' => $payment->status,
-            'amount' => (float) $payment->amount,
-            'provider_reference' => $payment->provider_reference,
-            'order_number' => $payment->order?->order_number,
-            'buyer' => $payment->order?->buyer?->only(['id', 'name', 'email']),
-            'hatchery_name' => $payment->order?->sellerProfile?->hatchery_name,
-            'seller_profile_id' => $payment->order?->seller_profile_id,
-            'listing_title' => $payment->order?->listing?->title,
-            'reason' => $logs->get($payment->id)?->firstWhere('event', '!=', 'refund.completed')?->payload['reason'] ?? null,
-            'refund_reference' => $logs->get($payment->id)?->firstWhere('event', 'refund.completed')?->payload['reference'] ?? null,
-            'updated_at' => $payment->updated_at,
-        ]));
+        return response()->json($payments->map(function (MockPayment $payment) use ($logs) {
+            $paymentLogs = $logs->get($payment->id) ?? collect();
+            $requested = $paymentLogs->firstWhere('event', '!=', 'refund.completed');
+            $completed = $paymentLogs->firstWhere('event', 'refund.completed');
+            $order = $payment->order;
+
+            return [
+                'id' => $payment->id,
+                'status' => $payment->status,
+                'amount' => (float) $payment->amount,
+                'provider_reference' => $payment->provider_reference,
+                'order_number' => $order?->order_number,
+                'order_placed_at' => $order?->created_at,
+                'quantity' => (int) ($order?->quantity ?? 0),
+                'unit_price' => (float) ($order?->unit_price ?? 0),
+                'unit_type' => $order?->listing?->unit_type,
+                'unit_label_plural' => $order?->listing?->unit_label_plural,
+                'buyer' => $order?->buyer?->only(['id', 'name', 'email']),
+                'hatchery_name' => $order?->sellerProfile?->hatchery_name,
+                'seller_profile_id' => $order?->seller_profile_id,
+                'listing_title' => $order?->listing?->title,
+                'reason' => $requested?->payload['reason'] ?? null,
+                'flagged_at' => $requested?->created_at,
+                'refund_reference' => $completed?->payload['reference'] ?? null,
+                'refunded_at' => $completed?->created_at,
+                // True when the refund finished itself on PayMongo test keys
+                // (OrderCancellation::completeAutomaticRefund), so the row
+                // never implies an admin issued a refund they did not.
+                'automatic_refund' => (bool) ($completed?->payload['automatic'] ?? false),
+                'updated_at' => $payment->updated_at,
+            ];
+        }));
     }
 
     public function markRefunded(Request $request, MockPayment $payment)
@@ -354,6 +414,60 @@ class SuperAdminController extends Controller
         ]);
 
         return response()->json(OrderCancellation::markRefunded($payment, $request->user(), $data['reference'] ?? null, $data['notes'] ?? null));
+    }
+
+    /**
+     * Post-completion refund requests -- buyers asking for their money back
+     * after they already received the order, which the Super Admin approves or
+     * denies (see App\Support\RefundRequests).
+     *
+     * Kept separate from refunds() above on purpose. That queue is money the app
+     * itself already decided to return (a cancellation or an expiry) and only
+     * needs the refund sent; these rows are decisions still to be made. Folding
+     * them together would make "already refunding" and "waiting to be judged"
+     * look the same at a glance.
+     *
+     * Pending first, then most recently decided: the queue's job is to surface
+     * work, and a request past its 7-day window is still work -- the window
+     * only stops new requests being filed, it never removes this one.
+     */
+    public function refundRequests()
+    {
+        $requests = RefundRequest::with([
+            'order.listing', 'order.sellerProfile', 'payment', 'buyer', 'decidedBy', 'media',
+        ])
+            ->orderByRaw("case when status = 'pending' then 0 else 1 end")
+            ->latest('created_at')
+            ->get();
+
+        return response()->json($requests->map(fn (RefundRequest $request) => RefundRequestService::present($request)));
+    }
+
+    public function approveRefundRequest(Request $request, RefundRequest $refundRequest)
+    {
+        RefundRequestService::approve($refundRequest, $request->user());
+
+        return response()->json(['status' => RefundRequest::APPROVED]);
+    }
+
+    public function denyRefundRequest(Request $request, RefundRequest $refundRequest)
+    {
+        $data = $request->validate([
+            'reason' => ['required', 'string', 'max:'.RefundRequestService::MAX_REASON_LENGTH],
+        ], [
+            'reason.required' => 'Tell the buyer why this refund is being denied.',
+        ]);
+
+        RefundRequestService::deny($refundRequest, $request->user(), $data['reason']);
+
+        return response()->json(['status' => RefundRequest::DENIED]);
+    }
+
+    public function reopenRefundRequest(Request $request, RefundRequest $refundRequest)
+    {
+        RefundRequestService::reopenDenied($refundRequest, $request->user());
+
+        return response()->json(['status' => RefundRequest::PENDING]);
     }
 
     /**
@@ -451,7 +565,7 @@ class SuperAdminController extends Controller
         $amount = $type === 'seller' ? $withdrawal->net_amount : (float) $withdrawal->amount;
         $amountLabel = number_format($amount, 2);
         $messageBody = sprintf(
-            'The Super Admin has sent your %s withdrawal payout of ₱%s via %s. %sIf you have received the payout, click Money Received in your Wallet within %s. If it has not arrived, reply to this message or contact Support.',
+            'The Super Admin has sent your %s withdrawal payout of ₱%s via %s. with a note: %s. If you have received the payout, click Money Received in your Wallet within %s. If it has not arrived, reply to this message or contact Support.',
             $type === 'lgu' ? 'LGU' : 'seller',
             $amountLabel,
             $withdrawal->method,

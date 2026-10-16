@@ -4,7 +4,7 @@ import { CalendarDays } from 'lucide-react'
 import { useState } from 'react'
 import { OrderDetailPanel } from './orders.jsx'
 import { EmptyState, LoadingState } from './states.jsx'
-import { Avatar, Badge, PeriodFilteredRows, Section, SellerLink } from './ui.jsx'
+import { Avatar, Badge, PeriodFilteredRows, Section, SellerLink, StatsRow } from './ui.jsx'
 import { api } from '../lib/api.js'
 import { currency, formatOrderDate } from '../lib/format.js'
 
@@ -287,6 +287,91 @@ export function SellerEarningsPanel({ scope = 'lgu' }) {
           {reopenEarnings.error && <p className="error">{reopenEarnings.error.response?.data?.message || 'Could not reopen this order.'}</p>}
         </Section>
       )}
+    </>
+  )
+}
+/**
+ * Platform Earnings -- the platform's own revenue (its 4% share of every
+ * settled order) plus a ledger of the orders that produced it, for the Super
+ * Admin. Read-only on purpose: the share is derived from settlements and this
+ * app holds no platform balance, so there is nothing here to pay out; the
+ * figures simply report what the platform has earned.
+ *
+ * A refunded order stays in the ledger marked Reversed rather than
+ * disappearing. The totals really do drop when a settlement is reversed
+ * (Settlement::scopeNotReversed), and a number that changes with no visible
+ * cause is harder to defend than one that shows its cause.
+ */
+export function PlatformRevenuePanel() {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['super-admin-platform-revenue'],
+    queryFn: async () => (await api.get('/super-admin/platform-revenue')).data,
+    retry: false,
+    placeholderData: null,
+  })
+
+  if (isLoading) return <LoadingState />
+  if (isError || !data) return <EmptyState message="Platform revenue could not be loaded." />
+
+  const reversedCount = data.reversed_settlements || 0
+
+  return (
+    <>
+      <Section title="Platform Revenue">
+        <p className="helper-text">
+          The platform&apos;s 4% share of every settled order, recognized when the LGU approves the seller&apos;s earnings
+          (the seller keeps 94%, the LGU 2%). It also includes the 6% payout fees on withdrawals requested before
+          October 9, 2026. Revenue is earned at settlement, not at checkout.
+        </p>
+        <StatsRow items={[
+          ["Today's Revenue", currency(data.today_platform_revenue ?? 0), true],
+          ['This Month', currency(data.monthly_platform_revenue ?? 0)],
+          ['All-Time Revenue', currency(data.total_platform_revenue ?? 0)],
+          ['Payout Fees', currency(data.total_payout_fees ?? 0)],
+        ]} />
+        <StatsRow items={[
+          ['Settled Orders', data.total_settled_orders ?? 0],
+          ['Avg Revenue / Settled Order', currency(data.average_platform_revenue_per_order ?? 0)],
+          ['Gross Marketplace Revenue', currency(data.gross_marketplace_revenue ?? 0)],
+          ['Reversed by Refunds', `${reversedCount} · ${currency(data.reversed_platform_share ?? 0)}`],
+        ]} />
+      </Section>
+
+      <Section title="Revenue Ledger">
+        <p className="helper-text">
+          Every settled order that produced platform revenue, newest first.
+          {reversedCount > 0 && ' A reversed row was refunded after its earnings had been released, so its share no longer counts toward the totals above.'}
+        </p>
+        <PeriodFilteredRows rows={data.ledger || []} noun="settlements" dateKey="settled_at">
+          {(shown) => (shown.length ? (
+            <div className="table">
+              <div className="table-row first">
+                <span>Order</span>
+                <span>Seller</span>
+                <span>Municipality</span>
+                <span>Settled</span>
+                <span>Gross</span>
+                <span>Platform Share</span>
+                <span>Status</span>
+              </div>
+              {shown.map((row) => (
+                <div className="table-row" key={row.id}>
+                  <span>{row.order_number || 'Not Available'}</span>
+                  <span><SellerLink id={row.seller_profile_id} name={row.hatchery_name} /></span>
+                  <span>{row.municipality || 'Not Available'}</span>
+                  <span>{formatOrderDate(row.settled_at, { withTime: false })}</span>
+                  <span>{currency(row.gross_amount)}</span>
+                  <span>{currency(row.platform_share)} <span className="muted">({row.platform_percent}%)</span></span>
+                  <span>
+                    <Badge tone={row.reversed ? 'danger' : 'success'}>{row.reversed ? 'Reversed' : 'Settled'}</Badge>
+                    {row.reversed && <span className="muted"> {row.reversal_reason}</span>}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : <EmptyState message="No settled orders in this period." />)}
+        </PeriodFilteredRows>
+      </Section>
     </>
   )
 }

@@ -2,9 +2,17 @@ import { roleRoutes } from './api.js'
 
 
 
+// A corrupt or truncated value here must not be fatal: getSession() is called
+// by the route guards, so a thrown SyntaxError would blank every protected
+// page with no way back. Treat unreadable storage as "signed out".
 export function getSession() {
   const stored = localStorage.getItem('fishmarket_user')
-  return stored ? JSON.parse(stored) : null
+  if (!stored) return null
+  try {
+    return JSON.parse(stored)
+  } catch {
+    return null
+  }
 }
 
 export function updateSessionUser(partial) {

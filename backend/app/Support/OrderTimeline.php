@@ -36,7 +36,14 @@ class OrderTimeline
         $payment = $order->payment;
         $settlement = $order->settlement;
 
-        $paymentSucceeded = $payment && in_array($payment->status, ['paid_held', 'released'], true);
+        $paymentSucceeded = $payment && (
+            in_array($payment->status, ['paid_held', 'released'], true)
+            // A refunded payment was still captured: the money moved, and then
+            // moved back. Without this, a post-completion refund would render
+            // "Payment Successful" as never reached on an order that is also
+            // "Completed" -- two stages that plainly cannot both be true.
+            || in_array($payment->status, [OrderCancellation::REFUND_PENDING, OrderCancellation::REFUNDED], true)
+        );
         $sellerAccepted = in_array($order->status, ['confirmed', 'in_transit', 'completed'], true);
         $inTransit = in_array($order->status, ['in_transit', 'completed'], true);
         $delivered = $order->status === 'completed';
@@ -60,7 +67,7 @@ class OrderTimeline
             'seller_accepted' => $sellerAccepted ? $order->updated_at : null,
             'preparing' => $inTransit ? $order->updated_at : null,
             'out_for_delivery' => $inTransit ? $order->updated_at : null,
-            'delivered' => $delivered ? $order->updated_at : null,
+            'delivered' => $delivered ? $order->completed_at : null,
             'waiting_lgu_verification' => null,
             'transaction_verified' => $settlement?->settled_at,
             'completed' => $settlement?->settled_at,

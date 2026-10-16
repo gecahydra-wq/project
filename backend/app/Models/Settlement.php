@@ -32,6 +32,9 @@ class Settlement extends Model
         'platform_percent',
         'status',
         'settled_at',
+        'reversed_at',
+        'reversed_by',
+        'reversal_reason',
     ];
 
     protected $casts = [
@@ -43,7 +46,30 @@ class Settlement extends Model
         'lgu_percent' => 'decimal:2',
         'platform_percent' => 'decimal:2',
         'settled_at' => 'datetime',
+        'reversed_at' => 'datetime',
     ];
+
+    /**
+     * Exclude settlements that were undone by a post-completion refund (see
+     * App\Support\RefundRequests). Every balance and revenue figure is summed
+     * from this model, so each of those aggregates applies this scope -- a
+     * reversed settlement must stop counting toward money the seller/LGU/
+     * platform holds, without the row itself being deleted.
+     *
+     * Scope is applied explicitly rather than as a global scope on purpose: the
+     * order's own settlement() relation must still resolve a reversed row, so
+     * Order Details can keep showing that the order was verified before it was
+     * refunded. Only the money aggregates filter.
+     */
+    public function scopeNotReversed($query)
+    {
+        return $query->whereNull('reversed_at');
+    }
+
+    public function isReversed(): bool
+    {
+        return $this->reversed_at !== null;
+    }
 
     public function order()
     {
@@ -68,5 +94,10 @@ class Settlement extends Model
     public function approvedBy()
     {
         return $this->belongsTo(User::class, 'approved_by');
+    }
+
+    public function reversedBy()
+    {
+        return $this->belongsTo(User::class, 'reversed_by');
     }
 }

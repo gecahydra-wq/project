@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { Clock, Timer } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { renderStars } from './stars.jsx'
 import { EmptyState, LoadingState } from './states.jsx'
 import { Avatar, Badge, Modal, PeriodFilteredRows, SellerLink } from './ui.jsx'
@@ -9,13 +9,16 @@ import { DisputeAction } from './withdrawals.jsx'
 import { api } from '../lib/api.js'
 import { statusChartLabel } from '../lib/chartColors.js'
 import { currency, formatOrderDate, formatQuantity, percentLabel } from '../lib/format.js'
-import { buyerCancelLocked, buyerCancelMode } from '../lib/orders.js'
+import { buyerCancelLocked, buyerCancelMode, buyerRefundRequestMode } from '../lib/orders.js'
 import { getSession } from '../lib/session.js'
 import { BUYER_PAYMENT_VIEW, ORDER_STATUS_TRANSITIONS } from '../lib/status.js'
 
 
 
 // One row of the Super Admin refund queue (see App\Support\OrderCancellation).
+// Reads like an order row -- what, who, how many, when -- plus the two refund
+// timestamps, because when the order was placed and when it was refunded are
+// different facts and a pending row has only the first.
 export function RefundRow({ refund, onMarkRefunded }) {
   const [reference, setReference] = useState('')
   const [saving, setSaving] = useState(false)
@@ -37,18 +40,28 @@ export function RefundRow({ refund, onMarkRefunded }) {
   return (
     <div className="card action">
       <div>
-        <strong>{refund.order_number}</strong>
+        <div className="card-row">
+          <strong>{refund.order_number}</strong>
+          <Badge status={refund.status}>{statusChartLabel(refund.status)}</Badge>
+        </div>
         <p>{refund.buyer?.name || 'Buyer'} · <SellerLink id={refund.seller_profile_id} name={refund.hatchery_name} fallback="Seller" /> · {currency(refund.amount)}</p>
+        {refund.listing_title && (
+          <p>{refund.listing_title}{refund.quantity > 0 && ` · ${formatQuantity(refund.quantity, refund)} at ${currency(refund.unit_price)} each`}</p>
+        )}
+        <p className="muted">
+          Ordered {formatOrderDate(refund.order_placed_at, { withTime: false })}
+          {refund.flagged_at && ` · Refund needed ${formatOrderDate(refund.flagged_at)}`}
+          {refund.refunded_at && ` · ${refund.automatic_refund ? 'Refunded automatically' : 'Refunded'} ${formatOrderDate(refund.refunded_at)}`}
+        </p>
         {refund.reason && <p className="muted">{refund.reason}</p>}
         {refund.provider_reference && <p className="muted">PayMongo checkout: {refund.provider_reference}</p>}
         {refund.refund_reference && <p className="muted">Refund reference: {refund.refund_reference}</p>}
-        <Badge status={refund.status}>{statusChartLabel(refund.status)}</Badge>
         {error && <p className="error">{error}</p>}
       </div>
       {pending && (
         <div className="row-actions">
           <input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Refund reference (optional)" />
-          <button type="button" disabled={saving} onClick={submit}>{saving ? 'Saving...' : 'Mark Refunded'}</button>
+          <button type="button" className="ghost" disabled={saving} onClick={submit}>{saving ? 'Saving...' : 'Mark Refunded'}</button>
         </div>
       )}
     </div>
@@ -86,6 +99,7 @@ function OrderDetailsModal({
   onPay, payPendingOrderId,
   onCancelOrder, cancelPendingOrderId,
   onMarkReceived, markReceivedPendingOrderId,
+  onRequestRefund, refundRequestPendingOrderId,
   onUpdateStatus, lguContact,
   onClose,
 }) {
@@ -94,10 +108,18 @@ function OrderDetailsModal({
   const canCancelAsSeller = sellerTransitions.some(([status]) => status === 'cancelled')
   const buyerMode = onCancelOrder ? buyerCancelMode(row) : null
   const buyerCancelGreyed = Boolean(onCancelOrder) && !buyerMode && buyerCancelLocked(row)
+  // Post-completion refunds: only the buyer passes onRequestRefund, so this is
+  // the buyer's own view of their own order by construction.
+  const refundMode = onRequestRefund ? buyerRefundRequestMode(row) : null
+  const refundRequest = order.refundRequest || row.refundRequest || null
 
   const [cancelOpen, setCancelOpen] = useState(false)
   const [cancelReason, setCancelReason] = useState('')
   const [cancelError, setCancelError] = useState('')
+  const [refundOpen, setRefundOpen] = useState(false)
+  const [refundReason, setRefundReason] = useState('')
+  const [refundEvidence, setRefundEvidence] = useState([])
+  const [refundError, setRefundError] = useState('')
   const [savingStatus, setSavingStatus] = useState(null)
   const [statusError, setStatusError] = useState('')
 
@@ -135,6 +157,22 @@ function OrderDetailsModal({
       setCancelReason('')
     } catch (err) {
       setCancelError(err?.response?.data?.message || 'Could not cancel this order.')
+    }
+  }
+
+  // Filing the request does not move any money: it lands in the Super Admin's
+  // Refund Requests queue for a decision. The reason is required by the API
+  // too, and the amount is never sent from here -- the server reads it off the
+  // payment (see App\Support\RefundRequests).
+  const submitRefund = async () => {
+    setRefundError('')
+    try {
+      await onRequestRefund(row.orderId, { reason: refundReason.trim(), evidence: refundEvidence })
+      setRefundOpen(false)
+      setRefundReason('')
+      setRefundEvidence([])
+    } catch (err) {
+      setRefundError(err?.response?.data?.message || 'Could not submit your refund request.')
     }
   }
 
@@ -183,6 +221,30 @@ function OrderDetailsModal({
           title="This order is already out for delivery, so it can no longer be cancelled. Message the seller if you need help with the delivery."
         >
           Cancel Order
+        </button>
+      )}
+      {refundMode === 'eligible' && (
+        <button
+          type="button"
+          className="ghost"
+          onClick={() => setRefundOpen(true)}
+          disabled={refundRequestPendingOrderId === row.orderId}
+          title="Ask for your money back for this order. A Super Admin reviews the request and decides."
+        >
+          {refundRequestPendingOrderId === row.orderId ? 'Submitting...' : 'Request Refund'}
+        </button>
+      )}
+      {/* Past the deadline the button stays, disabled, with the date it
+          closed -- the same reasoning as a greyed-out Cancel: the rule is
+          easier to understand than a button that silently disappeared. */}
+      {refundMode === 'expired' && (
+        <button
+          type="button"
+          className="ghost"
+          disabled
+          title={`The refund window for this order closed on ${formatOrderDate(row.refund_request_deadline, { withTime: false })}. Message the seller or send a support ticket if you still need help.`}
+        >
+          Request Refund
         </button>
       )}
       {sellerTransitions.filter(([status]) => status !== 'cancelled').map(([status, label]) => (
@@ -270,6 +332,27 @@ function OrderDetailsModal({
           </div>
         )}
 
+        {/* The buyer's own refund request, once filed: what they asked for and
+            where it stands. A pending request is NOT cancelled by its window
+            closing -- only a Super Admin decides it -- so this keeps showing
+            until there is an answer. */}
+        {refundRequest && (
+          <div className="refund-request-notice">
+            <p className="muted">
+              You requested a refund on {formatOrderDate(refundRequest.created_at, { withTime: false })}. Reason: {refundRequest.reason}
+            </p>
+            <p className={refundRequest.status === 'denied' ? 'error' : 'muted'}>
+              Status: {statusChartLabel(refundRequest.status)}
+              {refundRequest.status === 'denied' && refundRequest.denial_reason ? ` — ${refundRequest.denial_reason}` : ''}
+            </p>
+            {refundRequest.status === 'denied' && (
+              <p className="helper-text">
+                If you have questions about this decision, <Link to="/buyer/dashboard?tab=messages">message the Super Admin</Link> or <Link to="/buyer/dashboard?tab=support">contact Support</Link>.
+              </p>
+            )}
+          </div>
+        )}
+
         {statusError && <p className="error">{statusError}</p>}
 
         {details.isLoading && <LoadingState label="Loading order details..." />}
@@ -287,6 +370,22 @@ function OrderDetailsModal({
           onReasonChange={setCancelReason}
           onSubmit={submitCancel}
           onClose={() => { setCancelOpen(false); setCancelError('') }}
+        />
+      )}
+      {/* Sibling of the details dialog, never nested in it -- the same rule
+          CancelOrderModal follows, for the same reason (.modal-panel keeps a
+          transform, which would anchor a nested fixed overlay to the panel). */}
+      {refundOpen && (
+        <RequestRefundModal
+          row={row}
+          reason={refundReason}
+          evidence={refundEvidence}
+          error={refundError}
+          submitting={refundRequestPendingOrderId === row.orderId}
+          onReasonChange={setRefundReason}
+          onEvidenceChange={setRefundEvidence}
+          onSubmit={submitRefund}
+          onClose={() => { setRefundOpen(false); setRefundError('') }}
         />
       )}
     </>
@@ -328,7 +427,7 @@ function EarningsBreakdown({ breakdown, viewerIsSeller = false }) {
   )
 }
 
-export function OrderTable({ rows, onReview, onConfirmReceived, confirmPendingOrderId, onMarkReceived, markReceivedPendingOrderId, onPay, payPendingOrderId, onCancelOrder, cancelPendingOrderId, onUpdateStatus, lguContact, detailsEndpoint, initialOrderNumber = null, paymentView = 'escrow', counterparty = 'seller' }) {
+export function OrderTable({ rows, onReview, onConfirmReceived, confirmPendingOrderId, onMarkReceived, markReceivedPendingOrderId, onPay, payPendingOrderId, onCancelOrder, cancelPendingOrderId, onRequestRefund, refundRequestPendingOrderId, onUpdateStatus, lguContact, detailsEndpoint, initialOrderNumber = null, paymentView = 'escrow', counterparty = 'seller' }) {
   const [viewedOrderNumber, setViewedOrderNumber] = useState(initialOrderNumber || null)
   // Rating lives here, not in the popup: ratingOrderNumber is the order whose
   // rating dialog is open (from the Rating column or the post-confirm prompt),
@@ -362,6 +461,13 @@ export function OrderTable({ rows, onReview, onConfirmReceived, confirmPendingOr
       review: row.review || null,
       // Appended by the Order model; null unless the order is awaiting payment.
       payment_expires_at: row.payment_expires_at || null,
+      // Post-completion refund state, lifted onto the flat row so the refund
+      // button can be decided (and the deadline shown) without reaching into
+      // raw. Both come from the Order model: the relation and its appended
+      // deadline. Relation keys are camelCase here -- the API disables
+      // snake-casing of relation names (see AppServiceProvider).
+      refundRequest: row.refundRequest || null,
+      refund_request_deadline: row.refund_request_deadline || null,
       // The full row as the API returned it -- the popup's seller notices and
       // transition buttons read fields the flat row does not carry (the
       // payment object, lgu_review_status, latestDispute, auto_received_at).
@@ -465,6 +571,8 @@ export function OrderTable({ rows, onReview, onConfirmReceived, confirmPendingOr
           payPendingOrderId={payPendingOrderId}
           onCancelOrder={onCancelOrder}
           cancelPendingOrderId={cancelPendingOrderId}
+          onRequestRefund={onRequestRefund}
+          refundRequestPendingOrderId={refundRequestPendingOrderId}
           onMarkReceived={onMarkReceived}
           markReceivedPendingOrderId={markReceivedPendingOrderId}
           onUpdateStatus={onUpdateStatus}
@@ -835,5 +943,209 @@ function CancelOrderModal({ row, mode, audience = 'buyer', reason, error, submit
 
       {error && <p className="error">{error}</p>}
     </Modal>
+  )
+}
+
+/**
+ * Asking for a refund for an order the buyer has already received. This is not
+ * the cancellation dialog and must not be confused with it: nothing is refunded
+ * by asking, no money moves until a Super Admin approves the request, and the
+ * order itself stays completed either way (the buyer kept the fish).
+ *
+ * The reason is required -- the Super Admin has to have something to judge. The
+ * photos are optional (see App\Support\RefundRequests::MAX_EVIDENCE_PHOTOS) but
+ * are usually what makes the request decidable.
+ *
+ * Evidence is staged as { file, url } pairs: the preview URL is made when the
+ * photo is picked and released when it is removed or the dialog closes, the
+ * same way the seller's listing composer handles a batch of images.
+ */
+function RequestRefundModal({ row, reason, evidence, error, submitting, onReasonChange, onEvidenceChange, onSubmit, onClose }) {
+  const maxPhotos = 5
+
+  // Whatever is still staged when the dialog goes away releases its URL here.
+  // The cleanup reads the list through a ref, so it is never re-run (and so
+  // never revokes a URL that is still on screen).
+  const stagedRef = useRef(evidence)
+  useEffect(() => { stagedRef.current = evidence }, [evidence])
+  useEffect(() => () => stagedRef.current.forEach(({ url }) => URL.revokeObjectURL(url)), [])
+
+  const addFiles = (event) => {
+    const picked = Array.from(event.target.files || [])
+    event.target.value = ''
+    if (!picked.length) return
+    const staged = picked.map((file) => ({ file, url: URL.createObjectURL(file) }))
+    onEvidenceChange([...evidence, ...staged].slice(0, maxPhotos))
+  }
+
+  const removeFile = (index) => {
+    URL.revokeObjectURL(evidence[index].url)
+    onEvidenceChange(evidence.filter((_, i) => i !== index))
+  }
+
+  return (
+    <Modal
+      title="Request Refund"
+      subtitle={`Order #${row.order_number}`}
+      onClose={submitting ? () => {} : onClose}
+      footer={(
+        <>
+          <button type="button" className="ghost" onClick={onClose} disabled={submitting}>Keep Order</button>
+          <button type="button" onClick={onSubmit} disabled={submitting || !reason.trim()}>
+            {submitting ? 'Submitting...' : 'Submit Request'}
+          </button>
+        </>
+      )}
+    >
+      <div className="review-modal-product">
+        <div>
+          <strong>{row.order_name}</strong>
+          <p className="muted">{row.quantity_label} · Seller: {row.seller_name}</p>
+        </div>
+      </div>
+
+      <div className="cancel-form">
+        <p className="helper-text">
+          This order was completed on {formatOrderDate(row.raw?.completed_at, { withTime: false })}.
+          You can ask for a refund until {formatOrderDate(row.refund_request_deadline, { withTime: false })}.
+          {' '}Your request goes to the Super Admin, who decides it -- the money is not returned until it is approved.
+        </p>
+        <label>
+          <span>Why are you requesting a refund?</span>
+          <textarea
+            value={reason}
+            onChange={(e) => onReasonChange(e.target.value)}
+            placeholder="e.g. Most of the fingerlings died within two days of delivery despite following the handling advice."
+            autoFocus
+          />
+        </label>
+        <label className="refund-evidence-picker">
+          <span>Evidence photos (optional)</span>
+          <input type="file" accept="image/*" multiple onChange={addFiles} disabled={submitting || evidence.length >= maxPhotos} />
+          <small className="helper-text">Up to {maxPhotos} photos. {evidence.length} attached.</small>
+        </label>
+        {evidence.length > 0 && (
+          <div className="refund-evidence-preview">
+            {evidence.map(({ file, url }, index) => (
+              <span key={`${file.name}-${index}`} className="refund-evidence-thumb">
+                <img src={url} alt={file.name} />
+                <button
+                  type="button"
+                  onClick={() => removeFile(index)}
+                  disabled={submitting}
+                  aria-label={`Remove ${file.name}`}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {error && <p className="error">{error}</p>}
+    </Modal>
+  )
+}
+
+/**
+ * One row of the Super Admin's Refund Requests queue -- a buyer asking for
+ * their money back after receiving the order (see App\Support\RefundRequests).
+ * Reads as the decision it is: who, what, how much, why, and the evidence --
+ * plus the two ways it can end, Approve or Deny. Denying is the one that has to
+ * explain itself, so it collects a reason inline rather than through a dialog.
+ *
+ * Deliberately not RefundRow above: that row is money the app already decided
+ * to return and only needs sending, and giving the two the same card would make
+ * "already refunding" and "waiting to be judged" look alike.
+ */
+export function RefundRequestRow({ request, onApprove, onDeny, onReopen }) {
+  const [denyOpen, setDenyOpen] = useState(false)
+  const [denyReason, setDenyReason] = useState('')
+  const [busy, setBusy] = useState(null)
+  const [error, setError] = useState('')
+  const pending = request.status === 'pending'
+
+  const run = async (action) => {
+    setBusy(action)
+    setError('')
+    try {
+      if (action === 'approve') {
+        await onApprove(request.id)
+      } else if (action === 'deny') {
+        await onDeny(request.id, denyReason.trim())
+        setDenyOpen(false)
+        setDenyReason('')
+      } else {
+        await onReopen(request.id)
+      }
+    } catch (err) {
+      setError(err?.response?.data?.message || 'Could not save this decision.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <div className="card action">
+      <div>
+        <div className="card-row">
+          <strong>{request.order_number}</strong>
+          <Badge status={request.status}>{statusChartLabel(request.status)}</Badge>
+        </div>
+        <p>{request.buyer?.name || 'Buyer'} · <SellerLink id={request.seller_profile_id} name={request.hatchery_name} fallback="Seller" /> · {currency(request.amount)}</p>
+        {request.listing_title && (
+          <p>{request.listing_title}{request.quantity > 0 && ` · ${request.quantity} at ${currency(request.unit_price)} each`}</p>
+        )}
+        <p className="muted">
+          Requested {formatOrderDate(request.requested_at, { withTime: false })}
+          {request.completed_at && ` · Order completed ${formatOrderDate(request.completed_at, { withTime: false })}`}
+          {request.decided_at && ` · ${request.status === 'approved' ? 'Approved' : 'Denied'} ${formatOrderDate(request.decided_at)}${request.decided_by ? ` by ${request.decided_by}` : ''}`}
+        </p>
+        <p className="muted">Reason: {request.reason}</p>
+        {request.denial_reason && <p className="error">Denial reason: {request.denial_reason}</p>}
+        {request.evidence?.length > 0 && (
+          <div className="refund-evidence-preview">
+            {request.evidence.map((item) => (
+              <a key={item.id} className="refund-evidence-thumb" href={item.url} target="_blank" rel="noreferrer">
+                <img src={item.url} alt="Refund evidence" />
+              </a>
+            ))}
+          </div>
+        )}
+        {error && <p className="error">{error}</p>}
+      </div>
+      {pending ? (
+        <div className="row-actions refund-deny-actions">
+          {denyOpen ? (
+            <>
+              <textarea
+                value={denyReason}
+                onChange={(e) => setDenyReason(e.target.value)}
+                placeholder="Why is this request being denied? The buyer will see this."
+                autoFocus
+              />
+              <button type="button" className="ghost" disabled={busy !== null || !denyReason.trim()} onClick={() => run('deny')}>
+                {busy === 'deny' ? 'Saving...' : 'Confirm Denial'}
+              </button>
+              <button type="button" className="ghost" disabled={busy !== null} onClick={() => { setDenyOpen(false); setDenyReason('') }}>Back</button>
+            </>
+          ) : (
+            <>
+              <button type="button" className="ghost" disabled={busy !== null} onClick={() => run('approve')}>
+                {busy === 'approve' ? 'Approving...' : 'Approve Refund'}
+              </button>
+              <button type="button" className="ghost" disabled={busy !== null} onClick={() => setDenyOpen(true)}>Deny</button>
+            </>
+          )}
+        </div>
+      ) : request.status === 'denied' ? (
+        <div className="row-actions">
+          <button type="button" className="ghost" disabled={busy !== null} onClick={() => run('reopen')}>
+            {busy === 'reopen' ? 'Reopening...' : 'Review Again'}
+          </button>
+        </div>
+      ) : null}
+    </div>
   )
 }

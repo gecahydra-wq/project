@@ -14,4 +14,7 @@ Schedule::command('sanctum:prune-expired --hours=24')->daily();
 Schedule::command('withdrawals:finalize-rejections')->hourly()->withoutOverlapping();
 Schedule::command('withdrawals:auto-complete-sent')->everyMinute()->withoutOverlapping();
 Schedule::command('orders:auto-complete-unconfirmed')->everyMinute()->withoutOverlapping();
+// Records the close of the 7-day post-completion refund window. Nothing is
+// expired or denied -- see App\Support\RefundRequests::closeExpiredWindows.
+Schedule::command('orders:expire-refund-windows')->hourly()->withoutOverlapping();
 Schedule::command('orders:cancel-suspended-seller-orders')->everyFiveMinutes()->withoutOverlapping();

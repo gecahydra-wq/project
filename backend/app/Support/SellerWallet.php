@@ -51,10 +51,14 @@ class SellerWallet
      * which Available Balance and Total Earnings are both derived. Never
      * recomputed from current commission settings; each settlement already
      * carries the split that applied when the LGU approved it.
+     *
+     * Reversed settlements are excluded: once an order is refunded after its
+     * earnings were released, that share is no longer the seller's to hold. See
+     * Settlement::scopeNotReversed.
      */
     public static function settledSellerShareTotal(SellerProfile $seller): float
     {
-        return (float) Settlement::where('seller_profile_id', $seller->id)->sum('seller_share');
+        return (float) Settlement::where('seller_profile_id', $seller->id)->notReversed()->sum('seller_share');
     }
 
     /**
@@ -90,6 +94,20 @@ class SellerWallet
     public static function availableBalance(SellerProfile $seller): float
     {
         return max(0, round(self::settledSellerShareTotal($seller) - self::reservedOrWithdrawn($seller), 2));
+    }
+
+    /**
+     * Money the seller owes back because a refund reversed earnings they had
+     * already withdrawn against -- zero unless the reversal outran what was
+     * still unspent. availableBalance() floors at zero, so without this figure
+     * the debt would be invisible: the seller would see a stuck ₱0 with no
+     * reason for it. Nothing is stored; the shortfall is simply the amount by
+     * which lifetime withdrawals outrun lifetime settled earnings, and every
+     * later settlement shrinks it.
+     */
+    public static function repaymentDue(SellerProfile $seller): float
+    {
+        return round(max(0, self::reservedOrWithdrawn($seller) - self::settledSellerShareTotal($seller)), 2);
     }
 
     /**
@@ -131,6 +149,9 @@ class SellerWallet
             'pending_balance' => $pendingBalance,
             'processing_amount' => self::processingAmount($seller),
             'on_hold_amount' => self::onHoldAmount($seller),
+            // Only ever non-zero after a refund reversed already-released
+            // earnings. See repaymentDue().
+            'repayment_due' => self::repaymentDue($seller),
             // Deliberately the gross Seller Share (settled + projected),
             // NEVER reduced by the platform's withdrawal fee -- Total
             // Earnings is what the seller earned from selling, not what

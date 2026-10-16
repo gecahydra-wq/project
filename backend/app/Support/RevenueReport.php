@@ -34,7 +34,7 @@ class RevenueReport
      */
     public static function municipalityCards(int $municipalityId): array
     {
-        $base = Settlement::where('municipality_id', $municipalityId);
+        $base = Settlement::where('municipality_id', $municipalityId)->notReversed();
 
         $today = (float) (clone $base)->whereDate('settled_at', now()->toDateString())->sum('lgu_share');
         $monthly = (float) (clone $base)->whereBetween('settled_at', [now()->startOfMonth(), now()->endOfMonth()])->sum('lgu_share');
@@ -63,11 +63,11 @@ class RevenueReport
     {
         $today = self::realizedPlatformRevenueTotal(now()->startOfDay(), now()->endOfDay());
         $monthly = self::realizedPlatformRevenueTotal(now()->startOfMonth(), now()->endOfMonth());
-        $total = (float) Settlement::sum('platform_share')
+        $total = (float) Settlement::notReversed()->sum('platform_share')
             + (float) WithdrawalRequest::where('status', 'paid')->sum('platform_fee');
 
-        $gross = (float) Settlement::sum('gross_amount');
-        $orders = Settlement::count();
+        $gross = (float) Settlement::notReversed()->sum('gross_amount');
+        $orders = Settlement::notReversed()->count();
 
         return [
             'today_platform_revenue' => round($today, 2),
@@ -77,6 +77,52 @@ class RevenueReport
             'total_settled_orders' => $orders,
             'average_platform_revenue_per_order' => $orders > 0 ? round($total / $orders, 2) : 0,
         ];
+    }
+
+    /**
+     * The platform's own money, for the Platform Earnings tab: the cards above,
+     * plus a per-settled-order ledger of the platform share so every peso of
+     * platform revenue can be traced back to the order that produced it.
+     *
+     * A refunded order is listed as reversed rather than dropped, because a
+     * total that quietly shrinks is harder to explain than one that says why it
+     * moved -- and the reversal is a decision, not a correction.
+     *
+     * Read-only by design. The platform share is derived from settlements; this
+     * app holds no platform balance and issues no platform withdrawals, so
+     * there is nothing on this page to pay out.
+     */
+    public static function platformRevenueLedger(int $limit = 200): array
+    {
+        $ledger = Settlement::with(['order', 'sellerProfile', 'municipality', 'reversedBy'])
+            ->orderByDesc('settled_at')
+            ->limit($limit)
+            ->get()
+            ->map(fn (Settlement $settlement) => [
+                'id' => $settlement->id,
+                'order_number' => $settlement->order?->order_number,
+                'seller_profile_id' => $settlement->seller_profile_id,
+                'hatchery_name' => $settlement->sellerProfile?->hatchery_name,
+                'municipality' => $settlement->municipality?->name,
+                'gross_amount' => (float) $settlement->gross_amount,
+                'platform_share' => (float) $settlement->platform_share,
+                'platform_percent' => (float) $settlement->platform_percent,
+                'settled_at' => $settlement->settled_at,
+                'reversed' => $settlement->isReversed(),
+                'reversed_at' => $settlement->reversed_at,
+                'reversed_by' => $settlement->reversedBy?->name,
+                'reversal_reason' => $settlement->reversal_reason,
+            ])
+            ->all();
+
+        $reversed = fn () => Settlement::whereNotNull('reversed_at');
+
+        return array_merge(self::platformCards(), [
+            'total_payout_fees' => round((float) WithdrawalRequest::where('status', 'paid')->sum('platform_fee'), 2),
+            'reversed_settlements' => $reversed()->count(),
+            'reversed_platform_share' => round((float) $reversed()->sum('platform_share'), 2),
+            'ledger' => $ledger,
+        ]);
     }
 
     /**
@@ -92,19 +138,19 @@ class RevenueReport
     {
         $today = now()->toDateString();
 
-        $topMunicipality = Settlement::join('municipalities', 'settlements.municipality_id', '=', 'municipalities.id')
+        $topMunicipality = Settlement::notReversed()->join('municipalities', 'settlements.municipality_id', '=', 'municipalities.id')
             ->selectRaw('municipalities.name as name, sum(settlements.gross_amount) as amount, count(*) as orders')
             ->groupBy('municipalities.name')
             ->orderByDesc('amount')
             ->first();
 
-        $topSeller = Settlement::join('seller_profiles', 'settlements.seller_profile_id', '=', 'seller_profiles.id')
+        $topSeller = Settlement::notReversed()->join('seller_profiles', 'settlements.seller_profile_id', '=', 'seller_profiles.id')
             ->selectRaw('seller_profiles.hatchery_name as name, sum(settlements.gross_amount) as amount, count(*) as orders')
             ->groupBy('seller_profiles.hatchery_name')
             ->orderByDesc('amount')
             ->first();
 
-        $topSpecies = Settlement::join('orders', 'settlements.order_id', '=', 'orders.id')
+        $topSpecies = Settlement::notReversed()->join('orders', 'settlements.order_id', '=', 'orders.id')
             ->join('listings', 'orders.listing_id', '=', 'listings.id')
             ->selectRaw('listings.species as name, sum(settlements.gross_amount) as amount, count(*) as orders')
             ->groupBy('listings.species')
@@ -113,8 +159,8 @@ class RevenueReport
 
         return [
             'todays_orders' => \App\Models\Order::whereDate('created_at', $today)->count(),
-            'todays_gross_revenue' => round((float) Settlement::whereDate('settled_at', $today)->sum('gross_amount'), 2),
-            'monthly_gross_revenue' => round((float) Settlement::whereBetween('settled_at', [now()->startOfMonth(), now()->endOfMonth()])->sum('gross_amount'), 2),
+            'todays_gross_revenue' => round((float) Settlement::notReversed()->whereDate('settled_at', $today)->sum('gross_amount'), 2),
+            'monthly_gross_revenue' => round((float) Settlement::notReversed()->whereBetween('settled_at', [now()->startOfMonth(), now()->endOfMonth()])->sum('gross_amount'), 2),
             'top_municipality' => $topMunicipality ? ['name' => $topMunicipality->name, 'amount' => round((float) $topMunicipality->amount, 2), 'orders' => (int) $topMunicipality->orders] : null,
             'top_seller' => $topSeller ? ['name' => $topSeller->name, 'amount' => round((float) $topSeller->amount, 2), 'orders' => (int) $topSeller->orders] : null,
             'top_species' => $topSpecies ? ['name' => $topSpecies->name, 'amount' => round((float) $topSpecies->amount, 2), 'orders' => (int) $topSpecies->orders] : null,
@@ -128,7 +174,7 @@ class RevenueReport
      */
     public static function realizedPlatformRevenueTotal(Carbon $start, Carbon $end): float
     {
-        $shares = (float) Settlement::whereBetween('settled_at', [$start, $end])->sum('platform_share');
+        $shares = (float) Settlement::notReversed()->whereBetween('settled_at', [$start, $end])->sum('platform_share');
         $fees = (float) WithdrawalRequest::where('status', 'paid')
             ->whereBetween('paid_at', [$start, $end])
             ->sum('platform_fee');
@@ -142,7 +188,7 @@ class RevenueReport
      */
     public static function platformRevenueOverTime(Carbon $start, Carbon $end, string $unit): array
     {
-        $shares = Settlement::whereBetween('settled_at', [$start, $end])
+        $shares = Settlement::notReversed()->whereBetween('settled_at', [$start, $end])
             ->get(['settled_at', 'platform_share'])
             ->map(fn ($row) => (object) ['at' => $row->settled_at, 'amount' => (float) $row->platform_share]);
         $fees = WithdrawalRequest::where('status', 'paid')
@@ -177,7 +223,7 @@ class RevenueReport
      */
     public static function platformRevenueByMunicipality(Carbon $start, Carbon $end)
     {
-        $shares = Settlement::whereBetween('settlements.settled_at', [$start, $end])
+        $shares = Settlement::notReversed()->whereBetween('settlements.settled_at', [$start, $end])
             ->where('settlements.platform_share', '>', 0)
             ->join('municipalities', 'settlements.municipality_id', '=', 'municipalities.id')
             ->selectRaw('municipalities.name as municipality, sum(settlements.platform_share) as amount, count(*) as total')
@@ -218,7 +264,7 @@ class RevenueReport
      */
     public static function platformRevenueBySpecies(Carbon $start, Carbon $end): array
     {
-        $settledBySpecies = Settlement::whereBetween('settled_at', [$start, $end])
+        $settledBySpecies = Settlement::notReversed()->whereBetween('settled_at', [$start, $end])
             ->join('orders', 'settlements.order_id', '=', 'orders.id')
             ->join('listings', 'orders.listing_id', '=', 'listings.id')
             ->selectRaw('listings.species as species, sum(settlements.gross_amount) as settled_gross, count(*) as total')

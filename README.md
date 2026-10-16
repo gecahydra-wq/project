@@ -56,7 +56,7 @@ The system emphasizes correctness of money movement, strict role permissions, a 
 - Buy-later **Cart** — buyers save listings to purchase later (a bookmark, not a stock reservation; price and availability are re-checked at checkout)
 - Seller profiles with a "Farm Posts" social feed (likes + comments), ratings and reviews
 - Buyer ↔ Seller two-way feedback (buyers review sellers; sellers rate buyers)
-- Direct messaging between all roles. Automatic messages -- out-for-delivery notices and auto-completed order/payout notices -- are sent by a one-way **AbaiMarket system account** instead of a Super Admin: its threads have no reply box, each message carries an **Automated message** tag, and two buttons replace the input ("Message the Super Admin" and "Contact Support"). The Super Admin's payout receipt stays a personal message, so replies to it reach them
+- Direct messaging between all roles. Automatic messages -- out-for-delivery notices, receipt acknowledgements (the buyer's order receipt, and a seller's or LGU's Money Received on a payout) and auto-completed order/payout notices -- are sent by a one-way **AbaiMarket system account** instead of a Super Admin: its threads have no reply box, each message carries an **Automated message** tag, and two buttons replace the input ("Message the Super Admin" and "Contact Support"). The Super Admin's payout receipt stays a personal message, so replies to it reach them
 - In-app notifications, with a bell pop-up in the top bar (open one to jump to the right page, or mark one or all as read). Every new request notifies whoever has to act on it: withdrawal requests reach the Super Admin, new seller registrations reach the municipality's LGU, and so on. Read notifications are not lost: every role's Notifications page has a **Notification History** (newest first, the latest 200) under the unread list, with date and notification-type filters (such as messages and reports)
 - **User reports:** the reporter must choose a reason from a fixed list (nothing is pre-selected) and describe what happened. The reported person is notified **right away** -- "You Were Reported", with the reason and what the reporter wrote -- before any decision, without the reporter's name
 - **New reviews:** every buyer review (1 to 5 stars) notifies the seller -- who rated them, the stars, the comment and their new average -- and clicking it opens that review, highlighted, on their profile
@@ -73,10 +73,11 @@ The system emphasizes correctness of money movement, strict role permissions, a 
 - Seller Wallet and LGU Wallet with Available / Pending / Processing / Withdrawn balances
 - Automated revenue distribution at LGU approval
 - Seller payout requests (`PAY-##`) and LGU payout requests (`LGU-##`), released by the Super Admin
-- Platform revenue accounting (4% share at settlement; no payout fee)
+- Platform revenue accounting (4% share at settlement; no payout fee), with a read-only **Platform Earnings** tab for the Super Admin: today's / this month's / all-time revenue, payout fees, and a ledger of every settled order behind them. There is no platform wallet and nothing to withdraw -- the figures only report what the platform earned
 - **₱100 minimum withdrawal** for sellers and LGUs: the form warns while typing, and the server refuses anything lower (`PayoutAccount::MIN_AMOUNT`)
 - Bank-transfer payouts name the **Philippine bank** (a list, or "Other" with a typed name), with a reminder to double-check the bank, account number and name
 - A **rejected withdrawal holds its amount** until the rejection is final -- their one dispute is rejected, or 7 days pass with no dispute -- so the same money can never be requested twice (`WithdrawalRejection`). There is no "accept the rejection" button for sellers or LGUs; the final notice says the amount went back to their Available Balance
+- A refunded order that had **already released** the seller's and LGU's shares takes them back, and a share already withdrawn becomes a shortfall the Wallet states as **Owed from a Refund** rather than a negative balance: Available Balance floors at ₱0, and the next settled earnings pay the shortfall down before anything can be withdrawn again (`SellerWallet::repaymentDue` / `LguWallet::repaymentDue`)
 
 **Governance & Moderation**
 - LGU: seller verification, listing approval/rejection/archival, seller suspension, earnings verification (approve / hold / reject / **reopen** a rejected transaction back into the queue)
@@ -229,7 +230,7 @@ php artisan serve --host=127.0.0.1 --port=8000
 
 The API is served under `http://127.0.0.1:8000/api`.
 
-**Scheduler:** the app schedules `announcements:publish`, `orders:expire-unpaid` and `orders:cancel-suspended-seller-orders` every five minutes and `withdrawals:finalize-rejections` hourly. `orders:auto-complete-unconfirmed` and `withdrawals:auto-complete-sent` run every minute to enforce the confirmation windows -- 3 days for a buyer to confirm an out-for-delivery order, 7 days for a seller or LGU to confirm a sent payout -- both configurable via `ORDER_AUTO_COMPLETE_AFTER_MINUTES` / `PAYOUT_AUTO_COMPLETE_AFTER_MINUTES`. In production, add the Laravel scheduler to cron:
+**Scheduler:** the app schedules `announcements:publish`, `orders:expire-unpaid` and `orders:cancel-suspended-seller-orders` every five minutes, `orders:expire-refund-windows` hourly (it only records expired refund windows), and `withdrawals:finalize-rejections` hourly. `orders:auto-complete-unconfirmed` and `withdrawals:auto-complete-sent` run every minute to enforce the confirmation windows -- 3 days for a buyer to confirm an out-for-delivery order, 7 days for a seller or LGU to confirm a sent payout -- both configurable via `ORDER_AUTO_COMPLETE_AFTER_MINUTES` / `PAYOUT_AUTO_COMPLETE_AFTER_MINUTES`. In production, add the Laravel scheduler to cron:
 
 ```cron
 * * * * * cd /path/to/backend && php artisan schedule:run >> /dev/null 2>&1
@@ -293,6 +294,7 @@ Fish farmers who purchase fingerlings.
 - Save listings to a **cart** to buy later
 - Place and pay for orders (PayMongo)
 - **Cancel their own order** from My Orders any time before it is out for delivery: unpaid orders cancel with no reason; paid orders require a reason and are refunded through the Super Admin's queue. This includes orders the seller has confirmed but not yet shipped; once out for delivery the button is greyed out and the buyer is told to message the seller
+- **Ask for a refund after receiving an order** for up to 7 days after it completes, with a reason and up to 5 evidence photos. This is a request the Super Admin decides, not an automatic refund
 - Track orders and look them up by order number
 - Review and rate sellers after completed orders
 - Like and comment on seller farm posts
@@ -323,7 +325,8 @@ Scoped strictly to their own municipality.
 Platform-wide authority.
 - Executive dashboard (today's orders/revenue, pending queues, top performers, recent activity)
 - Provision and manage LGU Admin accounts and municipalities
-- Approve/release seller and LGU payouts
+- Approve/release seller and LGU payouts, and decide **post-completion refund requests** (approve to refund, or deny with a reason)
+- A read-only **Platform Earnings** tab: the platform's own 4% revenue, its ledger of settled orders, and how much has been reversed by refunds
 - Suspend/reinstate buyers, sellers, and LGU admins; **permanently remove** buyers/sellers that have no order history
 - Global listing management, review/rating moderation
 - Announcements, the complete activity log (moderation included), platform reports and exports
@@ -361,6 +364,7 @@ LGU requests payout   (LGU-##)   ──►  Super Admin approves & sends payout
 - **Demo mode:** if PayMongo keys are blank, checkout returns a demo session that immediately marks the payment held, so the full flow can be exercised end-to-end without real keys.
 - **Idempotency:** the PayMongo webhook and the buyer's post-redirect confirmation can both arrive; only the first transition captures the payment and sends receipts.
 - **Cancellation:** a buyer cancels their own order while it is unpaid, or after paying until it is out for delivery (a reason is then required, including after the seller confirms); the seller can cancel at any point before completion, including an order that is already out for delivery (deliveries fail or get refused, and the seller has no other way to wind the order down on the road). Either way the order's reserved stock goes back to the listing, an unpaid checkout page is retired, and a captured payment becomes Refund Pending for the Super Admin -- one cancellation path for both sides (`App\Support\OrderCancellation`).
+- **Post-completion refund requests:** a buyer who has already received an order can ask for their money back within **7 days** of completion (`ORDER_REFUND_WINDOW_DAYS`, default 7) from that order, with a mandatory reason and up to 5 evidence photos. This is a request, not a refund -- nothing moves by asking. It lands in the Super Admin's **Refund Requests** list on the Refunds tab, and approving it hands the payment to the same refund queue a cancellation uses (reversing the seller's and LGU's shares first if the earnings were already released, and telling both of them their share came back). Closing the window denies nobody: `orders:expire-refund-windows` only records that the chance lapsed, and a request filed in time stays the Super Admin's to approve or deny (`App\Support\RefundRequests`).
 
 ---
 
@@ -378,9 +382,11 @@ The seller and LGU shares are rounded to the centavo first; the platform absorbs
 
 **Withdrawals carry no fee** — a seller receives the full amount they withdraw.
 
-**Payout confirmation:** after approving a seller or LGU withdrawal, the Super Admin sends the payout through Messages (an optional screenshot can be included). Once the funds arrive, the seller or an LGU admin clicks **Money Received** in their Wallet, immediately completing the withdrawal. If they do not confirm within **7 days** (configurable via `PAYOUT_AUTO_COMPLETE_AFTER_MINUTES`), the scheduler marks it paid automatically and notifies them. The receipt is the Super Admin's own message, so replies reach a person; the automatic completion notice comes from the one-way AbaiMarket system account instead.
+**Payout confirmation:** after approving a seller or LGU withdrawal, the Super Admin sends the payout through Messages (an optional screenshot can be included). Once the funds arrive, the seller or an LGU admin clicks **Money Received** in their Wallet, immediately completing the withdrawal. If they do not confirm within **7 days** (configurable via `PAYOUT_AUTO_COMPLETE_AFTER_MINUTES`), the scheduler marks it paid automatically and notifies them. The receipt is the Super Admin's own message, so replies reach a person; the automatic completion notice comes from the one-way AbaiMarket system account instead. Confirming receipt also sends the recipient an AbaiMarket acknowledgement that the withdrawal is complete, pointing at Support if something about the payout is wrong.
 
 **The seller sees the split.** Order details, the Wallet's Payment History and the "earnings approved" email all show the same breakdown, e.g. order total ₱600 − platform fee 4% (₱24) − LGU share 2% (₱12) = **you receive ₱564** (an estimate until the LGU approves, then the frozen settlement figures). The LGU Wallet's Revenue History shows each order number, seller and "2% of ₱600". Each withdrawal (seller or LGU) must be at least **₱100**.
+
+**Reversals.** Approving a post-completion refund against an order whose earnings were already released reverses that Settlement -- the seller's 94%, the LGU's 2% **and the platform's own 4%** all stop counting, because every balance and revenue figure is derived by summing non-reversed settlements (`Settlement::scopeNotReversed`). The row is never deleted, so the ledger keeps the history of a payout that had to be taken back, and the seller and every LGU admin of that municipality are notified. Money that had already been withdrawn cannot come back, so it becomes a shortfall: Available Balance floors at ₱0, the Wallet shows it as **Owed from a Refund**, the next settled earnings pay it down first, and a withdrawal reserved before the reversal waits until they do (`SellerWallet::repaymentDue` / `LguWallet::repaymentDue`). The Super Admin's **Platform Earnings** ledger marks the reversed order rather than dropping it, so the drop in the totals is visible with its cause.
 
 > **History:** before 9 October 2026 the split was Seller 96% / LGU 4% at settlement, plus a 6% platform payout fee on each seller withdrawal. Settlements and withdrawals made before then keep the figures frozen on them, and Platform Revenue still counts those old fees once the withdrawal is paid.
 

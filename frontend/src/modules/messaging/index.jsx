@@ -225,7 +225,7 @@ function MessageBubble({ message, isMine, onEdit, onDelete, automated = false })
   const isDeleted = !!message.deleted_at
   const withinEditWindow = renderedAt - new Date(message.created_at).getTime() <= MESSAGE_EDIT_WINDOW_MS
   const canModify = isMine && !isDeleted
-  const sellerProfileLink = message.message_type === 'order_auto_completed'
+  const sellerProfileLink = ['order_auto_completed', 'order_received'].includes(message.message_type)
     ? message.body.match(/\[([^\]]+)\]\((\/sellers\/\d+)\)/)
     : null
 
@@ -295,7 +295,7 @@ function MessageBubble({ message, isMine, onEdit, onDelete, automated = false })
           <img className="message-attachment-full" src={attachmentUrl} alt="Full-size payout receipt" />
         </Modal>
       )}
-      {['payout_receipt', 'payout_auto_completed', 'order_auto_completed'].includes(message.message_type) && !isMine && (
+      {['payout_receipt', 'payout_auto_completed', 'payout_received', 'order_auto_completed', 'order_received'].includes(message.message_type) && !isMine && (
         <div className="row-actions">
           <Link className="link-action" to={getSession()?.role === 'buyer' ? '/buyer/dashboard?tab=support' : getSession()?.role === 'lgu_admin' ? '/lgu/dashboard?tab=support' : '/seller/dashboard?tab=support'}>Contact Support</Link>
         </div>

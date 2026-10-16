@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\PlatformController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\PasswordResetController;
+use App\Http\Controllers\Api\RefundRequestController;
 use App\Http\Controllers\Api\ReviewController;
 use App\Http\Controllers\Api\SellerController;
 use App\Http\Controllers\Api\SellerPostController;
@@ -110,6 +111,10 @@ Route::middleware(['auth:sanctum', 'verified', 'role:buyer'])->group(function ()
     // is then required). Once the seller confirms, the fish may be prepared or
     // on their way -- see OrderController::cancel.
     Route::patch('orders/{order}/cancel', [OrderController::class, 'cancel']);
+    // A refund for an order the buyer already received is not a cancellation:
+    // it is a request the Super Admin has to decide. Only creatable inside the
+    // 7-day window after completion (App\Support\RefundRequests).
+    Route::post('orders/{order}/refund-request', [RefundRequestController::class, 'store']);
 });
 
 Route::middleware(['auth:sanctum', 'verified', 'role:seller'])->group(function () {
@@ -324,6 +329,16 @@ Route::prefix('super-admin')->middleware(['auth:sanctum', 'verified', 'role:supe
     // Refund queue for paid orders that were cancelled or expired (App\Support\OrderCancellation).
     Route::get('refunds', [SuperAdminController::class, 'refunds']);
     Route::patch('refunds/{payment}/refunded', [SuperAdminController::class, 'markRefunded']);
+    // Post-completion refund requests: a buyer asking for their money back
+    // after receiving the order. Distinct from the queue above -- these are
+    // decisions to make, not refunds to send (App\Support\RefundRequests).
+    Route::get('refund-requests', [SuperAdminController::class, 'refundRequests']);
+    Route::patch('refund-requests/{refundRequest}/approve', [SuperAdminController::class, 'approveRefundRequest']);
+    Route::patch('refund-requests/{refundRequest}/deny', [SuperAdminController::class, 'denyRefundRequest']);
+    Route::patch('refund-requests/{refundRequest}/reopen', [SuperAdminController::class, 'reopenRefundRequest']);
+    // Platform Earnings -- the platform's own revenue and the settlements it
+    // came from. Read-only: there is no platform wallet to pay out of.
+    Route::get('platform-revenue', [SuperAdminController::class, 'platformRevenue']);
     // Notices to Explain, platform-wide. The Super Admin is the fallback
     // reviewer when a municipality has no active LGU Admin.
     Route::get('seller-notices', [SuperAdminController::class, 'sellerNotices']);
@@ -352,6 +367,9 @@ Route::prefix('super-admin')->middleware(['auth:sanctum', 'verified', 'role:supe
 });
 
 Route::middleware(['auth:sanctum', 'verified', 'role:buyer,seller,lgu_admin,super_admin'])->group(function () {
-    Route::post('ai-assistant/ask', [AiAssistantController::class, 'ask']);
+    // Every /ask call reaches the AI provider (and, in production, costs
+    // money), so it is capped per account. History is a plain read of the
+    // user's own rows and needs no cap.
+    Route::post('ai-assistant/ask', [AiAssistantController::class, 'ask'])->middleware('throttle:20,1');
     Route::get('ai-assistant/history', [AiAssistantController::class, 'history']);
 });

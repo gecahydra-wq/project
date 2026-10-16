@@ -20,13 +20,13 @@ use Illuminate\Validation\Rule;
  * bank name up to 100 characters rather than only the listed ones.
  *
  * The frontend mirrors these patterns, the minimum and the messages
- * (withdrawalFormIssue in frontend/src/App.jsx); keep the two in sync.
+ * (withdrawalFormIssue in frontend/src/lib/validation.js); keep the two in sync.
  */
 class PayoutAccount
 {
     public const METHODS = ['gcash', 'maya', 'bank_transfer'];
 
-    /** Philippine banks offered in the withdrawal form (frontend PH_BANKS mirrors this list). */
+    /** Philippine banks offered in the withdrawal form (PH_BANKS in frontend/src/lib/constants.js mirrors this list). */
     public const BANKS = [
         'BDO Unibank', 'Bank of the Philippine Islands (BPI)', 'Metrobank', 'Land Bank of the Philippines',
         'Philippine National Bank (PNB)', 'China Bank', 'Security Bank', 'UnionBank of the Philippines',

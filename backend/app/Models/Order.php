@@ -22,6 +22,7 @@ class Order extends Model
         'status',
         'in_transit_at',
         'auto_received_at',
+        'completed_at',
         'cancellation_reason',
         'pickup_notes',
         'seller_notes',
@@ -37,9 +38,26 @@ class Order extends Model
         'lgu_reviewed_at' => 'datetime',
         'in_transit_at' => 'datetime',
         'auto_received_at' => 'datetime',
+        'completed_at' => 'datetime',
     ];
 
-    protected $appends = ['payment_expires_at'];
+    protected $appends = ['payment_expires_at', 'refund_request_deadline'];
+
+    /**
+     * When the buyer's post-completion refund window closes, or null for an
+     * order that has not been completed. Derived from completed_at plus the
+     * configured window length (see App\Support\RefundRequests), so the client
+     * never has to duplicate the 7 -- and, like payment_expires_at above, it
+     * costs no query to append. Whether a request is actually allowed is still
+     * decided on the server; this only tells the UI whether to offer it.
+     */
+    public function getRefundRequestDeadlineAttribute(): ?string
+    {
+        return $this->completed_at
+            ?->copy()
+            ->addDays((int) config('orders.refund_request_window_days', 7))
+            ->toIso8601String();
+    }
 
     /**
      * When orders:expire-unpaid will fail this order if it is still unpaid,
@@ -106,6 +124,15 @@ class Order extends Model
     public function settlement()
     {
         return $this->hasOne(Settlement::class);
+    }
+
+    /**
+     * The buyer's post-completion refund request, if they filed one. One per
+     * order, enforced by a unique index on refund_requests.order_id.
+     */
+    public function refundRequest()
+    {
+        return $this->hasOne(RefundRequest::class);
     }
 
     public function reviewedBy()

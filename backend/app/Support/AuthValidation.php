@@ -19,7 +19,7 @@ use Illuminate\Validation\Rule;
  * it explicitly -- see AuthController::login().
  *
  * The frontend mirrors these exact checks and messages (validateEmail /
- * validatePassword in frontend/src/App.jsx); keep the two in sync.
+ * validatePassword in frontend/src/lib/validation.js); keep the two in sync.
  */
 class AuthValidation
 {

@@ -41,6 +41,25 @@ class WithdrawalNotifications
                     ),
             ]);
             SafeMailer::send($seller->user->email, new WithdrawalReleasedMail($withdrawal));
+
+            // The payout's own acknowledgement, from the AbaiMarket system
+            // account (see App\Support\SystemMessenger), the way a buyer who
+            // clicks "Order Received" gets one (OrderController::completeDelivery).
+            // Skipped on the automatic run, which sends its own version of this
+            // from the scheduler -- one message per completion, whichever path
+            // completed it.
+            if (! $automatic) {
+                SystemMessenger::send(
+                    $seller->user,
+                    sprintf(
+                        'Thank you for confirming that you received your withdrawal payout of ₱%s via %s. Your withdrawal is now complete and marked paid in your Wallet. If something about the payout is wrong -- the amount, or the account it was sent to -- message the Super Admin or contact Support.',
+                        self::money($withdrawal->net_amount),
+                        PayoutAccount::methodLabel($withdrawal->method, $withdrawal->bank_name)
+                    ),
+                    'payout_received',
+                    ['withdrawal_type' => 'seller', 'withdrawal_id' => $withdrawal->id]
+                );
+            }
         }
 
         self::notifySuperAdmins(
@@ -79,6 +98,23 @@ class WithdrawalNotifications
                     ),
             ]);
             SafeMailer::send($withdrawal->requestedBy->email, new LguWithdrawalReleasedMail($withdrawal));
+
+            // Same acknowledgement as the seller's, for the LGU Wallet. It goes
+            // to the admin this notification names, not to whoever happened to
+            // click -- the LGU Wallet is shared by every admin of a
+            // municipality, so the requester is the stable recipient.
+            if (! $automatic) {
+                SystemMessenger::send(
+                    $withdrawal->requestedBy,
+                    sprintf(
+                        'Thank you for confirming that your municipality received the withdrawal payout of ₱%s via %s. The withdrawal is now complete and marked paid in the LGU Wallet. If something about the payout is wrong -- the amount, or the account it was sent to -- message the Super Admin or contact Support.',
+                        self::money($withdrawal->amount),
+                        PayoutAccount::methodLabel($withdrawal->method, $withdrawal->bank_name)
+                    ),
+                    'payout_received',
+                    ['withdrawal_type' => 'lgu', 'withdrawal_id' => $withdrawal->id]
+                );
+            }
         }
 
         self::notifySuperAdmins(

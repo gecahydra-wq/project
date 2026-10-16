@@ -40,7 +40,8 @@ const NOTIFICATION_TABS = {
     ['lgu_withdrawal_requested', 'payouts&focus=lgu-payouts'],
     ['withdrawal_received', 'payouts&focus=seller-payouts'],
     ['withdrawal_requested', 'payouts&focus=seller-payouts'],
-    ['refund_pending', 'payouts'],
+    ['refund_pending', 'refunds'],
+    ['refund_request', 'refunds'],
     ['seller_registration_submitted', 'sellers'],
     ['user_report', 'user-reports'],
     ['seller_notice', 'notices'],
@@ -73,7 +74,7 @@ export function notificationHistoryType(notification) {
   if (type.includes('listing')) return 'listing'
   if (type.includes('notice')) return 'notice'
   if (type.includes('account') || type.includes('seller_registration')) return 'account'
-  if (type.includes('withdrawal') || type.includes('payout')) return 'payout'
+  if (type.includes('withdrawal') || type.includes('payout') || type.includes('refund')) return 'payout'
   if (type.includes('support_ticket') || type.includes('support')) return 'support'
   if (type.includes('announcement')) return 'announcement'
   if (type.includes('dispute')) return 'dispute'

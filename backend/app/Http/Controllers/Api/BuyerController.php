@@ -37,7 +37,7 @@ class BuyerController extends Controller
             'completed_orders' => Order::where('buyer_id', $buyerId)->where('status', 'completed')->count(),
             'unread_messages' => Message::where('receiver_id', $buyerId)->whereNull('read_at')->count(),
             'notifications' => $notifications,
-            'recent_orders' => Order::with(['listing', 'payment', 'review', 'sellerProfile.user'])->where('buyer_id', $buyerId)->latest()->take(5)->get(),
+            'recent_orders' => Order::with(['listing', 'payment', 'review', 'sellerProfile.user', 'refundRequest'])->where('buyer_id', $buyerId)->latest()->take(5)->get(),
             'recent_reviews' => Review::where('buyer_id', $buyerId)->latest()->take(5)->get(),
             'profile' => $request->user()->load('municipality'),
             'buyer_profile' => BuyerProfile::where('user_id', $buyerId)->first(),

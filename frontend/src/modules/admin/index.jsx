@@ -5,13 +5,13 @@ import { useRef, useState } from 'react'
 import { ActivityLogEntryCard, ActivityLogPanel, ReportExportControls } from '../../components/activity.jsx'
 import { ANNOUNCEMENT_MAX_INPUT } from '../../components/announcements.jsx'
 import { CategoryBarChart, TimeSeriesChart } from '../../components/charts.jsx'
-import { SellerEarningsPanel } from '../../components/earnings.jsx'
+import { PlatformRevenuePanel, SellerEarningsPanel } from '../../components/earnings.jsx'
 import { PasswordVisibilityToggle } from '../../components/forms.jsx'
 import { ListingDetailPanel, MarketplaceBrowser } from '../../components/listings.jsx'
 import { AccountRemovalAction, ModerationAction, SellerRegistrationQueue, UserReportsPanel } from '../../components/moderation.jsx'
 import { SellerNoticesPanel } from '../../components/notices.jsx'
 import { MarkAllReadButton, NotificationHistory, NotificationStack, UnreadMessagesNotice } from '../../components/notifications.jsx'
-import { AdminOrderTable, OrderDetailPanel, RefundRow } from '../../components/orders.jsx'
+import { AdminOrderTable, OrderDetailPanel, RefundRequestRow, RefundRow } from '../../components/orders.jsx'
 import { AdminProfilePanel } from '../../components/profile.jsx'
 import { ReviewsAndRatingsSection } from '../../components/reviews.jsx'
 import { renderStars } from '../../components/stars.jsx'
@@ -407,7 +407,9 @@ export function SuperAdminDashboard() {
     queryFn: async () => (await api.get('/super-admin/dashboard')).data,
     retry: false,
     refetchInterval: 30000,
-    placeholderData: { lgu_admins: 8, total_sellers: 142, transactions: [], platform_revenue: null, pending_seller_withdrawals: 0, pending_lgu_withdrawals: 0, completed_seller_withdrawals: 0, completed_lgu_withdrawals: 0 },
+    // Structural keys only -- never plausible figures. A slow or failed load
+    // would otherwise render invented counts as the platform's own.
+    placeholderData: { transactions: [], platform_revenue: null },
   })
   const [reportsPeriod, setReportsPeriod] = useState('monthly')
   const [reportsModerationRole, setReportsModerationRole] = useState('')
@@ -417,12 +419,16 @@ export function SuperAdminDashboard() {
     queryFn: async () => (await api.get('/super-admin/reports', { params: { period: reportsPeriod, moderation_role: reportsModerationRole || undefined, moderation_status: reportsModerationStatus || undefined } })).data,
     retry: false,
     placeholderData: {
-      total_lgus: 8, total_sellers: 142, total_buyers: 1240, total_listings: 87, total_transactions: 18, pending_payouts: 18, transactions: [], lgu_admins: [],
+      transactions: [], lgu_admins: [],
       listings_by_status: [], listings_by_species: [], sellers_by_status: [], orders_over_time: [], listings_by_municipality: [], sellers_by_municipality: [], orders_by_municipality: [],
       revenue_cards: null, platform_revenue_over_time: [], gross_revenue_over_time: [], revenue_by_municipality: [], revenue_by_species: [], revenue_by_seller: [], commission_distribution: [],
       moderation_summary: null, moderation_actions_over_time: [], moderation_log: [],
     },
   })
+  // The overview reads both payloads, so it waits for the real ones rather than
+  // rendering zeroed or invented platform-wide figures.
+  const overviewPending = dashboard.isPlaceholderData || reports.isPlaceholderData
+  const overviewFailed = dashboard.isError || reports.isError
   const lguAdmins = useQuery({
     queryKey: ['super-admin-lgu-admins'],
     queryFn: async () => (await api.get('/super-admin/lgu-admins')).data,
@@ -471,10 +477,43 @@ export function SuperAdminDashboard() {
     queryFn: async () => (await api.get('/super-admin/refunds')).data,
     retry: false,
     placeholderData: [],
+    // Cancellations happen in another window while this page is open, so the
+    // queue has to come to the Super Admin the way the withdrawal lists beside
+    // it do -- without the same 30s tick a refund made after the tab was opened
+    // stayed invisible until a manual reload.
+    refetchInterval: 30000,
   })
   const markRefunded = useMutation({
     mutationFn: async ({ id, reference }) => (await api.patch(`/super-admin/refunds/${id}/refunded`, { reference })).data,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['super-admin-refunds'] }),
+  })
+  // Post-completion refund REQUESTS -- a decision to make, unlike the refunds
+  // queue above, which is money the app has already decided to return. Approving
+  // one still hands off to that same queue (see App\Support\RefundRequests), so
+  // the refunds list is refreshed alongside it.
+  const refundRequests = useQuery({
+    queryKey: ['super-admin-refund-requests'],
+    queryFn: async () => (await api.get('/super-admin/refund-requests')).data,
+    retry: false,
+    placeholderData: [],
+    refetchInterval: 30000,
+  })
+  const refreshRefundRequests = () => {
+    queryClient.invalidateQueries({ queryKey: ['super-admin-refund-requests'] })
+    queryClient.invalidateQueries({ queryKey: ['super-admin-refunds'] })
+    queryClient.invalidateQueries({ queryKey: ['super-admin-dashboard'] })
+  }
+  const approveRefundRequest = useMutation({
+    mutationFn: async (id) => (await api.patch(`/super-admin/refund-requests/${id}/approve`)).data,
+    onSuccess: refreshRefundRequests,
+  })
+  const denyRefundRequest = useMutation({
+    mutationFn: async ({ id, reason }) => (await api.patch(`/super-admin/refund-requests/${id}/deny`, { reason })).data,
+    onSuccess: refreshRefundRequests,
+  })
+  const reopenRefundRequest = useMutation({
+    mutationFn: async (id) => (await api.patch(`/super-admin/refund-requests/${id}/reopen`)).data,
+    onSuccess: refreshRefundRequests,
   })
   const lguWithdrawals = useQuery({
     queryKey: ['super-admin-lgu-withdrawals'],
@@ -642,7 +681,11 @@ export function SuperAdminDashboard() {
       title="Super Admin Dashboard"
       subtitle="Platform-wide control, transaction review, and payout release."
     >
-      {tab === 'overview' && (
+      {tab === 'overview' && (overviewFailed ? (
+        <p className="error">Could not load the dashboard. Refresh to try again.</p>
+      ) : overviewPending ? (
+        <LoadingState label="Loading the dashboard..." />
+      ) : (
         <>
           <UnreadMessagesNotice dashboardPath="/admin/dashboard" />
           {/* Executive at-a-glance -- today's pulse and GROSS marketplace
@@ -661,7 +704,7 @@ export function SuperAdminDashboard() {
             ['Total LGUs', reports.data?.total_lgus ?? 0, false, '/admin/dashboard?tab=lgu-admins&focus=registered-lgu-admins'],
             ['Total Sellers', reports.data?.total_sellers ?? 0, false, '/admin/dashboard?tab=sellers&focus=all-sellers'],
             ['Total Buyers', reports.data?.total_buyers ?? 0, false, '/admin/dashboard?tab=users'],
-            ['Total Settled Orders', dashboard.data?.platform_revenue?.total_settled_orders ?? 0, false, '/admin/dashboard?tab=earnings'],
+            ['Total Settled Orders', dashboard.data?.platform_revenue?.total_settled_orders ?? 0, false, '/admin/dashboard?tab=platform-earnings'],
           ]} />
           <Section title="Action Required">
             <p className="helper-text">Everything waiting on the Super Admin or an LGU across the platform, grouped by what it is about. Click a number to open the page that handles it.</p>
@@ -699,13 +742,13 @@ export function SuperAdminDashboard() {
               />
             </div>
           </Section>
-          <Section title="Marketplace Revenue" actions={<Link className="ghost" to="/admin/dashboard?tab=reports">View Analytics</Link>}>
-            <p className="helper-text">Platform Revenue is the platform&apos;s 4% share of every order, recognized when the LGU approves the seller&apos;s earnings (the seller keeps 94%, the LGU 2%). It also includes the 6% payout fees on withdrawals requested before October 9, 2026. Gross Marketplace Revenue is the full value paid by buyers before revenue sharing, recognized at settlement.</p>
+          <Section title="Marketplace Revenue" actions={<Link className="ghost" to="/admin/dashboard?tab=platform-earnings">View Platform Earnings</Link>}>
+            <p className="helper-text">Platform Revenue is the platform&apos;s 4% share of every order, recognized when the LGU approves the seller&apos;s earnings (the seller keeps 94%, the LGU 2%). It also includes the 6% payout fees on withdrawals requested before October 9, 2026. Gross Marketplace Revenue is the full value paid by buyers before revenue sharing, recognized at settlement. The Platform Earnings tab shows this figure&apos;s ledger, including any share a refund has reversed.</p>
             <StatsRow items={[
-              ["Today's Platform Revenue", currency(dashboard.data?.platform_revenue?.today_platform_revenue ?? 0), false, '/admin/dashboard?tab=reports'],
-              ['Monthly Platform Revenue', currency(dashboard.data?.platform_revenue?.monthly_platform_revenue ?? 0), false, '/admin/dashboard?tab=reports'],
-              ['Total Platform Revenue', currency(dashboard.data?.platform_revenue?.total_platform_revenue ?? 0), false, '/admin/dashboard?tab=reports'],
-              ['Avg Realized Revenue / Settled Order', currency(dashboard.data?.platform_revenue?.average_platform_revenue_per_order ?? 0), false, '/admin/dashboard?tab=reports'],
+              ["Today's Platform Revenue", currency(dashboard.data?.platform_revenue?.today_platform_revenue ?? 0), false, '/admin/dashboard?tab=platform-earnings'],
+              ['Monthly Platform Revenue', currency(dashboard.data?.platform_revenue?.monthly_platform_revenue ?? 0), false, '/admin/dashboard?tab=platform-earnings'],
+              ['Total Platform Revenue', currency(dashboard.data?.platform_revenue?.total_platform_revenue ?? 0), false, '/admin/dashboard?tab=platform-earnings'],
+              ['Avg Realized Revenue / Settled Order', currency(dashboard.data?.platform_revenue?.average_platform_revenue_per_order ?? 0), false, '/admin/dashboard?tab=platform-earnings'],
             ]} />
           </Section>
           <Section title="Top Performers">
@@ -747,7 +790,7 @@ export function SuperAdminDashboard() {
             ) : <EmptyState message="No recent activity yet." />}
           </Section>
         </>
-      )}
+      ))}
       {tab === 'marketplace' && (
         <Section title="Marketplace">
           <p className="helper-text">Browse the platform-wide marketplace for moderation and testing. This is read-only -- purchasing is a buyer-only action.</p>
@@ -930,6 +973,7 @@ export function SuperAdminDashboard() {
       {tab === 'disputes' && <DisputesPanel scope="super-admin" />}
       {tab === 'support' && <SupportTicketsAdminPanel scope="super-admin" />}
       {tab === 'earnings' && <SellerEarningsPanel scope="super-admin" />}
+      {tab === 'platform-earnings' && <PlatformRevenuePanel />}
       {tab === 'transactions' && (
         <>
           <SuperAdminOrderLookup />
@@ -977,8 +1021,42 @@ export function SuperAdminDashboard() {
           ) : <EmptyState message="No LGU withdrawal requests yet." />)}
           </PeriodFilteredRows>
         </Section>
+        </>
+      )}
+      {tab === 'refunds' && (
+        <Section title="Refund Requests">
+          <p className="helper-text">
+            Buyers asking for their money back AFTER receiving an order. A request can only be filed within seven days of
+            the order being completed, and approving one refunds the buyer through the queue below. Nothing is refunded
+            until you decide -- a request whose seven days have passed stays here until you approve or deny it.
+          </p>
+          {refundRequests.isError ? (
+            <p className="error">Could not load refund requests. Refresh to try again.</p>
+          ) : (
+          <PeriodFilteredRows rows={refundRequests.data || []} noun="refund requests updated" dateKey="requested_at">
+            {(shown) => (shown.length ? (
+            <div className="item-list">
+              {shown.map((request) => (
+                <RefundRequestRow
+                  key={request.id}
+                  request={request}
+                  onApprove={(id) => approveRefundRequest.mutateAsync(id)}
+                  onDeny={(id, reason) => denyRefundRequest.mutateAsync({ id, reason })}
+                  onReopen={(id) => reopenRefundRequest.mutateAsync(id)}
+                />
+              ))}
+            </div>
+          ) : <EmptyState message="No refund requests." />)}
+          </PeriodFilteredRows>
+          )}
+        </Section>
+      )}
+      {tab === 'refunds' && (
         <Section title="Refunds">
           <p className="helper-text">Paid orders that were cancelled or expired, including every unfinished order of a seller who was suspended. Refund the buyer in the PayMongo dashboard, then mark it refunded here.</p>
+          {refunds.isError ? (
+            <p className="error">Could not load the refund queue. Refresh to try again.</p>
+          ) : (
           <PeriodFilteredRows rows={refunds.data || []} noun="refunds updated" dateKey="updated_at">
             {(shown) => (shown.length ? (
             <div className="item-list">
@@ -988,10 +1066,14 @@ export function SuperAdminDashboard() {
             </div>
           ) : <EmptyState message="No refunds needed." />)}
           </PeriodFilteredRows>
+          )}
         </Section>
-        </>
       )}
-      {tab === 'reports' && (
+      {tab === 'reports' && (reports.isError ? (
+        <p className="error">Could not load reports. Refresh to try again.</p>
+      ) : reports.isPlaceholderData ? (
+        <LoadingState label="Loading reports..." />
+      ) : (
         <Section title="Platform Analytics" actions={<PeriodFilter period={reportsPeriod} onChange={setReportsPeriod} />}>
           <p className="helper-text">Graphs reflect platform-wide activity for the selected period, across every municipality. The summary below remains all-time.</p>
           <div className="charts-grid">
@@ -1078,7 +1160,7 @@ export function SuperAdminDashboard() {
             period={reportsPeriod}
           />
         </Section>
-      )}
+      ))}
     </Dashboard>
   )
 }

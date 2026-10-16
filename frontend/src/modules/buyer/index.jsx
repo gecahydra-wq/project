@@ -190,15 +190,16 @@ export function BuyerDashboard() {
   const [searchParams] = useSearchParams()
   const tab = searchParams.get('tab') || 'overview'
   const [visibleNotificationIds, setVisibleNotificationIds] = useState([])
-  const { data, isPlaceholderData } = useQuery({
+  const { data, isError, isPlaceholderData } = useQuery({
     queryKey: ['buyer-dashboard'],
     queryFn: async () => (await api.get('/buyer/dashboard')).data,
     retry: false,
     refetchInterval: 30000,
+    // Structural keys only. The placeholder must never carry plausible
+    // figures: with retry disabled a slow or failed load would otherwise show
+    // invented counts as if they were the buyer's own. The overview below
+    // waits for the real payload instead.
     placeholderData: {
-      active_orders: 2,
-      completed_orders: 8,
-      unread_messages: 0,
       notifications: [],
       recent_orders: [],
       recent_reviews: [],
@@ -271,6 +272,22 @@ export function BuyerDashboard() {
   })
   const handleCancelOrder = (orderId, reason) => cancelOrder.mutateAsync({ orderId, reason })
   const cancelPendingOrderId = cancelOrder.isPending ? cancelOrder.variables?.orderId : null
+  // A post-completion refund is a REQUEST, not a refund: it goes to the Super
+  // Admin's queue and only their approval moves money (see RefundRequests).
+  // The 7-day window and ownership are re-checked on the server; this call
+  // never decides anything by itself.
+  const requestRefund = useMutation({
+    mutationFn: async ({ orderId, reason, evidence = [] }) => {
+      const formData = new FormData()
+      formData.append('reason', reason)
+      // Evidence is staged as { file, url } pairs so the dialog can preview it.
+      evidence.forEach((item) => formData.append('evidence[]', item.file))
+      return (await api.post(`/orders/${orderId}/refund-request`, formData)).data
+    },
+    onSuccess: refreshOrders,
+  })
+  const handleRequestRefund = (orderId, { reason, evidence }) => requestRefund.mutateAsync({ orderId, reason, evidence })
+  const refundRequestPendingOrderId = requestRefund.isPending ? requestRefund.variables?.orderId : null
   const updateBuyerProfile = useMutation({
     mutationFn: async (form) => (await api.patch('/buyer/profile', {
       name: form.name,
@@ -326,12 +343,18 @@ export function BuyerDashboard() {
       {tab === 'overview' && (
         <>
           <UnreadMessagesNotice dashboardPath="/buyer/dashboard" />
-          <StatsRow items={[
-            ['Active Orders', data?.active_orders ?? 0, false, '/buyer/dashboard?tab=orders'],
-            ['Completed Orders', data?.completed_orders ?? 0, false, '/buyer/dashboard?tab=orders'],
-            ['Unread Messages', data?.unread_messages ?? 0, false, '/buyer/dashboard?tab=messages'],
-          ]}
-          />
+          {isError ? (
+            <p className="error">Could not load your dashboard. Refresh to try again.</p>
+          ) : isPlaceholderData ? (
+            <LoadingState label="Loading your dashboard..." />
+          ) : (
+            <StatsRow items={[
+              ['Active Orders', data?.active_orders ?? 0, false, '/buyer/dashboard?tab=orders'],
+              ['Completed Orders', data?.completed_orders ?? 0, false, '/buyer/dashboard?tab=orders'],
+              ['Unread Messages', data?.unread_messages ?? 0, false, '/buyer/dashboard?tab=messages'],
+            ]}
+            />
+          )}
           {/* Mirrors the Seller Dashboard's Recent Orders: the five most recent,
               with the full list a click away through View Order. The Orders tab
               below is still where every order lives. */}
@@ -345,6 +368,8 @@ export function BuyerDashboard() {
               payPendingOrderId={resumePayment.isPending ? resumePayment.variables : null}
               onCancelOrder={handleCancelOrder}
               cancelPendingOrderId={cancelPendingOrderId}
+              onRequestRefund={handleRequestRefund}
+              refundRequestPendingOrderId={refundRequestPendingOrderId}
               detailsEndpoint={(orderNumber) => `/orders/${orderNumber}`}
               paymentView="buyer"
             />
@@ -372,6 +397,8 @@ export function BuyerDashboard() {
                   payPendingOrderId={resumePayment.isPending ? resumePayment.variables : null}
                   onCancelOrder={handleCancelOrder}
                   cancelPendingOrderId={cancelPendingOrderId}
+                  onRequestRefund={handleRequestRefund}
+                  refundRequestPendingOrderId={refundRequestPendingOrderId}
                   detailsEndpoint={(orderNumber) => `/orders/${orderNumber}`}
                   initialOrderNumber={searchParams.get('order')}
                   paymentView="buyer"

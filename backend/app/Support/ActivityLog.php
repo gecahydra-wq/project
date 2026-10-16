@@ -85,6 +85,15 @@ class ActivityLog
                 'seller_payout_requested', 'seller_payout_approved', 'seller_payout_rejected', 'seller_payout_completed',
                 'lgu_payout_requested', 'lgu_payout_approved', 'lgu_payout_rejected', 'lgu_payout_completed',
                 'order_refunded',
+                // Post-completion refund requests -- see App\Support\RefundRequests.
+                // 'refund_request_window_expired' is the scheduler's one-time
+                // record that an order's 7-day window closed with no request; it
+                // is not a decision and never touches a pending request.
+                'refund_request_filed', 'refund_request_approved', 'refund_request_denied',
+                'refund_request_window_expired',
+                // A settlement undone because its order was refunded after the
+                // earnings had already been released (see RefundRequests::approve).
+                'seller_earnings_reversed',
                 // A rejected withdrawal's held amount released -- see App\Support\WithdrawalRejection.
                 'withdrawal_rejection_final',
             ],
@@ -342,10 +351,16 @@ class ActivityLog
             'reference_type' => 'ORD',
             'reference_number' => $row->order?->order_number,
             'description' => sprintf(
-                'Earnings approved and distributed -- Seller ₱%s, LGU ₱%s (of ₱%s gross).',
+                'Earnings approved and distributed -- Seller ₱%s, LGU ₱%s (of ₱%s gross).%s',
                 number_format((float) $row->seller_share, 2),
                 number_format((float) $row->lgu_share, 2),
-                number_format((float) $row->gross_amount, 2)
+                number_format((float) $row->gross_amount, 2),
+                // A settlement stays in the log after it is reversed, because it
+                // really did happen -- but it must not read as money still
+                // credited. Reversed by an approved post-completion refund.
+                $row->reversed_at
+                    ? sprintf(' Reversed %s: the order was refunded.', $row->reversed_at->toDateString())
+                    : ''
             ),
         ]);
     }

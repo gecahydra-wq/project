@@ -47,10 +47,14 @@ class LguWallet
      * which Available Balance is derived. Never recomputed retroactively;
      * each settlement already carries the split that applied at approval
      * time.
+     *
+     * Reversed settlements are excluded: when an order is refunded after its
+     * earnings were released, that share is no longer the municipality's
+     * revenue. See Settlement::scopeNotReversed.
      */
     public static function totalRevenue(int $municipalityId): float
     {
-        return (float) Settlement::where('municipality_id', $municipalityId)->sum('lgu_share');
+        return (float) Settlement::where('municipality_id', $municipalityId)->notReversed()->sum('lgu_share');
     }
 
     /**
@@ -72,6 +76,18 @@ class LguWallet
     public static function availableBalance(int $municipalityId): float
     {
         return max(0, round(self::totalRevenue($municipalityId) - self::reservedOrWithdrawn($municipalityId), 2));
+    }
+
+    /**
+     * Revenue the municipality owes back because a refund reversed a share it
+     * had already withdrawn against -- zero unless the reversal outran what was
+     * still unspent. availableBalance() floors at zero, so this is what keeps
+     * the shortfall visible instead of silently pinning the balance there, and
+     * each later settlement shrinks it. Mirrors SellerWallet::repaymentDue.
+     */
+    public static function repaymentDue(int $municipalityId): float
+    {
+        return round(max(0, self::reservedOrWithdrawn($municipalityId) - self::totalRevenue($municipalityId)), 2);
     }
 
     /**
@@ -105,6 +121,9 @@ class LguWallet
             'pending_balance' => self::pendingBalance($municipalityId),
             'processing_amount' => self::processingAmount($municipalityId),
             'on_hold_amount' => self::onHoldAmount($municipalityId),
+            // Only ever non-zero after a refund reversed already-released
+            // revenue. See repaymentDue().
+            'repayment_due' => self::repaymentDue($municipalityId),
             'total_revenue' => round(self::totalRevenue($municipalityId), 2),
             'withdrawn_amount' => self::withdrawnAmount($municipalityId),
         ];

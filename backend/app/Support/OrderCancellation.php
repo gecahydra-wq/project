@@ -194,8 +194,15 @@ class OrderCancellation
     /**
      * Money was captured, but the order it was for has already been cancelled
      * or expired (its stock is gone). The buyer must get it back.
+     *
+     * This is also the money step for an approved post-completion refund
+     * request (see App\Support\RefundRequests), which passes $completed = true:
+     * the order WAS fulfilled, so the buyer-facing notices must not claim it
+     * "will not be fulfilled". Everything else -- the PaymentLog, the
+     * auto-refund-on-test-keys rule, the queue an admin works on live keys --
+     * is shared, so the two refund flows cannot drift apart.
      */
-    public static function queueRefund(MockPayment $payment, Order $order, string $event, string $reason): void
+    public static function queueRefund(MockPayment $payment, Order $order, string $event, string $reason, bool $completed = false): void
     {
         PaymentLog::create([
             'payment_id' => $payment->id,
@@ -208,7 +215,7 @@ class OrderCancellation
         // a queue nobody will work. See services.paymongo.auto_refund -- this
         // never engages on live keys.
         if (config('services.paymongo.auto_refund')) {
-            self::completeAutomaticRefund($payment, $order, $reason);
+            self::completeAutomaticRefund($payment, $order, $reason, $completed);
 
             return;
         }
@@ -218,7 +225,8 @@ class OrderCancellation
         $amount = number_format((float) $payment->amount, 2);
 
         self::notify($order->buyer_id, "refund_pending:{$payment->id}", 'Refund pending',
-            "Order #{$order->order_number} will not be fulfilled. Your payment of ₱{$amount} will be refunded to your original payment method.");
+            self::refundNoticeLead($order, $completed)
+            ." Your payment of ₱{$amount} will be refunded to your original payment method.");
 
         foreach (User::where('role', 'super_admin')->pluck('id') as $adminId) {
             AppNotification::firstOrCreate([
@@ -226,9 +234,21 @@ class OrderCancellation
                 'type' => "refund_pending:{$payment->id}",
             ], [
                 'title' => 'Refund needed',
-                'body' => "Order #{$order->order_number} (₱{$amount}) needs a refund. {$reason} Refund it in PayMongo, then mark it refunded under Payouts.",
+                'body' => "Order #{$order->order_number} (₱{$amount}) needs a refund. {$reason} Refund it in PayMongo, then mark it refunded in the Refunds queue.",
             ]);
         }
+    }
+
+    /**
+     * The opening sentence of a buyer-facing refund notice. A cancelled or
+     * expired order was never fulfilled; a completed order that the buyer got
+     * refunded anyway was, and saying otherwise would be plainly untrue.
+     */
+    private static function refundNoticeLead(Order $order, bool $completed): string
+    {
+        return $completed
+            ? "Order #{$order->order_number} was completed, and this refund was approved."
+            : "Order #{$order->order_number} will not be fulfilled.";
     }
 
     /**
@@ -238,7 +258,7 @@ class OrderCancellation
      * inventing a reference number, and the activity log entry has no actor,
      * so the audit trail never implies a person issued a refund they did not.
      */
-    private static function completeAutomaticRefund(MockPayment $payment, Order $order, string $reason): void
+    private static function completeAutomaticRefund(MockPayment $payment, Order $order, string $reason, bool $completed = false): void
     {
         $payment->update(['status' => self::REFUNDED]);
 
@@ -255,7 +275,8 @@ class OrderCancellation
         $amount = number_format((float) $payment->amount, 2);
 
         self::notify($order->buyer_id, "refund_completed:{$payment->id}", 'Refund sent',
-            "Order #{$order->order_number} will not be fulfilled. Your payment of ₱{$amount} has been refunded to your original payment method.");
+            self::refundNoticeLead($order, $completed)
+            ." Your payment of ₱{$amount} has been refunded to your original payment method.");
 
         ActivityLog::record([
             'actor_id' => null,

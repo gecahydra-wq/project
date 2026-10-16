@@ -7,12 +7,12 @@ use App\Models\Review;
 use App\Models\User;
 
 /**
- * Moderation of feedback -- lets an LGU Admin / Super Admin remove a review
- * (buyer -> seller) or a rating (seller -> buyer) that isn't fair to either
- * party. Deleting one always recomputes the affected party's cached aggregate
- * (seller_profiles.rating or buyer_profiles.rating/ratings_count) and records
- * the removal in the activity trail, so the numbers and the audit log stay
- * correct. Scope/permission is enforced by the calling controller.
+ * Moderation of feedback -- lets an LGU Admin / Super Admin remove an unfair
+ * buyer -> seller review. This is the only direction that exists: buyers rate
+ * sellers, so there is no seller -> buyer rating to remove. Deleting a review
+ * always recomputes the seller's cached aggregate (seller_profiles.rating) and
+ * records the removal in the activity trail, so the numbers and the audit log
+ * stay correct. Scope/permission is enforced by the calling controller.
  */
 class ReviewModeration
 {

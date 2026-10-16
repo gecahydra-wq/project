@@ -17,7 +17,7 @@ use Illuminate\Contracts\Validation\ValidationRule;
  * counts as a special character and is allowed -- only whitespace is blocked.
  *
  * The frontend mirrors these exact checks and messages in validatePassword()
- * (frontend/src/App.jsx); keep the two in sync when changing the policy.
+ * (frontend/src/lib/validation.js); keep the two in sync when changing the policy.
  */
 class StrongPassword implements ValidationRule
 {

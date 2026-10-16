@@ -75,7 +75,7 @@ class PlatformController extends Controller
         $listingsInRange = fn () => FingerlingListing::whereBetween('listings.created_at', [$start, $end]);
         $sellersInRange = fn () => SellerProfile::whereBetween('seller_profiles.created_at', [$start, $end]);
         $orderRows = Order::whereBetween('orders.created_at', [$start, $end])->get(['created_at', 'total_amount']);
-        $settlementsInRange = fn () => Settlement::whereBetween('settled_at', [$start, $end]);
+        $settlementsInRange = fn () => Settlement::notReversed()->whereBetween('settled_at', [$start, $end]);
 
         // Moderation report filters -- role: buyer/seller/lgu_admin, status:
         // active/suspended/reinstated. 'suspended'/'reinstated' map directly
@@ -218,7 +218,7 @@ class PlatformController extends Controller
         $orderRows = Order::whereHas('sellerProfile', fn ($q) => $q->where('municipality_id', $municipalityId))
             ->whereBetween('orders.created_at', [$start, $end])
             ->get(['created_at', 'total_amount']);
-        $settlementsInRange = fn () => Settlement::where('settlements.municipality_id', $municipalityId)->whereBetween('settled_at', [$start, $end]);
+        $settlementsInRange = fn () => Settlement::notReversed()->where('settlements.municipality_id', $municipalityId)->whereBetween('settled_at', [$start, $end]);
 
         return response()->json([
             // Existing all-time totals -- unchanged, for backwards compatibility with the current Reports stat cards.

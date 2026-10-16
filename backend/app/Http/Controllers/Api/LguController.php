@@ -942,7 +942,7 @@ class LguController extends Controller
 
         return response()->json([
             ...LguWallet::summary($municipalityId),
-            'revenue_history' => Settlement::where('municipality_id', $municipalityId)
+            'revenue_history' => Settlement::notReversed()->where('municipality_id', $municipalityId)
                 ->with(['order.buyer', 'order.listing', 'sellerProfile'])
                 ->latest('settled_at')
                 ->get(),

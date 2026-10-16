@@ -87,7 +87,7 @@ class ReportExporter
 
     private static function lguRevenue(int $municipalityId, Carbon $start, Carbon $end): array
     {
-        $settlements = Settlement::where('municipality_id', $municipalityId)
+        $settlements = Settlement::notReversed()->where('municipality_id', $municipalityId)
             ->whereBetween('settled_at', [$start, $end])
             ->with(['order', 'sellerProfile'])
             ->latest('settled_at')

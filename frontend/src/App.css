@@ -4357,7 +4357,7 @@ body.modal-open {
   padding: 1.15rem 1.35rem;
 }
 
-/* The order popup (see OrderDetailsModal in App.jsx). Wider than the 640px
+/* The order popup (see OrderDetailsModal in components/orders.jsx). Wider than the 640px
    default so the details grid can lay out three columns instead of two: the
    popup is a reading surface -- order facts, timeline, earnings breakdown --
    and vertical scrolling through one narrow column was the whole cost. */
@@ -4784,6 +4784,84 @@ body.modal-open {
 
 .cancel-form textarea {
   min-height: 84px;
+  width: 100%;
+}
+
+/* A buyer's post-completion refund request, once filed: a quiet standing note
+   rather than a callout -- nothing is wrong, and nothing is decided. It has to
+   survive its seven-day window closing (only a Super Admin closes it), so it is
+   styled to be read, not to alarm. */
+.refund-request-notice {
+  background: var(--color-warning-bg);
+  border-left: 3px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  display: grid;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+  padding: 0.6rem 0.8rem;
+}
+
+.refund-request-notice p {
+  margin: 0;
+}
+
+/* Evidence picker and its thumbnails, shared by the buyer's Request Refund
+   dialog and the Super Admin's request card. */
+.refund-evidence-picker {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.refund-evidence-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.refund-evidence-thumb {
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  display: block;
+  height: 72px;
+  overflow: hidden;
+  position: relative;
+  width: 72px;
+}
+
+.refund-evidence-thumb img {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+/* The remove button sits ON the thumbnail, so it is offset from the corner
+   rather than laid out beside it. */
+.refund-evidence-thumb button {
+  align-items: center;
+  border: none;
+  border-radius: 50%;
+  display: flex;
+  height: 20px;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+  position: absolute;
+  right: 2px;
+  top: 2px;
+  width: 20px;
+}
+
+/* The Super Admin's inline denial: it takes the row's full width the same way
+   .table-row-appeal-head .dispute-form does, because .row-actions is a flex
+   row and would otherwise squeeze the textarea to a scroller. */
+.refund-deny-actions {
+  flex-wrap: wrap;
+}
+
+.refund-deny-actions textarea {
+  flex: 1 1 100%;
+  min-height: 72px;
   width: 100%;
 }
 

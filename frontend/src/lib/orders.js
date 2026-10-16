@@ -26,6 +26,29 @@ export function buyerCancelLocked(row) {
   return row.status === 'in_transit'
 }
 
+/* Whether the buyer can ask for a refund now that they have the order --
+   mirrors App\Support\RefundRequests::blockReason, which is the authority (the
+   server re-checks all of it, so this only decides what to draw):
+     'eligible'  -- completed, money still refundable, inside the window: offer
+                    the button;
+     'requested' -- already asked: show what came of it instead of a button;
+     'expired'   -- completed and refundable, but the window has closed: show
+                    the button disabled with the deadline, so the rule is
+                    visible rather than the option silently missing;
+     null        -- not applicable (never completed, or the money has already
+                    left in a state that cannot be refunded).
+   The deadline comes from the API (order.refund_request_deadline) so the
+   window length lives in exactly one place -- the backend config. The filed
+   request rides along as order.refundRequest -- relation keys stay camelCase,
+   because the API disables snake-casing of them. */
+export function buyerRefundRequestMode(row, now = Date.now()) {
+  if (row.status !== 'completed') return null
+  if (row.refundRequest) return 'requested'
+  if (!['paid_held', 'released'].includes(row.payment_status)) return null
+  if (!row.refund_request_deadline) return null
+  return Date.parse(row.refund_request_deadline) < now ? 'expired' : 'eligible'
+}
+
 export function orderPeriodStart(period) {
   const now = new Date()
   if (period === 'today') return new Date(now.getFullYear(), now.getMonth(), now.getDate())

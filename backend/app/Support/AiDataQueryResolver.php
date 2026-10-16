@@ -578,8 +578,8 @@ class AiDataQueryResolver
         }
 
         if (self::matchesAny($lower, ['commission report', 'commission distribution', 'commission breakdown', 'revenue sharing', 'revenue split'])) {
-            $seller = round((float) Settlement::sum('seller_share'), 2);
-            $lgu = round((float) Settlement::sum('lgu_share'), 2);
+            $seller = round((float) Settlement::notReversed()->sum('seller_share'), 2);
+            $lgu = round((float) Settlement::notReversed()->sum('lgu_share'), 2);
             $platform = RevenueReport::platformCards()['total_platform_revenue'];
             $context = "Commission distribution: Seller Share ₱{$seller} (".CommissionCalculator::SELLER_PERCENT."% of every settled order), LGU Share ₱{$lgu} (".CommissionCalculator::LGU_PERCENT."%, realized at settlement), realized Platform revenue ₱{$platform} (".CommissionCalculator::PLATFORM_PERCENT."% of every settled order, plus older payout fees). All three shares are fixed at settlement; withdrawals carry no fee.";
 
@@ -592,7 +592,7 @@ class AiDataQueryResolver
                 $cards = RevenueReport::municipalityCards($municipality->id);
                 $context = "{$municipality->name}'s LGU Revenue: total ₱{$cards['total_revenue']} across {$cards['total_completed_orders']} completed orders (this month ₱{$cards['monthly_revenue']}).";
             } else {
-                $total = round((float) Settlement::sum('lgu_share'), 2);
+                $total = round((float) Settlement::notReversed()->sum('lgu_share'), 2);
                 $context = "Total LGU Revenue across every municipality: ₱{$total}.";
             }
 

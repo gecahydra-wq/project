@@ -42,14 +42,16 @@ export function LguDashboard() {
     queryFn: async () => (await api.get('/lgu/dashboard')).data,
     retry: false,
     refetchInterval: 30000,
-    placeholderData: { registered_sellers: 24, active_listings: 87, pending_approvals: [], notifications: [], municipality_revenue: null },
+    // Structural keys only -- never plausible figures. A slow or failed load
+    // would otherwise render invented counts as the municipality's own.
+    placeholderData: { pending_approvals: [], notifications: [], municipality_revenue: null },
   })
   const [reportsPeriod, setReportsPeriod] = useState('monthly')
   const reports = useQuery({
     queryKey: ['lgu-reports', reportsPeriod],
     queryFn: async () => (await api.get('/lgu/reports', { params: { period: reportsPeriod } })).data,
     retry: false,
-    placeholderData: { registered_sellers: 24, listings: 87, pending_approvals: 5, listings_by_status: [], listings_by_species: [], sellers_by_status: [], orders_over_time: [], revenue_cards: null, lgu_revenue_over_time: [], lgu_withdrawal_trends: [], revenue_by_species: [], revenue_by_seller: [] },
+    placeholderData: { listings_by_status: [], listings_by_species: [], sellers_by_status: [], orders_over_time: [], revenue_cards: null, lgu_revenue_over_time: [], lgu_withdrawal_trends: [], revenue_by_species: [], revenue_by_seller: [] },
   })
   const listingManagement = useQuery({
     queryKey: ['lgu-listings'],
@@ -115,7 +117,16 @@ export function LguDashboard() {
     placeholderData: [],
   })
   const pendingEarningsCount = pendingEarnings.data?.length ?? 0
-  const pendingEarningsAmount = (pendingEarnings.data || []).reduce((sum, payment) => sum + Number(payment.amount || 0), 0)
+  // The GROSS order value of the deliveries still awaiting approval -- what the
+  // buyers paid in total. It is deliberately not labelled as LGU revenue: the
+  // municipality's own LGU Share only exists once it approves each order
+  // (App\Support\LguWallet has no pending balance by design), and the split
+  // that will apply is computed at settlement time.
+  const pendingEarningsGross = (pendingEarnings.data || []).reduce((sum, payment) => sum + Number(payment.amount || 0), 0)
+  // The overview is a pure read of these payloads, so it waits for all three
+  // rather than rendering zeroed or invented figures while they load.
+  const overviewPending = lgu.isPlaceholderData || reports.isPlaceholderData || pendingEarnings.isPlaceholderData
+  const overviewFailed = lgu.isError || reports.isError || pendingEarnings.isError
 
   const wallet = useQuery({
     queryKey: ['lgu-wallet'],
@@ -167,7 +178,11 @@ export function LguDashboard() {
       title="LGU Admin Dashboard"
       subtitle="Municipality-scoped approvals, reports, and reviews."
     >
-      {tab === 'overview' && (
+      {tab === 'overview' && (overviewFailed ? (
+        <p className="error">Could not load the dashboard. Refresh to try again.</p>
+      ) : overviewPending ? (
+        <LoadingState label="Loading the dashboard..." />
+      ) : (
         <>
           <UnreadMessagesNotice dashboardPath="/lgu/dashboard" />
           <StatsRow items={[
@@ -213,13 +228,12 @@ export function LguDashboard() {
                 {pendingEarningsCount > 0 && <Badge tone="warning">{pendingEarningsCount} pending</Badge>}
               </div>
               <div className="stats-inline">
-                <Stat value={pendingEarningsCount} label="Deliveries awaiting approval" highlight={pendingEarningsCount > 0} />
-                <Stat value={currency(pendingEarningsAmount)} label="Total pending earnings" highlight={pendingEarningsCount > 0} />
+                <Stat value={currency(pendingEarningsGross)} label="Gross order value awaiting approval" highlight={pendingEarningsCount > 0} />
               </div>
             </Link>
           </Section>
         </>
-      )}
+      ))}
       {tab === 'marketplace' && (
         <Section title="Marketplace">
           <p className="helper-text">Browse the platform-wide marketplace for moderation and testing. This is read-only -- purchasing is a buyer-only action.</p>
@@ -310,9 +324,16 @@ export function LguDashboard() {
             ['Pending Balance', currency(wallet.data?.pending_balance ?? 0)],
             ['Processing Withdrawal', currency(wallet.data?.processing_amount ?? 0)],
             ...(Number(wallet.data?.on_hold_amount) > 0 ? [['On Hold (Rejected)', currency(wallet.data.on_hold_amount)]] : []),
+            ...(Number(wallet.data?.repayment_due) > 0 ? [['Owed from a Refund', currency(wallet.data.repayment_due)]] : []),
             ['Total Revenue', currency(wallet.data?.total_revenue ?? 0)],
             ['Withdrawn Amount', currency(wallet.data?.withdrawn_amount ?? 0)],
           ]} />
+          {Number(wallet.data?.repayment_due) > 0 && (
+            <p className="helper-text">
+              A refund reversed revenue your municipality had already withdrawn against, so {currency(wallet.data.repayment_due)} is owed back.
+              New revenue pays that down first; a withdrawal can only be paid once the balance covers it again.
+            </p>
+          )}
           <Section title="Request Withdrawal">
             <p className="helper-text">Withdraws from your municipality&apos;s shared LGU revenue balance. Every LGU admin for your municipality sees the same wallet and withdrawal history.</p>
             <div className="form grid-form">
@@ -445,7 +466,11 @@ export function LguDashboard() {
           </Section>
         </>
       )}
-      {tab === 'reports' && (
+      {tab === 'reports' && (reports.isError ? (
+        <p className="error">Could not load reports. Refresh to try again.</p>
+      ) : reports.isPlaceholderData ? (
+        <LoadingState label="Loading reports..." />
+      ) : (
         <Section title="Analytics" actions={<PeriodFilter period={reportsPeriod} onChange={setReportsPeriod} />}>
           <p className="helper-text">Graphs reflect activity in your municipality for the selected period. The summary below remains all-time.</p>
           <div className="charts-grid">
@@ -482,7 +507,7 @@ export function LguDashboard() {
             period={reportsPeriod}
           />
         </Section>
-      )}
+      ))}
       {tab === 'activity-log' && <ActivityLogPanel scope="lgu" />}
       {tab === 'reviews' && <ReviewsAndRatingsSection data={reviews.data} scope="lgu" scopeLabel="in your municipality" />}
       {tab === 'notifications' && (
@@ -526,7 +551,7 @@ export function LguListingReviewPage() {
 
   const goToApprovals = () => {
     queryClient.invalidateQueries({ queryKey: ['lgu-dashboard'] })
-    navigate('/lgu/dashboard?tab=approvals')
+    navigate('/lgu/dashboard?tab=listings')
   }
   const goToListingManagement = () => {
     queryClient.invalidateQueries({ queryKey: ['lgu-dashboard'] })
@@ -559,7 +584,7 @@ export function LguListingReviewPage() {
         <section className="result-card">
           <h1>Listing not found</h1>
           <p>This listing may have been removed, or is outside your municipality.</p>
-          <Link className="button" to="/lgu/dashboard?tab=approvals">Back to Approvals</Link>
+          <Link className="button" to="/lgu/dashboard?tab=listings">Back to Approvals</Link>
         </section>
       </main>
     )
@@ -644,7 +669,7 @@ export function LguListingReviewPage() {
         <p className="helper-text">This listing belongs to a seller outside your municipality. You can view it here as part of the marketplace, but moderation actions are only available for listings within your own municipality.</p>
       )}
 
-      <Link className="ghost" to="/lgu/dashboard?tab=approvals">Back to Approvals</Link>
+      <Link className="ghost" to="/lgu/dashboard?tab=listings">Back to Approvals</Link>
     </main>
   )
 }

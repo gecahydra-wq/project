@@ -43,12 +43,12 @@ export function SellerDashboard() {
     queryFn: async () => (await api.get('/seller/dashboard')).data,
     retry: false,
     refetchInterval: 30000,
+    // Structural keys only. The placeholder must never carry plausible
+    // figures: with retry disabled a slow or failed load would otherwise show
+    // invented counts as if they were the seller's own. The overview below
+    // waits for the real payload instead.
     placeholderData: {
-      seller: { id: 1, hatchery_name: "Juan's Hatchery", approval_status: 'approved' },
-      active_listings: 12,
-      pending_orders: 4,
-      total_sales: 28500,
-      ratings: 4.8,
+      seller: null,
       listings: [],
       orders: [],
       notifications: [],
@@ -235,13 +235,19 @@ export function SellerDashboard() {
               </p>
             </div>
           )}
-          <StatsRow items={[
-            ['Active Listings', dashboard.data?.active_listings ?? 0, false, '/seller/dashboard?tab=listings'],
-            ['Pending Orders', dashboard.data?.pending_orders ?? 0, false, '/seller/dashboard?tab=orders'],
-            ['Total Sales', currency(dashboard.data?.total_sales ?? 0), false, '/seller/dashboard?tab=analytics'],
-            ['Unread Messages', dashboard.data?.unread_messages ?? 0, false, '/seller/dashboard?tab=messages'],
-          ]}
-          />
+          {dashboard.isError ? (
+            <p className="error">Could not load your dashboard. Refresh to try again.</p>
+          ) : dashboard.isPlaceholderData ? (
+            <LoadingState label="Loading your dashboard..." />
+          ) : (
+            <StatsRow items={[
+              ['Active Listings', dashboard.data?.active_listings ?? 0, false, '/seller/dashboard?tab=listings'],
+              ['Pending Orders', dashboard.data?.pending_orders ?? 0, false, '/seller/dashboard?tab=orders'],
+              ['Total Sales', currency(dashboard.data?.total_sales ?? 0), false, '/seller/dashboard?tab=analytics'],
+              ['Unread Messages', dashboard.data?.unread_messages ?? 0, false, '/seller/dashboard?tab=messages'],
+            ]}
+            />
+          )}
           {/* The seller's counterpart to the Buyer Dashboard's Recent Orders:
               the same table, told from the other side of the transaction. */}
           <Section title="Recent Orders" actions={<Link className="ghost" to="/seller/dashboard?tab=orders">View All Orders</Link>}>
@@ -332,9 +338,16 @@ export function SellerDashboard() {
             ['Pending Balance', currency(wallet.data?.pending_balance ?? 0)],
             ['Processing Withdrawal', currency(wallet.data?.processing_amount ?? 0)],
             ...(Number(wallet.data?.on_hold_amount) > 0 ? [['On Hold (Rejected)', currency(wallet.data.on_hold_amount)]] : []),
+            ...(Number(wallet.data?.repayment_due) > 0 ? [['Owed from a Refund', currency(wallet.data.repayment_due)]] : []),
             ['Withdrawn Amount', currency(wallet.data?.withdrawn_amount ?? 0)],
             ['Total Earnings', currency(wallet.data?.total_earnings ?? 0)],
           ]} />
+          {Number(wallet.data?.repayment_due) > 0 && (
+            <p className="helper-text">
+              A refund reversed earnings of yours that had already been withdrawn against, so {currency(wallet.data.repayment_due)} is owed back.
+              New earnings pay that down first; a withdrawal can only be paid once your balance covers it again.
+            </p>
+          )}
           <Section title="Request Withdrawal">
             <div className="form grid-form">
               <select value={withdrawForm.method} onChange={(e) => setWithdrawForm({ ...withdrawForm, method: e.target.value })}>

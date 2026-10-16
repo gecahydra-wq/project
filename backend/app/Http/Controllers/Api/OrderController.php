@@ -21,6 +21,7 @@ use App\Support\ActivityLog;
 use App\Support\OrderCancellation;
 use App\Support\OrderTransactionPresenter;
 use App\Support\PaymentReturnToken;
+use App\Support\RefundRequests;
 use App\Support\SafeMailer;
 use App\Support\SystemMessenger;
 use Illuminate\Http\Request;
@@ -61,7 +62,9 @@ class OrderController extends Controller
         $user = $request->user();
 
         // sellerProfile.user names the seller on the buyer's My Orders list.
-        $query = Order::with(['listing', 'payment', 'review', 'sellerProfile.user']);
+        // refundRequest is what lets the buyer's row know a refund request is
+        // already filed (and what came of it) without a query per order.
+        $query = Order::with(['listing', 'payment', 'review', 'sellerProfile.user', 'refundRequest']);
 
         if ($user->role === 'seller') {
             $seller = SellerProfile::where('user_id', $user->id)->first();
@@ -198,6 +201,29 @@ class OrderController extends Controller
             $result->listing?->title ?: $result->listing?->species ?: 'listing',
             number_format((float) $result->total_amount, 2)
         ));
+
+        // The seller is told at placement, not only when the money lands: the
+        // stock is already reserved against their listing, so an order they
+        // never hear about is stock they cannot see is spoken for. The title
+        // deliberately stops short of calling it a sale -- nothing is paid yet,
+        // and 'Order paid' follows if it is. Sits outside the transaction and
+        // after the activity log, so a notification problem cannot undo an
+        // order whose stock has already been taken.
+        $sellerUserId = $result->sellerProfile?->user_id;
+        if ($sellerUserId) {
+            $this->notifyOnce(
+                $sellerUserId,
+                "order_placed:{$result->id}",
+                'Order placed',
+                sprintf(
+                    'A buyer has placed order #%s: %s x %s, ₱%s. The stock is reserved for them but the order is not paid yet -- you will be notified again once the payment is received.',
+                    $result->order_number,
+                    number_format((int) $result->quantity),
+                    $result->listing?->title ?: $result->listing?->species ?: 'your listing',
+                    number_format((float) $result->total_amount, 2)
+                )
+            );
+        }
 
         return response()->json($result->load('payment'), 201);
     }
@@ -508,7 +534,7 @@ class OrderController extends Controller
      * Why a buyer's cancellation was refused, said in terms of what they can
      * do next -- the order's own status already says what happened. Kept
      * beside cancel() so the frontend's eligibility rule (buyerCancelMode in
-     * App.jsx) and these messages stay in step.
+     * frontend/src/lib/orders.js) and these messages stay in step.
      */
     protected function buyerCancelBlockedMessage(Order $order): string
     {
@@ -571,6 +597,12 @@ class OrderController extends Controller
         $order->update([
             'status' => 'completed',
             'auto_received_at' => $automatic ? now() : null,
+            // The authoritative completion moment, and the only thing the
+            // buyer's refund-request window can be measured from -- see
+            // App\Support\RefundRequests. Written on both paths (buyer
+            // confirmation and the automatic backstop), because both really do
+            // complete the order.
+            'completed_at' => now(),
         ]);
         $order->loadMissing(['buyer', 'sellerProfile.user', 'listing']);
 
@@ -617,9 +649,37 @@ class OrderController extends Controller
                 : sprintf('Buyer confirmed receipt of order %s.', $order->order_number)),
         ]);
 
+        // Both the buyer's receipt acknowledgement and the automatic one name
+        // the seller and the listing that was bought, so they are resolved once
+        // here rather than twice.
+        $sellerName = str_replace(['[', ']'], '', (string) ($order->sellerProfile?->hatchery_name ?: $order->sellerProfile?->user?->name ?: 'Seller'));
+        $listingTitle = $order->listing?->title ?: 'this listing';
+
+        // The buyer who clicked "Order Received" gets one automatic message
+        // from the AbaiMarket system account (see App\Support\SystemMessenger):
+        // an acknowledgement, where to turn if the delivery went wrong, and how
+        // the refund process works. Only the buyer's own confirmation sends it
+        // -- the automatic backstop explains itself below, and an admin marking
+        // receipt for a silent buyer is not the buyer acknowledging anything.
+        // No duplicate guard is needed: completing is one-way, so the status
+        // check at the top of this method lets a buyer's confirmation through
+        // exactly once.
+        if (! $automatic && $confirmedBy === null && $order->buyer) {
+            SystemMessenger::send(
+                $order->buyer,
+                sprintf(
+                    'Thank you for confirming that you received order #%s. If something is wrong with it, message the seller for listing "%s": [%s](/sellers/%d), or contact Support. To request a refund, open this order within %d days of receiving it and give a valid reason -- photos of the problem help -- because every request is reviewed by a Super Admin before any money is returned.',
+                    $order->order_number,
+                    $listingTitle,
+                    $sellerName,
+                    $order->seller_profile_id,
+                    RefundRequests::windowDays()
+                ),
+                'order_received'
+            );
+        }
+
         if ($automatic && $confirmedBy) {
-            $sellerName = str_replace(['[', ']'], '', (string) ($order->sellerProfile?->hatchery_name ?: $order->sellerProfile?->user?->name ?: 'Seller'));
-            $listingTitle = $order->listing?->title ?: 'this listing';
             $buyerBody = sprintf(
                 'Our system detected that you did not click "Order Received" for order #%s within the confirmation window, so we assumed you received it and automatically completed the order. If you did not receive it, message the seller for listing "%s": [%s](/sellers/%d), or contact Support.',
                 $order->order_number,
