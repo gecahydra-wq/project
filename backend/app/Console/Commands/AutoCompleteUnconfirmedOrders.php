@@ -45,7 +45,7 @@ class AutoCompleteUnconfirmedOrders extends Command
             $completed += $didComplete ? 1 : 0;
         }
 
-        $this->info("Automatically marked {$completed} order(s) received after {$minutes} minute(s) without buyer confirmation.");
+        $this->info("Automatically marked {$completed} order(s) as received after the buyer confirmation window expired.");
 
         return self::SUCCESS;
     }
