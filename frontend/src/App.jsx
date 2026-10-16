@@ -86,7 +86,13 @@ import {
 } from 'recharts'
 import './App.css'
 
-const queryClient = new QueryClient()
+/* A backgrounded window keeps polling. Without this React Query pauses every
+   refetchInterval the moment the window loses focus, so while you act in one
+   browser the other one silently stops asking and only catches up when you
+   click it or reload. */
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { refetchIntervalInBackground: true } },
+})
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api'
 
 const api = axios.create({ baseURL: API_URL })
@@ -3058,6 +3064,7 @@ function BuyerDashboard() {
     queryKey: ['buyer-dashboard'],
     queryFn: async () => (await api.get('/buyer/dashboard')).data,
     retry: false,
+    refetchInterval: 30000,
     placeholderData: {
       active_orders: 2,
       completed_orders: 8,
@@ -3076,6 +3083,7 @@ function BuyerDashboard() {
     queryFn: async () => (await api.get('/orders')).data,
     enabled: tab === 'orders',
     retry: false,
+    refetchInterval: 30000,
   })
   const refreshOrders = () => {
     queryClient.invalidateQueries({ queryKey: ['buyer-dashboard'] })
@@ -3759,6 +3767,7 @@ function SellerDashboard() {
     queryKey: ['seller-dashboard'],
     queryFn: async () => (await api.get('/seller/dashboard')).data,
     retry: false,
+    refetchInterval: 30000,
     placeholderData: {
       seller: { id: 1, hatchery_name: "Juan's Hatchery", approval_status: 'approved' },
       active_listings: 12,
@@ -5338,6 +5347,7 @@ function LguDashboard() {
     queryKey: ['lgu-dashboard'],
     queryFn: async () => (await api.get('/lgu/dashboard')).data,
     retry: false,
+    refetchInterval: 30000,
     placeholderData: { registered_sellers: 24, active_listings: 87, pending_approvals: [], notifications: [], municipality_revenue: null },
   })
   const [reportsPeriod, setReportsPeriod] = useState('monthly')
@@ -5358,6 +5368,7 @@ function LguDashboard() {
     queryFn: async () => (await api.get('/lgu/orders')).data,
     enabled: tab === 'orders',
     retry: false,
+    refetchInterval: 30000,
     placeholderData: [],
   })
   const notifications = (lgu.data?.notifications || []).filter((notification) => !visibleNotificationIds.includes(notification.id))
@@ -6367,6 +6378,7 @@ function SuperAdminDashboard() {
     queryKey: ['super-admin-dashboard'],
     queryFn: async () => (await api.get('/super-admin/dashboard')).data,
     retry: false,
+    refetchInterval: 30000,
     placeholderData: { lgu_admins: 8, total_sellers: 142, transactions: [], platform_revenue: null, pending_seller_withdrawals: 0, pending_lgu_withdrawals: 0, completed_seller_withdrawals: 0, completed_lgu_withdrawals: 0 },
   })
   const [reportsPeriod, setReportsPeriod] = useState('monthly')
