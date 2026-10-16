@@ -266,7 +266,7 @@ class RefundRequests
                 $refundStatus = $payment->fresh()->status;
                 $buyerMessage = $refundStatus === OrderCancellation::REFUNDED
                     ? sprintf(
-                        'The Super Admin approved your refund request for order #%s. Your payment of %s was completed automatically in test mode.',
+                        'The Super Admin approved your refund request for order #%s. Your payment of %s has been successfully refunded.',
                         $order->order_number,
                         self::amountLabel($payment)
                     )
