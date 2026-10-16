@@ -261,6 +261,24 @@ class RefundRequests
                 )
             );
 
+            $buyer = User::find($locked->buyer_id);
+            if ($buyer) {
+                $refundStatus = $payment->fresh()->status;
+                $buyerMessage = $refundStatus === OrderCancellation::REFUNDED
+                    ? sprintf(
+                        'The Super Admin approved your refund request for order #%s. Your payment of %s was completed automatically in test mode.',
+                        $order->order_number,
+                        self::amountLabel($payment)
+                    )
+                    : sprintf(
+                        'The Super Admin approved your refund request for order #%s. Your payment of %s is now being processed back to your original payment method. We will update the refund status when it has been sent.',
+                        $order->order_number,
+                        self::amountLabel($payment)
+                    );
+
+                SystemMessenger::send($buyer, $buyerMessage, 'refund_request_approved');
+            }
+
             self::markAdminNotificationsRead($locked);
 
             if ($reversed) {
