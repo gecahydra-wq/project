@@ -66,7 +66,12 @@ export function SellerDashboard() {
     queryFn: async () => (await api.get('/seller/wallet')).data,
     retry: false,
     placeholderData: { available_balance: 0, pending_balance: 0, processing_amount: 0, total_earnings: 0, withdrawn_amount: 0, payment_history: [], withdrawal_requests: [] },
-    refetchInterval: 30000,
+    // Accepted payout disputes reopen the request in another user's session.
+    // Poll more often only while one is awaiting a decision so the seller sees
+    // the new Pending status promptly, then return to the normal wallet cadence.
+    refetchInterval: (query) => query.state.data?.withdrawal_requests?.some(
+      (request) => request.status === 'rejected' && request.has_open_dispute
+    ) ? 5000 : 30000,
   })
   const notifications = (dashboard.data?.notifications || []).filter((notification) => !visibleNotificationIds.includes(notification.id))
   const markRead = useMutation({

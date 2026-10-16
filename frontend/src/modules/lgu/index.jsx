@@ -133,7 +133,12 @@ export function LguDashboard() {
     queryFn: async () => (await api.get('/lgu/wallet')).data,
     retry: false,
     placeholderData: { available_balance: 0, pending_balance: 0, processing_amount: 0, total_revenue: 0, withdrawn_amount: 0, revenue_history: [], withdrawal_requests: [] },
-    refetchInterval: 30000,
+    // Accepted payout disputes reopen the request in another user's session.
+    // Poll more often only while one is awaiting a decision so the LGU sees
+    // the new Pending status promptly, then return to the normal wallet cadence.
+    refetchInterval: (query) => query.state.data?.withdrawal_requests?.some(
+      (request) => request.status === 'rejected' && request.has_open_dispute
+    ) ? 5000 : 30000,
   })
   const [lguWithdrawForm, setLguWithdrawForm] = useState({ method: 'gcash', bank_choice: '', bank_other: '', account_name: '', account_number: '', amount: '' })
   const [lguWithdrawFormError, setLguWithdrawFormError] = useState('')
