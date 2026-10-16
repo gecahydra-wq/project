@@ -82,8 +82,8 @@ class ActivityLog
             'actions' => [
                 'seller_earnings_approved', 'seller_earnings_held', 'seller_earnings_hold_cleared',
                 'seller_earnings_rejected', 'seller_earnings_reopened',
-                'seller_payout_requested', 'seller_payout_approved', 'seller_payout_rejected', 'seller_payout_completed',
-                'lgu_payout_requested', 'lgu_payout_approved', 'lgu_payout_rejected', 'lgu_payout_completed',
+                'seller_payout_requested', 'seller_payout_approved', 'seller_payout_rejected', 'seller_payout_reopened', 'seller_payout_completed',
+                'lgu_payout_requested', 'lgu_payout_approved', 'lgu_payout_rejected', 'lgu_payout_reopened', 'lgu_payout_completed',
                 'order_refunded',
                 // Post-completion refund requests -- see App\Support\RefundRequests.
                 // 'refund_request_window_expired' is the scheduler's one-time

@@ -325,6 +325,7 @@ Route::prefix('super-admin')->middleware(['auth:sanctum', 'verified', 'role:supe
     Route::get('withdrawals', [SuperAdminController::class, 'withdrawals']);
     Route::patch('withdrawals/{withdrawal}/approve', [SuperAdminController::class, 'approveWithdrawal']);
     Route::patch('withdrawals/{withdrawal}/reject', [SuperAdminController::class, 'rejectWithdrawal']);
+    Route::patch('withdrawals/{withdrawal}/reopen', [SuperAdminController::class, 'reopenWithdrawal']);
     Route::post('withdrawals/{withdrawal}/send-receipt', [SuperAdminController::class, 'sendWithdrawalReceipt']);
     // Refund queue for paid orders that were cancelled or expired (App\Support\OrderCancellation).
     Route::get('refunds', [SuperAdminController::class, 'refunds']);
@@ -347,6 +348,7 @@ Route::prefix('super-admin')->middleware(['auth:sanctum', 'verified', 'role:supe
     Route::get('lgu-withdrawals', [SuperAdminController::class, 'lguWithdrawals']);
     Route::patch('lgu-withdrawals/{withdrawal}/approve', [SuperAdminController::class, 'approveLguWithdrawal']);
     Route::patch('lgu-withdrawals/{withdrawal}/reject', [SuperAdminController::class, 'rejectLguWithdrawal']);
+    Route::patch('lgu-withdrawals/{withdrawal}/reopen', [SuperAdminController::class, 'reopenLguWithdrawal']);
     Route::post('lgu-withdrawals/{withdrawal}/send-receipt', [SuperAdminController::class, 'sendLguWithdrawalReceipt']);
     Route::get('notifications', [SuperAdminController::class, 'notifications']);
     Route::patch('notifications/read-all', [SuperAdminController::class, 'markAllNotificationsRead']);

@@ -56,7 +56,7 @@ export function WithdrawalConfirmModal({ form, pending = false, onConfirm, onClo
   )
 }
 
-export function WithdrawalRow({ request, onApprove, onReject, onSendReceipt, type = 'seller' }) {
+export function WithdrawalRow({ request, onApprove, onReject, onSendReceipt, onReopen, type = 'seller' }) {
   const [showDetails, setShowDetails] = useState(false)
   const seller = request.sellerProfile
   const isLgu = type === 'lgu'
@@ -92,13 +92,14 @@ export function WithdrawalRow({ request, onApprove, onReject, onSendReceipt, typ
           onApprove={onApprove}
           onReject={onReject}
           onSendReceipt={onSendReceipt}
+          onReopen={onReopen}
         />
       )}
     </div>
   )
 }
 
-function WithdrawalReviewModal({ request, type, onClose, onApprove, onReject, onSendReceipt }) {
+function WithdrawalReviewModal({ request, type, onClose, onApprove, onReject, onSendReceipt, onReopen }) {
   const [attachment, setAttachment] = useState(null)
   const [note, setNote] = useState('')
   const [payoutSent, setPayoutSent] = useState(false)
@@ -153,6 +154,13 @@ function WithdrawalReviewModal({ request, type, onClose, onApprove, onReject, on
       <button type="button" className="ghost danger" onClick={() => setShowReject(true)} disabled={busy}>Reject Request</button>
       <button type="button" className="ghost" onClick={onClose} disabled={busy}>Close</button>
     </>
+  ) : request.status === 'rejected' && !request.has_open_dispute ? (
+    <>
+      <button type="button" onClick={() => run(async () => { await onReopen(request.id); onClose() })} disabled={busy || !onReopen}>
+        {busy ? 'Reopening...' : 'Review Again'}
+      </button>
+      <button type="button" className="ghost" onClick={onClose} disabled={busy}>Close</button>
+    </>
   ) : <button type="button" className="ghost" onClick={onClose}>Close</button>
 
   return (
@@ -184,6 +192,9 @@ function WithdrawalReviewModal({ request, type, onClose, onApprove, onReject, on
       )}
       {request.status === 'paid' && request.auto_completed_at && (
         <p className="helper-text">Automatically completed after the recipient did not confirm within the configured window. If they report a missing payout, investigate the linked Messages conversation.</p>
+      )}
+      {request.status === 'rejected' && request.has_open_dispute && (
+        <p className="helper-text">A dispute is already open for this rejected payout. Resolve it from the Disputes tab before reopening the request.</p>
       )}
       {showReject && (
         <div className="form grid-form withdrawal-reject-form">

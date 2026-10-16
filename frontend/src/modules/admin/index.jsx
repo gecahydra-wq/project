@@ -462,6 +462,10 @@ export function SuperAdminDashboard() {
     mutationFn: async ({ id, reason }) => (await api.patch(`/super-admin/withdrawals/${id}/reject`, { reason })).data,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['super-admin-withdrawals'] }),
   })
+  const reopenWithdrawal = useMutation({
+    mutationFn: async (id) => (await api.patch(`/super-admin/withdrawals/${id}/reopen`)).data,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['super-admin-withdrawals'] }),
+  })
   const sendWithdrawalReceipt = useMutation({
     mutationFn: async ({ id, note, attachment }) => {
       const form = new FormData()
@@ -528,6 +532,10 @@ export function SuperAdminDashboard() {
   })
   const rejectLguWithdrawal = useMutation({
     mutationFn: async ({ id, reason }) => (await api.patch(`/super-admin/lgu-withdrawals/${id}/reject`, { reason })).data,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['super-admin-lgu-withdrawals'] }),
+  })
+  const reopenLguWithdrawal = useMutation({
+    mutationFn: async (id) => (await api.patch(`/super-admin/lgu-withdrawals/${id}/reopen`)).data,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['super-admin-lgu-withdrawals'] }),
   })
   const sendLguWithdrawalReceipt = useMutation({
@@ -996,6 +1004,7 @@ export function SuperAdminDashboard() {
                   onApprove={(id) => approveWithdrawal.mutateAsync(id)}
                   onReject={(id, reason) => rejectWithdrawal.mutateAsync({ id, reason })}
                   onSendReceipt={(id, payload) => sendWithdrawalReceipt.mutateAsync({ id, ...payload })}
+                  onReopen={(id) => reopenWithdrawal.mutateAsync(id)}
                 />
               ))}
             </div>
@@ -1015,6 +1024,7 @@ export function SuperAdminDashboard() {
                   onApprove={(id) => approveLguWithdrawal.mutateAsync(id)}
                   onReject={(id, reason) => rejectLguWithdrawal.mutateAsync({ id, reason })}
                   onSendReceipt={(id, payload) => sendLguWithdrawalReceipt.mutateAsync({ id, ...payload })}
+                  onReopen={(id) => reopenLguWithdrawal.mutateAsync(id)}
                 />
               ))}
             </div>

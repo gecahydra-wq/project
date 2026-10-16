@@ -283,6 +283,11 @@ class SuperAdminController extends Controller
         return response()->json($withdrawal->fresh());
     }
 
+    public function reopenLguWithdrawal(Request $request, LguWithdrawalRequest $withdrawal)
+    {
+        return response()->json(WithdrawalRejection::reopenForReview($withdrawal, $request->user()));
+    }
+
     public function sendLguWithdrawalReceipt(Request $request, LguWithdrawalRequest $withdrawal)
     {
         $data = $request->validate([
@@ -540,6 +545,11 @@ class SuperAdminController extends Controller
         ]);
 
         return response()->json($withdrawal->fresh());
+    }
+
+    public function reopenWithdrawal(Request $request, WithdrawalRequest $withdrawal)
+    {
+        return response()->json(WithdrawalRejection::reopenForReview($withdrawal, $request->user()));
     }
 
     public function sendWithdrawalReceipt(Request $request, WithdrawalRequest $withdrawal)

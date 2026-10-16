@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Models\WithdrawalRequest;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 
 /**
  * What a rejected withdrawal does with its money.
@@ -85,6 +86,53 @@ class WithdrawalRejection
     {
         return $withdrawal->status === self::ON_HOLD
             && self::disputesOnThisRejection($withdrawal)->where('status', Dispute::OPEN)->exists();
+    }
+
+    /** Reopen a held rejection for a fresh Super Admin review. */
+    public static function reopenForReview(Model $withdrawal, User $admin): Model
+    {
+        return DB::transaction(function () use ($withdrawal, $admin) {
+            $locked = $withdrawal->newQuery()->whereKey($withdrawal->getKey())->lockForUpdate()->firstOrFail();
+            abort_unless($locked->status === self::ON_HOLD, 422, 'Only a rejected withdrawal that is still on hold can be reopened.');
+            abort_if(self::hasOpenDispute($locked), 422, 'This withdrawal has an open dispute. Resolve it before reopening the payout.');
+
+            $locked->update([
+                'status' => 'pending',
+                'rejection_reason' => null,
+                'reviewed_at' => null,
+            ]);
+
+            $isLgu = $locked instanceof LguWithdrawalRequest;
+            $ownerId = self::ownerId($locked);
+            $municipalityId = self::municipalityId($locked);
+            $body = sprintf(
+                'The Super Admin reopened your rejected withdrawal request of ₱%s for another review. It is back in the payout queue. The amount remains reserved while the request is reviewed.',
+                number_format((float) $locked->amount, 2)
+            );
+
+            if ($ownerId) {
+                AppNotification::firstOrCreate([
+                    'user_id' => $ownerId,
+                    'type' => ($isLgu ? 'lgu_withdrawal_reopened:' : 'withdrawal_reopened:').$locked->getKey(),
+                ], [
+                    'title' => 'Withdrawal review reopened',
+                    'body' => $body,
+                ]);
+            }
+
+            ActivityLog::record([
+                'actor_id' => $admin->id,
+                'actor_role' => $admin->role,
+                'action' => $isLgu ? 'lgu_payout_reopened' : 'seller_payout_reopened',
+                'target_user_id' => $ownerId,
+                'municipality_id' => $municipalityId,
+                'reference_type' => $isLgu ? 'LGU' : 'PAY',
+                'reference_number' => ($isLgu ? 'LGU-' : 'PAY-').$locked->getKey(),
+                'description' => sprintf('Reopened rejected %s withdrawal request #%d for another review.', $isLgu ? 'LGU' : 'seller', $locked->getKey()),
+            ]);
+
+            return $locked->fresh();
+        });
     }
 
     /**
