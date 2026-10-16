@@ -927,9 +927,9 @@ function CancelOrderModal({ row, mode, audience = 'buyer', reason, error, submit
           <p className="helper-text">
             {audience === 'seller'
               ? (mode === 'paid'
-                ? 'Cancelling a paid order returns the stock to your listing and refunds the buyer. Tell them why -- they will see this reason.'
-                : 'Cancelling returns the stock to your listing. Tell the buyer why -- they will see this reason.')
-              : 'Your payment will be refunded. Refunds are processed by the Super Admin. Tell the seller why you are cancelling -- they will see this reason.'}
+                ? 'Are you sure you want to cancel this paid order? The stock returns to your listing and the buyer is refunded automatically to their original payment method. Tell them why -- they will see this reason.'
+                : 'Are you sure you want to cancel this order? The stock returns to your listing right away. Tell the buyer why -- they will see this reason.')
+              : 'Are you sure you want to cancel this order? Your payment will be refunded automatically to your original payment method. Tell the seller why you are cancelling -- they will see this reason.'}
           </p>
           <textarea
             value={reason}
@@ -942,8 +942,9 @@ function CancelOrderModal({ row, mode, audience = 'buyer', reason, error, submit
         </div>
       ) : (
         <p className="helper-text">
-          The reserved stock goes back to the seller&apos;s listing. You have not paid for this
-          order, so nothing needs refunding, and you can place a new order at any time.
+          Are you sure you want to cancel this order? The reserved stock goes back to the
+          seller&apos;s listing. You have not paid for this order, so nothing needs refunding,
+          and you can place a new order at any time.
         </p>
       )}
 
