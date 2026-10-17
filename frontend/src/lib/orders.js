@@ -2,7 +2,7 @@
 
 /* Whether the buyer can still cancel this row, and under which rule --
    mirrors OrderController::cancel, which is the authority:
-     'unpaid' -- 'placed' with nothing captured, cancels with no reason;
+     'unpaid' -- 'placed' with nothing captured, cancellation still asks for a reason;
      'paid'   -- money in escrow and the order has NOT left the farm yet, so
                  the cancel needs a reason and sends the payment to the refund
                  queue. 'confirmed' counts as still cancellable -- that is the

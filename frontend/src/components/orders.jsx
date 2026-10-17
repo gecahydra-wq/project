@@ -156,8 +156,7 @@ function OrderDetailsModal({
       if (onUpdateStatus) {
         await onUpdateStatus(order.id, 'cancelled', cancelReason.trim())
       } else {
-        // Only a paid buyer cancellation carries a reason; unpaid needs none.
-        await onCancelOrder(row.orderId, buyerMode === 'paid' ? cancelReason.trim() : null)
+        await onCancelOrder(row.orderId, cancelReason.trim())
       }
       setCancelOpen(false)
       setCancelReason('')
@@ -895,7 +894,7 @@ function RateSellerModal({ row, onReview, onClose }) {
  * buyer deserves to know why their order stopped).
  */
 function CancelOrderModal({ row, mode, audience = 'buyer', reason, error, submitting, onReasonChange, onSubmit, onClose }) {
-  const needsReason = audience === 'seller' || mode === 'paid'
+  const needsReason = audience === 'seller' || Boolean(mode)
   return (
     <Modal
       title="Cancel Order"
@@ -929,7 +928,9 @@ function CancelOrderModal({ row, mode, audience = 'buyer', reason, error, submit
               ? (mode === 'paid'
                 ? 'Are you sure you want to cancel this paid order? The stock returns to your listing and the buyer is refunded automatically to their original payment method. Tell them why -- they will see this reason.'
                 : 'Are you sure you want to cancel this order? The stock returns to your listing right away. Tell the buyer why -- they will see this reason.')
-              : 'Are you sure you want to cancel this order? Your payment will be refunded automatically to your original payment method. Tell the seller why you are cancelling -- they will see this reason.'}
+              : mode === 'paid'
+                ? 'Are you sure you want to cancel this paid order? Your payment will be refunded automatically to your original payment method. Tell the seller why you are cancelling -- they will see this reason.'
+                : 'Are you sure you want to cancel this unpaid order? The reserved stock goes back to the seller’s listing right away. Tell the seller why you are cancelling -- they will see this reason.'}
           </p>
           <textarea
             value={reason}

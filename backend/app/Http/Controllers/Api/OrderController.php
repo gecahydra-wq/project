@@ -465,7 +465,7 @@ class OrderController extends Controller
         }
 
         $data = $request->validate([
-            'cancellation_reason' => ['nullable', 'string', 'max:1000'],
+            'cancellation_reason' => ['required', 'string', 'min:1', 'max:1000'],
         ]);
 
         $result = DB::transaction(function () use ($request, $order, $data) {
@@ -483,12 +483,11 @@ class OrderController extends Controller
 
             $reason = trim((string) ($data['cancellation_reason'] ?? ''));
 
-            // Required-ness is decided here rather than in validate(): whether
-            // a reason is needed depends on the payment state, which was only
-            // trustworthy once the row was locked above.
-            if ($paidBeforeDelivery && $reason === '') {
+            // Require a reason for both unpaid and paid buyer cancellations;
+            // validate() rejects a missing field, and this rejects whitespace.
+            if ($reason === '') {
                 throw ValidationException::withMessages([
-                    'cancellation_reason' => 'Tell the seller why you are cancelling this paid order.',
+                    'cancellation_reason' => 'Tell the seller why you are cancelling this order.',
                 ]);
             }
 
