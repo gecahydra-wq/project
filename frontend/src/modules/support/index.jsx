@@ -174,8 +174,9 @@ function SupportStatusBadge({ status, side = 'user' }) {
 }
 
 /** A ticket's screenshot as a thumbnail that opens the in-app viewer (with a way back). */
-function SupportScreenshot({ url }) {
+function SupportScreenshot({ url, urls = [] }) {
   const [open, setOpen] = useState(false)
+  const [selectedUrl, setSelectedUrl] = useState(null)
   useEffect(() => {
     if (!open) return undefined
     const handleKey = (e) => { if (e.key === 'Escape') setOpen(false) }
@@ -183,16 +184,21 @@ function SupportScreenshot({ url }) {
     return () => window.removeEventListener('keydown', handleKey)
   }, [open])
 
-  if (!url) return null
+  const images = urls.length ? urls : (url ? [url] : [])
+  if (!images.length) return null
   return (
     <>
-      <button type="button" className="support-screenshot" onClick={() => setOpen(true)} aria-label="View screenshot">
-        <img src={url} alt="Attached screenshot" />
-      </button>
+      <div className="support-screenshot-list">
+        {images.map((imageUrl, index) => (
+          <button type="button" className="support-screenshot" key={`${imageUrl}-${index}`} onClick={() => { setSelectedUrl(imageUrl); setOpen(true) }} aria-label={`View attached image ${index + 1}`}>
+            <img src={imageUrl} alt={`Attached image ${index + 1}`} />
+          </button>
+        ))}
+      </div>
       {open && (
         <div className="lightbox-overlay" onClick={() => setOpen(false)}>
           <button type="button" className="lightbox-close" onClick={() => setOpen(false)} aria-label="Close preview"><X size={22} /></button>
-          <img className="lightbox-image" src={url} alt="Attached screenshot" onClick={(e) => e.stopPropagation()} />
+          <img className="lightbox-image" src={selectedUrl} alt="Attached support image" onClick={(e) => e.stopPropagation()} />
         </div>
       )}
     </>
@@ -343,7 +349,7 @@ function ContactSupportForm({ role, onViewTicket }) {
     body: '',
   }
   const [form, setForm] = useState(emptyForm)
-  const [attachment, setAttachment] = useState(null)
+  const [attachments, setAttachments] = useState([])
   const [sent, setSent] = useState(null)
   const [missing, setMissing] = useState([])
   const setField = (key) => (e) => setForm({ ...form, [key]: e.target.value })
@@ -359,14 +365,14 @@ function ContactSupportForm({ role, onViewTicket }) {
     mutationFn: async () => {
       const formData = new FormData()
       Object.entries(form).forEach(([key, value]) => { if (value.trim()) formData.append(key, value.trim()) })
-      if (attachment) formData.append('attachment', attachment)
+      attachments.forEach((attachment) => formData.append('attachments[]', attachment))
       return (await api.post('/support/tickets', formData)).data
     },
     onSuccess: (ticket) => {
       queryClient.invalidateQueries({ queryKey: ['my-support-tickets'] })
       setSent(ticket)
       setForm(emptyForm)
-      setAttachment(null)
+      setAttachments([])
     },
   })
 
@@ -449,7 +455,7 @@ function ContactSupportForm({ role, onViewTicket }) {
                 />
               </label>
             </div>
-            <ScreenshotInput file={attachment} onChange={setAttachment} disabled={submit.isPending} />
+            <ScreenshotInput files={attachments} onChange={setAttachments} disabled={submit.isPending} />
             <p className="helper-text">
               {role === 'buyer'
                 ? 'Having trouble with a seller\'s behaviour? Use Report User on their profile instead.'
@@ -519,7 +525,7 @@ function UserSupportTicket({ ticketId, onBack, onNew }) {
           <div className="ticket-message">
             <strong>Your message</strong>
             <p>{original.body}</p>
-            <SupportScreenshot url={original.attachment_url} />
+            <SupportScreenshot url={original.attachment_url} urls={original.attachment_urls} />
           </div>
         )}
         {responses.length ? responses.map((message) => (
@@ -735,7 +741,7 @@ function StaffSupportTicket({ ticketId, base, onChanged }) {
         <div className="ticket-message">
           <strong>Describe the issue</strong>
           <p>{original.body}</p>
-          <SupportScreenshot url={original.attachment_url} />
+            <SupportScreenshot url={original.attachment_url} urls={original.attachment_urls} />
         </div>
       )}
 

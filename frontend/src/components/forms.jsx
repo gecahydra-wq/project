@@ -176,26 +176,36 @@ export function PasswordVisibilityToggle({ shown, onToggle, noun = 'passwords' }
 }
 
 /** Optional screenshot picker for the contact form. */
-export function ScreenshotInput({ file, onChange, disabled }) {
+export function ScreenshotInput({ files = [], onChange, disabled, maxFiles = 5 }) {
   const inputRef = useRef(null)
+  const addFiles = (selected) => {
+    const merged = [...files]
+    for (const file of selected) {
+      if (merged.length >= maxFiles) break
+      if (!merged.some((existing) => existing.name === file.name && existing.size === file.size && existing.lastModified === file.lastModified)) merged.push(file)
+    }
+    onChange(merged)
+  }
   return (
     <div className="support-attachment">
       <input
         ref={inputRef}
         type="file"
         accept="image/jpeg,image/png,image/webp"
+        multiple
         hidden
-        onChange={(e) => { onChange(e.target.files?.[0] || null); e.target.value = '' }}
+        onChange={(e) => { addFiles(Array.from(e.target.files || [])); e.target.value = '' }}
       />
-      <button type="button" className="ghost" disabled={disabled} onClick={() => inputRef.current?.click()}>
-        <Camera size={16} /> {file ? 'Change Screenshot' : 'Attach Screenshot (optional)'}
+      <button type="button" className="ghost" disabled={disabled || files.length >= maxFiles} onClick={() => inputRef.current?.click()}>
+        <Camera size={16} /> {files.length ? 'Add Images' : 'Attach Images (optional)'}
       </button>
-      {file && (
-        <span className="muted">
+      {files.map((file, index) => (
+        <span className="muted" key={`${file.name}-${file.lastModified}-${index}`}>
           {file.name}
-          <button type="button" className="link-action" disabled={disabled} onClick={() => onChange(null)}>Remove</button>
+          <button type="button" className="link-action" disabled={disabled} onClick={() => onChange(files.filter((_, fileIndex) => fileIndex !== index))}>Remove</button>
         </span>
-      )}
+      ))}
+      <span className="muted">{files.length}/{maxFiles} images, up to 10 MB each</span>
     </div>
   )
 }

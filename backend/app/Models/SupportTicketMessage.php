@@ -10,9 +10,9 @@ use Illuminate\Database\Eloquent\Model;
  */
 class SupportTicketMessage extends Model
 {
-    protected $fillable = ['support_ticket_id', 'user_id', 'author_role', 'body', 'is_internal', 'attachment_url'];
+    protected $fillable = ['support_ticket_id', 'user_id', 'author_role', 'body', 'is_internal', 'attachment_url', 'attachment_urls'];
 
-    protected $casts = ['is_internal' => 'boolean', 'edited_at' => 'datetime', 'deleted_at' => 'datetime'];
+    protected $casts = ['is_internal' => 'boolean', 'attachment_urls' => 'array', 'edited_at' => 'datetime', 'deleted_at' => 'datetime'];
 
     public function ticket()
     {

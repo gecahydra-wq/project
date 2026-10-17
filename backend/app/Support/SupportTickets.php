@@ -32,10 +32,11 @@ use Illuminate\Support\Collection;
  */
 class SupportTickets
 {
-    public const ATTACHMENT_RULES = ['nullable', 'image', 'mimes:jpeg,jpg,png,webp', 'max:10240'];
+    public const ATTACHMENT_RULES = ['nullable', 'array', 'max:5'];
+    public const ATTACHMENT_FILE_RULES = ['image', 'mimes:jpeg,jpg,png,webp', 'max:10240'];
 
     /** @param  array{first_name: string, last_name: ?string, contact_email: string}  $contact */
-    public static function open(User $user, array $contact, string $category, string $subject, string $body, ?Order $order = null, ?UploadedFile $attachment = null): SupportTicket
+    public static function open(User $user, array $contact, string $category, string $subject, string $body, ?Order $order = null, array $attachments = []): SupportTicket
     {
         $ticket = SupportTicket::create([
             'user_id' => $user->id,
@@ -52,7 +53,7 @@ class SupportTickets
         ]);
         $ticket->update(['ticket_number' => sprintf('SUP-%06d', $ticket->id)]);
 
-        self::addMessage($ticket, $user, $body, false, $attachment);
+        self::addMessage($ticket, $user, $body, false, attachments: $attachments);
 
         SafeMailer::send($ticket->contact_email, new SupportTicketUpdatedMail($ticket, null, 'received'));
 
@@ -272,15 +273,23 @@ class SupportTickets
         return null;
     }
 
-    private static function addMessage(SupportTicket $ticket, User $author, string $body, bool $internal = false, ?UploadedFile $attachment = null): SupportTicketMessage
+    private static function addMessage(SupportTicket $ticket, User $author, string $body, bool $internal = false, ?UploadedFile $attachment = null, array $attachments = []): SupportTicketMessage
     {
+        $attachmentUrls = collect($attachments)
+            ->map(fn (UploadedFile $file) => ImageUploader::store($file, 'support-attachments'))
+            ->all();
+        if ($attachment && ! $attachmentUrls) {
+            $attachmentUrls[] = ImageUploader::store($attachment, 'support-attachments');
+        }
+
         return SupportTicketMessage::create([
             'support_ticket_id' => $ticket->id,
             'user_id' => $author->id,
             'author_role' => $author->role,
             'body' => $body,
             'is_internal' => $internal,
-            'attachment_url' => $attachment ? ImageUploader::store($attachment, 'support-attachments') : null,
+            'attachment_url' => $attachmentUrls[0] ?? null,
+            'attachment_urls' => $attachmentUrls ?: null,
         ]);
     }
 

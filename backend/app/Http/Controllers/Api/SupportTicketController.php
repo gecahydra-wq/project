@@ -8,6 +8,7 @@ use App\Models\SupportTicket;
 use App\Support\SupportTickets;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Help & Support tickets. Buyers and Sellers send one through the contact
@@ -51,7 +52,10 @@ class SupportTicketController extends Controller
             'subject' => ['required', 'string', 'min:5', 'max:150'],
             'body' => ['required', 'string', 'min:10', 'max:5000'],
             'order_number' => ['nullable', 'string', 'max:50'],
-            'attachment' => SupportTickets::ATTACHMENT_RULES,
+            'attachments' => SupportTickets::ATTACHMENT_RULES,
+            'attachments.*' => SupportTickets::ATTACHMENT_FILE_RULES,
+            // Accept the original single-file field while older clients are in use.
+            'attachment' => ['nullable', ...SupportTickets::ATTACHMENT_FILE_RULES],
         ]);
 
         // An order can only be attached when the user was part of it --
@@ -73,7 +77,15 @@ class SupportTicketController extends Controller
             'contact_email' => trim($data['contact_email']),
         ];
 
-        $ticket = SupportTickets::open($user, $contact, $data['category'], $data['subject'], $data['body'], $order, $request->file('attachment'));
+        $attachments = $request->file('attachments', []);
+        if ($legacyAttachment = $request->file('attachment')) {
+            $attachments[] = $legacyAttachment;
+        }
+        if (count($attachments) > 5) {
+            throw ValidationException::withMessages(['attachments' => ['You may attach up to 5 images.']]);
+        }
+
+        $ticket = SupportTickets::open($user, $contact, $data['category'], $data['subject'], $data['body'], $order, $attachments);
 
         return response()->json($this->detail($ticket, $user), 201);
     }

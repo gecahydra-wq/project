@@ -5426,6 +5426,12 @@ button.support-screenshot:hover {
   max-width: 100%;
 }
 
+.support-screenshot-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
 .support-attachment {
   align-items: center;
   display: flex;
